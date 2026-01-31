@@ -1,9 +1,30 @@
-import { useRef, useEffect } from 'react'
+import { useRef, useEffect, useMemo, useCallback, memo } from 'react'
 import { Canvas, useThree, useFrame } from '@react-three/fiber'
 import { Grid } from '@react-three/drei'
 import * as THREE from 'three'
 import { useEditorStore } from '../../stores/editorStore'
 import type { MapObject, MapMarker, MarkerType, PlaceableType } from '../../stores/editorStore'
+
+// 전역 캐시 - 쐐기 지오메트리
+let cachedWedgeGeometry: THREE.BufferGeometry | null = null
+
+// 마커 색상 상수 (컴포넌트 외부로 이동)
+const MARKER_COLORS: Record<string, string> = {
+  spawn: '#00ff00',
+  checkpoint: '#ffff00',
+  finish: '#ff0000',
+  spawn_a: '#ff4444',
+  spawn_b: '#4444ff',
+  capture_point: '#ffaa00',
+}
+
+// 1개만 설치 가능한 마커 타입 상수
+const SINGLETON_MARKERS: MarkerType[] = [
+  'spawn', 'finish', 'spawn_a', 'spawn_b', 'capture_point'
+]
+
+// 0.5 단위로 스냅하는 유틸 함수
+const snap = (val: number) => Math.round(val * 2) / 2
 
 // FPS 스타일 카메라 (클릭으로 잠금, WASD로 이동, 마우스로 시야 회전)
 function FPSCamera() {
@@ -109,21 +130,22 @@ function FPSCamera() {
     }
   }, [camera, gl])
 
+  // 캐시된 벡터 (매 프레임 생성 방지)
+  const direction = useRef(new THREE.Vector3())
+  const right = useRef(new THREE.Vector3())
+
   useFrame((_, delta) => {
     if (!isLocked.current) return
 
-    const direction = new THREE.Vector3()
-    const right = new THREE.Vector3()
-
-    camera.getWorldDirection(direction)
-    right.crossVectors(direction, camera.up).normalize()
+    camera.getWorldDirection(direction.current)
+    right.current.crossVectors(direction.current, camera.up).normalize()
 
     const speed = moveSpeed * delta
 
-    if (keys.current.w) camera.position.addScaledVector(direction, speed)
-    if (keys.current.s) camera.position.addScaledVector(direction, -speed)
-    if (keys.current.a) camera.position.addScaledVector(right, -speed)
-    if (keys.current.d) camera.position.addScaledVector(right, speed)
+    if (keys.current.w) camera.position.addScaledVector(direction.current, speed)
+    if (keys.current.s) camera.position.addScaledVector(direction.current, -speed)
+    if (keys.current.a) camera.position.addScaledVector(right.current, -speed)
+    if (keys.current.d) camera.position.addScaledVector(right.current, speed)
     if (keys.current.space) camera.position.y += speed
     if (keys.current.shift) camera.position.y -= speed
   })
@@ -149,23 +171,23 @@ function RaycastPlacer() {
   const currentMarker = useEditorStore(state => state.currentMarker)
   const setSelectedId = useEditorStore(state => state.setSelectedId)
   const raycaster = useRef(new THREE.Raycaster())
+  const dirVec = useRef(new THREE.Vector3())
+  const screenCenter = useRef(new THREE.Vector2(0, 0))
+  const normalMatrix = useRef(new THREE.Matrix3())
 
   // 카메라 Y 회전(yaw)을 90도 단위로 스냅
-  const getCameraYaw = () => {
-    const dir = new THREE.Vector3()
-    camera.getWorldDirection(dir)
-    const angle = Math.atan2(dir.x, dir.z)
-    // 가장 가까운 90도로 스냅 (0, 90, 180, 270)
-    const snapped = Math.round(angle / (Math.PI / 2)) * (Math.PI / 2)
-    return snapped
-  }
+  const getCameraYaw = useCallback(() => {
+    camera.getWorldDirection(dirVec.current)
+    const angle = Math.atan2(dirVec.current.x, dirVec.current.z)
+    return Math.round(angle / (Math.PI / 2)) * (Math.PI / 2)
+  }, [camera])
 
   useEffect(() => {
     const handleMouseDown = (e: MouseEvent) => {
       if (document.pointerLockElement === null) return
 
       // 화면 중앙에서 레이캐스트
-      raycaster.current.setFromCamera(new THREE.Vector2(0, 0), camera)
+      raycaster.current.setFromCamera(screenCenter.current, camera)
       const intersects = raycaster.current.intersectObjects(scene.children, true)
 
       // 우클릭 - 오브젝트 선택
@@ -175,13 +197,11 @@ function RaycastPlacer() {
             const id = hit.object.userData.objectId
             if (id) {
               setSelectedId(id)
-              // 속성 편집을 위해 포인터 잠금 해제
               document.exitPointerLock()
             }
             return
           }
         }
-        // 빈 곳 클릭 - 선택 해제
         setSelectedId(null)
         return
       }
@@ -191,19 +211,17 @@ function RaycastPlacer() {
         const yaw = getCameraYaw()
 
         for (const hit of intersects) {
-          // 마커 모드인 경우 - 바닥에만 설치
+          // 마커 모드인 경우
           if (currentMarker) {
             placeMarkerAt([hit.point.x, hit.point.y, hit.point.z], yaw)
             return
           }
 
-          // 오브젝트 모드 - 에디터 오브젝트에 맞으면 면 법선을 사용해 인접 배치
+          // 오브젝트 모드 - 에디터 오브젝트에 맞으면 인접 배치
           if (hit.object.userData.isEditorObject && hit.face) {
-            // 월드 공간에서 면 법선 가져오기
-            const normalMatrix = new THREE.Matrix3().getNormalMatrix(hit.object.matrixWorld)
-            const worldNormal = hit.face.normal.clone().applyMatrix3(normalMatrix).normalize()
+            normalMatrix.current.getNormalMatrix(hit.object.matrixWorld)
+            const worldNormal = hit.face.normal.clone().applyMatrix3(normalMatrix.current).normalize()
 
-            // 법선을 주축에 스냅 (가장 큰 축 찾기)
             const absX = Math.abs(worldNormal.x)
             const absY = Math.abs(worldNormal.y)
             const absZ = Math.abs(worldNormal.z)
@@ -217,15 +235,8 @@ function RaycastPlacer() {
               offsetZ = worldNormal.z > 0 ? 1 : -1
             }
 
-            // 맞은 오브젝트 중심 + 오프셋으로 새 위치 계산
             const objPos = hit.object.position
-            const newPos: [number, number, number] = [
-              objPos.x + offsetX,
-              objPos.y + offsetY,
-              objPos.z + offsetZ,
-            ]
-
-            placeObjectAt(newPos, true, yaw)
+            placeObjectAt([objPos.x + offsetX, objPos.y + offsetY, objPos.z + offsetZ], true, yaw)
             return
           }
 
@@ -238,7 +249,7 @@ function RaycastPlacer() {
 
     window.addEventListener('mousedown', handleMouseDown)
     return () => window.removeEventListener('mousedown', handleMouseDown)
-  }, [camera, scene, placeObjectAt, placeMarkerAt, currentMarker, setSelectedId])
+  }, [camera, scene, placeObjectAt, placeMarkerAt, currentMarker, setSelectedId, getCameraYaw])
 
   return null
 }
@@ -254,33 +265,19 @@ function PlacementPreview() {
   const meshRef = useRef<THREE.Mesh>(null)
   const markerRef = useRef<THREE.Group>(null)
   const raycaster = useRef(new THREE.Raycaster())
-
-  // 1개만 설치 가능한 마커 타입
-  const singletonMarkers: MarkerType[] = [
-    'spawn', 'finish', 'spawn_a', 'spawn_b', 'capture_point'
-  ]
-
-  // 0.5 단위로 스냅
-  const snap = (val: number) => Math.round(val * 2) / 2
+  const screenCenter = useRef(new THREE.Vector2(0, 0))
+  const dirVec = useRef(new THREE.Vector3())
+  const normalMatrix = useRef(new THREE.Matrix3())
 
   // 카메라 Y 회전(yaw)을 90도 단위로 스냅
-  const getCameraYaw = () => {
-    const dir = new THREE.Vector3()
-    camera.getWorldDirection(dir)
-    const angle = Math.atan2(dir.x, dir.z)
+  const getCameraYaw = useCallback(() => {
+    camera.getWorldDirection(dirVec.current)
+    const angle = Math.atan2(dirVec.current.x, dirVec.current.z)
     return Math.round(angle / (Math.PI / 2)) * (Math.PI / 2)
-  }
+  }, [camera])
 
-  // 오브젝트 높이 오프셋
-  const getHeightOffset = (type: PlaceableType) => {
-    switch (type) {
-      case 'plane': return 0
-      default: return 0.5
-    }
-  }
-
-  // 겹침 체크
-  const checkOverlap = (pos: [number, number, number], scale: number[]) => {
+  // 겹침 체크 (useCallback으로 메모이제이션)
+  const checkOverlap = useCallback((pos: [number, number, number], scale: number[]) => {
     return objects.some(obj => {
       const dx = Math.abs(pos[0] - obj.position[0])
       const dy = Math.abs(pos[1] - obj.position[1])
@@ -290,33 +287,22 @@ function PlacementPreview() {
       const halfSizeZ = (scale[2] + obj.scale[2]) / 2 * 0.9
       return dx < halfSizeX && dy < halfSizeY && dz < halfSizeZ
     })
-  }
+  }, [objects])
 
   // 마커 설치 가능 여부 체크
-  const canPlaceMarker = (type: MarkerType) => {
-    if (!singletonMarkers.includes(type)) return true
+  const canPlaceMarker = useCallback((type: MarkerType) => {
+    if (!SINGLETON_MARKERS.includes(type)) return true
     return !markers.some(m => m.type === type)
-  }
-
-  // 마커 색상
-  const markerColors: Record<string, string> = {
-    spawn: '#00ff00',
-    checkpoint: '#ffff00',
-    finish: '#ff0000',
-    spawn_a: '#ff4444',
-    spawn_b: '#4444ff',
-    capture_point: '#ffaa00',
-  }
+  }, [markers])
 
   useFrame(() => {
     if (document.pointerLockElement === null) {
-      // 잠금 해제 상태면 숨기기
       if (meshRef.current) meshRef.current.visible = false
       if (markerRef.current) markerRef.current.visible = false
       return
     }
 
-    raycaster.current.setFromCamera(new THREE.Vector2(0, 0), camera)
+    raycaster.current.setFromCamera(screenCenter.current, camera)
     const intersects = raycaster.current.intersectObjects(scene.children, true)
 
     const yaw = getCameraYaw()
@@ -328,17 +314,12 @@ function PlacementPreview() {
         if (markerRef.current) {
           const canPlace = canPlaceMarker(currentMarker)
           markerRef.current.visible = true
-          markerRef.current.position.set(
-            snap(hit.point.x),
-            snap(hit.point.y),
-            snap(hit.point.z)
-          )
+          markerRef.current.position.set(snap(hit.point.x), snap(hit.point.y), snap(hit.point.z))
           markerRef.current.rotation.set(0, yaw, 0)
 
-          // 설치 불가능하면 빨간색으로 표시
           markerRef.current.traverse((child) => {
             if (child instanceof THREE.Mesh && child.material instanceof THREE.MeshStandardMaterial) {
-              child.material.color.set(canPlace ? (markerColors[currentMarker] || '#ffffff') : '#ff4444')
+              child.material.color.set(canPlace ? (MARKER_COLORS[currentMarker] || '#ffffff') : '#ff4444')
             }
           })
         }
@@ -356,8 +337,8 @@ function PlacementPreview() {
 
       // 에디터 오브젝트에 맞으면 인접 배치
       if (hit.object.userData.isEditorObject && hit.face) {
-        const normalMatrix = new THREE.Matrix3().getNormalMatrix(hit.object.matrixWorld)
-        const worldNormal = hit.face.normal.clone().applyMatrix3(normalMatrix).normalize()
+        normalMatrix.current.getNormalMatrix(hit.object.matrixWorld)
+        const worldNormal = hit.face.normal.clone().applyMatrix3(normalMatrix.current).normalize()
 
         const absX = Math.abs(worldNormal.x)
         const absY = Math.abs(worldNormal.y)
@@ -373,43 +354,30 @@ function PlacementPreview() {
         }
 
         const objPos = hit.object.position
-        snappedPos = [
-          snap(objPos.x + offsetX),
-          snap(objPos.y + offsetY),
-          snap(objPos.z + offsetZ),
-        ]
+        snappedPos = [snap(objPos.x + offsetX), snap(objPos.y + offsetY), snap(objPos.z + offsetZ)]
       } else {
-        // 바닥 배치
-        const heightOffset = getHeightOffset(type)
-        snappedPos = [
-          snap(hit.point.x),
-          snap(hit.point.y + heightOffset),
-          snap(hit.point.z),
-        ]
+        // 바닥 배치 (plane은 0, 나머지는 0.5)
+        const heightOffset = type === 'plane' ? 0 : 0.5
+        snappedPos = [snap(hit.point.x), snap(hit.point.y + heightOffset), snap(hit.point.z)]
       }
 
-      // 겹침 여부에 따라 색상 변경
       const isOverlapping = checkOverlap(snappedPos, newScale)
 
       meshRef.current.visible = true
       meshRef.current.position.set(snappedPos[0], snappedPos[1], snappedPos[2])
       meshRef.current.scale.set(newScale[0], newScale[1], newScale[2])
 
-      // plane이나 ramp는 yaw 적용
       if (type === 'plane' || type === 'ramp') {
         meshRef.current.rotation.set(0, yaw, 0)
       } else {
         meshRef.current.rotation.set(0, 0, 0)
       }
 
-      // 겹치면 빨간색, 아니면 초록색
       const mat = meshRef.current.material as THREE.MeshStandardMaterial
       mat.color.set(isOverlapping ? '#ff4444' : '#44ff44')
-
       return
     }
 
-    // 아무것도 안 맞으면 숨기기
     if (meshRef.current) meshRef.current.visible = false
     if (markerRef.current) markerRef.current.visible = false
   })
@@ -425,7 +393,7 @@ function PlacementPreview() {
         {currentPlaceable === 'cylinder' && <cylinderGeometry args={[0.5, 0.5, 1, 16]} />}
         {currentPlaceable === 'sphere' && <sphereGeometry args={[0.5, 16, 16]} />}
         {currentPlaceable === 'plane' && <boxGeometry args={[1, 0.1, 1]} />}
-        {currentPlaceable === 'ramp' && <primitive object={createWedgeGeometry()} attach="geometry" />}
+        {currentPlaceable === 'ramp' && <primitive object={getWedgeGeometry()} attach="geometry" />}
         <meshStandardMaterial
           color="#44ff44"
           transparent
@@ -439,7 +407,7 @@ function PlacementPreview() {
         <mesh raycast={noRaycast}>
           <coneGeometry args={[0.3, 0.8, 4]} />
           <meshStandardMaterial
-            color={currentMarker ? markerColors[currentMarker] || '#ffffff' : '#ffffff'}
+            color={currentMarker ? MARKER_COLORS[currentMarker] || '#ffffff' : '#ffffff'}
             transparent
             opacity={0.5}
             depthWrite={false}
@@ -448,7 +416,7 @@ function PlacementPreview() {
         <mesh position={[0, 0, 0.5]} raycast={noRaycast}>
           <coneGeometry args={[0.15, 0.3, 8]} />
           <meshStandardMaterial
-            color={currentMarker ? markerColors[currentMarker] || '#ffffff' : '#ffffff'}
+            color={currentMarker ? MARKER_COLORS[currentMarker] || '#ffffff' : '#ffffff'}
             transparent
             opacity={0.5}
             depthWrite={false}
@@ -459,74 +427,61 @@ function PlacementPreview() {
   )
 }
 
-// 커스텀 쐐기/경사로 지오메트리
-function createWedgeGeometry(): THREE.BufferGeometry {
+// 커스텀 쐐기/경사로 지오메트리 (전역 캐시 사용)
+function getWedgeGeometry(): THREE.BufferGeometry {
+  if (cachedWedgeGeometry) return cachedWedgeGeometry
+
   const geometry = new THREE.BufferGeometry()
 
   const posArray = new Float32Array([
     // 바닥 면
     -0.5, 0, -0.5,  0.5, 0, -0.5,  0.5, 0, 0.5,
     -0.5, 0, -0.5,  0.5, 0, 0.5,  -0.5, 0, 0.5,
-
-    // 앞 면 (직사각형)
+    // 앞 면
     -0.5, 0, 0.5,  0.5, 0, 0.5,  0.5, 1, 0.5,
     -0.5, 0, 0.5,  0.5, 1, 0.5,  -0.5, 1, 0.5,
-
-    // 경사 면 (위)
+    // 경사 면
     -0.5, 1, 0.5,  0.5, 1, 0.5,  0.5, 0, -0.5,
     -0.5, 1, 0.5,  0.5, 0, -0.5,  -0.5, 0, -0.5,
-
-    // 왼쪽 면 (삼각형)
+    // 왼쪽 면
     -0.5, 0, -0.5,  -0.5, 0, 0.5,  -0.5, 1, 0.5,
-
-    // 오른쪽 면 (삼각형)
+    // 오른쪽 면
     0.5, 0, 0.5,  0.5, 0, -0.5,  0.5, 1, 0.5,
   ])
 
   const normArray = new Float32Array([
-    // 바닥 면
     0, -1, 0,  0, -1, 0,  0, -1, 0,
     0, -1, 0,  0, -1, 0,  0, -1, 0,
-
-    // 앞 면
     0, 0, 1,  0, 0, 1,  0, 0, 1,
     0, 0, 1,  0, 0, 1,  0, 0, 1,
-
-    // 경사 면 (위-뒤 방향 법선)
     0, 0.707, -0.707,  0, 0.707, -0.707,  0, 0.707, -0.707,
     0, 0.707, -0.707,  0, 0.707, -0.707,  0, 0.707, -0.707,
-
-    // 왼쪽 면
     -1, 0, 0,  -1, 0, 0,  -1, 0, 0,
-
-    // 오른쪽 면
     1, 0, 0,  1, 0, 0,  1, 0, 0,
   ])
 
   geometry.setAttribute('position', new THREE.BufferAttribute(posArray, 3))
   geometry.setAttribute('normal', new THREE.BufferAttribute(normArray, 3))
 
+  cachedWedgeGeometry = geometry
   return geometry
 }
 
-// 오브젝트 메쉬 컴포넌트
-function EditorObject({ obj, selected, onSelect }: { obj: MapObject; selected: boolean; onSelect: () => void }) {
-  const meshRef = useRef<THREE.Mesh>(null!)
-  const wedgeGeometry = useRef<THREE.BufferGeometry | null>(null)
-
-  // 쐐기 지오메트리 한 번만 생성
-  if (!wedgeGeometry.current) {
-    wedgeGeometry.current = createWedgeGeometry()
-  }
+// 오브젝트 메쉬 컴포넌트 (React.memo로 최적화)
+const EditorObject = memo(function EditorObject({ obj, selected }: { obj: MapObject; selected: boolean }) {
+  // useMemo로 지오메트리 캐싱
+  const geometry = useMemo(() => {
+    if (obj.type === 'ramp') return getWedgeGeometry()
+    return undefined
+  }, [obj.type])
 
   return (
     <mesh
-      ref={meshRef}
       position={obj.position}
       rotation={obj.rotation}
       scale={obj.scale}
       userData={{ isEditorObject: true, objectId: obj.id }}
-      geometry={obj.type === 'ramp' ? wedgeGeometry.current : undefined}
+      geometry={geometry}
     >
       {obj.type === 'box' && <boxGeometry args={[1, 1, 1]} />}
       {obj.type === 'cylinder' && <cylinderGeometry args={[0.5, 0.5, 1, 32]} />}
@@ -540,44 +495,35 @@ function EditorObject({ obj, selected, onSelect }: { obj: MapObject; selected: b
       />
     </mesh>
   )
-}
+})
 
-// 마커 컴포넌트
-function EditorMarker({ marker, selected, onSelect }: { marker: MapMarker; selected: boolean; onSelect: () => void }) {
-  // 마커 타입별 색상
-  const colors: Record<MarkerType, string> = {
-    // 레이스 마커
-    spawn: '#00ff00',
-    checkpoint: '#ffff00',
-    finish: '#ff0000',
-    // 슈터 팀/점령전 마커
-    spawn_a: '#ff4444',
-    spawn_b: '#4444ff',
-    capture_point: '#ffaa00',
-  }
+// 마커 컴포넌트 (React.memo로 최적화)
+const EditorMarker = memo(function EditorMarker({ marker, selected }: { marker: MapMarker; selected: boolean }) {
+  const color = MARKER_COLORS[marker.type] || '#ffffff'
 
   return (
     <group position={marker.position} rotation={marker.rotation}>
       <mesh userData={{ isEditorObject: true, objectId: `marker_${marker.id}` }}>
         <coneGeometry args={[0.3, 0.8, 4]} />
         <meshStandardMaterial
-          color={colors[marker.type]}
-          emissive={selected ? colors[marker.type] : '#000000'}
+          color={color}
+          emissive={selected ? color : '#000000'}
           emissiveIntensity={selected ? 0.5 : 0}
         />
       </mesh>
-      {/* 방향 표시 */}
-      <mesh position={[0, 0, 0.5]}>
-        <coneGeometry args={[0.15, 0.3, 8]} rotation={[Math.PI / 2, 0, 0]} />
-        <meshStandardMaterial color={colors[marker.type]} />
+      <mesh position={[0, 0, 0.5]} rotation={[Math.PI / 2, 0, 0]}>
+        <coneGeometry args={[0.15, 0.3, 8]} />
+        <meshStandardMaterial color={color} />
       </mesh>
     </group>
   )
-}
+})
 
-// 씬 콘텐츠
+// 씬 콘텐츠 (최적화된 셀렉터 사용)
 function SceneContent() {
-  const { objects, markers, selectedId, setSelectedId } = useEditorStore()
+  const objects = useEditorStore(state => state.objects)
+  const markers = useEditorStore(state => state.markers)
+  const selectedId = useEditorStore(state => state.selectedId)
 
   return (
     <>
@@ -612,7 +558,6 @@ function SceneContent() {
           key={obj.id}
           obj={obj}
           selected={selectedId === obj.id}
-          onSelect={() => setSelectedId(obj.id)}
         />
       ))}
 
@@ -622,7 +567,6 @@ function SceneContent() {
           key={marker.id}
           marker={marker}
           selected={selectedId === `marker_${marker.id}`}
-          onSelect={() => setSelectedId(`marker_${marker.id}`)}
         />
       ))}
 
@@ -638,18 +582,16 @@ function SceneContent() {
   )
 }
 
-// 키보드 단축키
+// 키보드 단축키 (최적화된 셀렉터)
 function KeyboardShortcuts() {
-  const {
-    removeObject,
-    removeMarker,
-    selectedId,
-    duplicateSelected,
-    setCurrentPlaceable,
-    setCurrentMarker,
-    mapMode,
-    shooterSubMode,
-  } = useEditorStore()
+  const removeObject = useEditorStore(state => state.removeObject)
+  const removeMarker = useEditorStore(state => state.removeMarker)
+  const selectedId = useEditorStore(state => state.selectedId)
+  const duplicateSelected = useEditorStore(state => state.duplicateSelected)
+  const setCurrentPlaceable = useEditorStore(state => state.setCurrentPlaceable)
+  const setCurrentMarker = useEditorStore(state => state.setCurrentMarker)
+  const mapMode = useEditorStore(state => state.mapMode)
+  const shooterSubMode = useEditorStore(state => state.shooterSubMode)
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {

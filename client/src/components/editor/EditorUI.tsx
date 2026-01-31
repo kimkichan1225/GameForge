@@ -1,55 +1,65 @@
+import { useMemo, useCallback, memo } from 'react'
 import { useEditorStore } from '../../stores/editorStore'
 import type { MarkerType, PlaceableType } from '../../stores/editorStore'
 
+// 오브젝트 아이템 상수 (컴포넌트 외부로 이동)
+const OBJECT_ITEMS: { type: PlaceableType; label: string; icon: string }[] = [
+  { type: 'box', label: 'Box', icon: '1' },
+  { type: 'cylinder', label: 'Cylinder', icon: '2' },
+  { type: 'sphere', label: 'Sphere', icon: '3' },
+  { type: 'plane', label: 'Plane', icon: '4' },
+  { type: 'ramp', label: 'Ramp', icon: '5' },
+]
+
+// 마커 아이템 상수
+const RACE_MARKERS = [
+  { type: 'spawn' as MarkerType, label: 'Spawn', icon: '6', color: '#00ff00' },
+  { type: 'checkpoint' as MarkerType, label: 'Check', icon: '7', color: '#ffff00' },
+  { type: 'finish' as MarkerType, label: 'Finish', icon: '8', color: '#ff0000' },
+]
+
+const TEAM_MARKERS = [
+  { type: 'spawn_a' as MarkerType, label: 'Team A', icon: '6', color: '#ff4444' },
+  { type: 'spawn_b' as MarkerType, label: 'Team B', icon: '7', color: '#4444ff' },
+]
+
+const DOMINATION_MARKERS = [
+  { type: 'spawn_a' as MarkerType, label: 'Team A', icon: '6', color: '#ff4444' },
+  { type: 'spawn_b' as MarkerType, label: 'Team B', icon: '7', color: '#4444ff' },
+  { type: 'capture_point' as MarkerType, label: 'Capture', icon: '8', color: '#ffaa00' },
+]
+
+const FFA_MARKERS = [
+  { type: 'spawn' as MarkerType, label: 'Spawn', icon: '6', color: '#00ff00' },
+]
+
+// 0.5 단위로 스냅하는 유틸 함수
+const snap = (val: number) => Math.round(val * 2) / 2
+
 // 핫바 - 오브젝트(1-5) + 마커(6-9) 선택
-function Hotbar() {
-  const { currentPlaceable, setCurrentPlaceable, currentMarker, setCurrentMarker, mapMode, shooterSubMode } = useEditorStore()
+const Hotbar = memo(function Hotbar() {
+  const currentPlaceable = useEditorStore(state => state.currentPlaceable)
+  const setCurrentPlaceable = useEditorStore(state => state.setCurrentPlaceable)
+  const currentMarker = useEditorStore(state => state.currentMarker)
+  const setCurrentMarker = useEditorStore(state => state.setCurrentMarker)
+  const mapMode = useEditorStore(state => state.mapMode)
+  const shooterSubMode = useEditorStore(state => state.shooterSubMode)
 
-  // 오브젝트 아이템 (1-5)
-  const objectItems: { type: PlaceableType; label: string; icon: string }[] = [
-    { type: 'box', label: 'Box', icon: '1' },
-    { type: 'cylinder', label: 'Cylinder', icon: '2' },
-    { type: 'sphere', label: 'Sphere', icon: '3' },
-    { type: 'plane', label: 'Plane', icon: '4' },
-    { type: 'ramp', label: 'Ramp', icon: '5' },
-  ]
-
-  // 현재 모드에 맞는 마커 아이템 (6-9)
-  const getMarkerItems = (): { type: MarkerType; label: string; icon: string; color: string }[] => {
-    if (mapMode === 'race') {
-      return [
-        { type: 'spawn', label: 'Spawn', icon: '6', color: '#00ff00' },
-        { type: 'checkpoint', label: 'Check', icon: '7', color: '#ffff00' },
-        { type: 'finish', label: 'Finish', icon: '8', color: '#ff0000' },
-      ]
-    }
+  // useMemo로 마커 아이템 메모이제이션
+  const markerItems = useMemo(() => {
+    if (mapMode === 'race') return RACE_MARKERS
     switch (shooterSubMode) {
-      case 'team':
-        return [
-          { type: 'spawn_a', label: 'Team A', icon: '6', color: '#ff4444' },
-          { type: 'spawn_b', label: 'Team B', icon: '7', color: '#4444ff' },
-        ]
-      case 'domination':
-        return [
-          { type: 'spawn_a', label: 'Team A', icon: '6', color: '#ff4444' },
-          { type: 'spawn_b', label: 'Team B', icon: '7', color: '#4444ff' },
-          { type: 'capture_point', label: 'Capture', icon: '8', color: '#ffaa00' },
-        ]
-      case 'ffa':
-        return [
-          { type: 'spawn', label: 'Spawn', icon: '6', color: '#00ff00' },
-        ]
-      default:
-        return []
+      case 'team': return TEAM_MARKERS
+      case 'domination': return DOMINATION_MARKERS
+      case 'ffa': return FFA_MARKERS
+      default: return []
     }
-  }
-
-  const markerItems = getMarkerItems()
+  }, [mapMode, shooterSubMode])
 
   return (
     <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-10 flex items-center gap-1 bg-slate-800/90 backdrop-blur-sm rounded-xl p-2 border border-white/10">
       {/* 오브젝트 버튼 (1-5) */}
-      {objectItems.map((item) => (
+      {OBJECT_ITEMS.map((item) => (
         <button
           key={item.type}
           onClick={() => setCurrentPlaceable(item.type)}
@@ -94,14 +104,22 @@ function Hotbar() {
       ))}
     </div>
   )
-}
+})
 
-// 상단 툴바
-function Toolbar({ onExit }: { onExit: () => void }) {
-  const { newMap, exportMap, loadMap, mapName, setMapName, mapMode, setMapMode, shooterSubMode, setShooterSubMode } = useEditorStore()
+// 상단 툴바 (최적화된 셀렉터)
+const Toolbar = memo(function Toolbar({ onExit }: { onExit: () => void }) {
+  const newMap = useEditorStore(state => state.newMap)
+  const exportMap = useEditorStore(state => state.exportMap)
+  const loadMap = useEditorStore(state => state.loadMap)
+  const mapName = useEditorStore(state => state.mapName)
+  const setMapName = useEditorStore(state => state.setMapName)
+  const mapMode = useEditorStore(state => state.mapMode)
+  const setMapMode = useEditorStore(state => state.setMapMode)
+  const shooterSubMode = useEditorStore(state => state.shooterSubMode)
+  const setShooterSubMode = useEditorStore(state => state.setShooterSubMode)
 
   // 맵 내보내기 (JSON 파일 다운로드)
-  const handleExport = () => {
+  const handleExport = useCallback(() => {
     const data = exportMap()
     const json = JSON.stringify(data, null, 2)
     const blob = new Blob([json], { type: 'application/json' })
@@ -111,10 +129,10 @@ function Toolbar({ onExit }: { onExit: () => void }) {
     a.download = `${data.name}.json`
     a.click()
     URL.revokeObjectURL(url)
-  }
+  }, [exportMap])
 
   // 맵 불러오기 (JSON 파일 업로드)
-  const handleImport = () => {
+  const handleImport = useCallback(() => {
     const input = document.createElement('input')
     input.type = 'file'
     input.accept = '.json'
@@ -130,7 +148,7 @@ function Toolbar({ onExit }: { onExit: () => void }) {
       }
     }
     input.click()
-  }
+  }, [loadMap])
 
   return (
     <div className="absolute top-4 left-1/2 -translate-x-1/2 z-10 flex items-center gap-2 bg-slate-800/90 backdrop-blur-sm rounded-xl p-2 border border-white/10">
@@ -219,28 +237,33 @@ function Toolbar({ onExit }: { onExit: () => void }) {
       </button>
     </div>
   )
-}
+})
 
 // 속성 패널 (우클릭으로 오브젝트 선택 시 표시)
-function PropertiesPanel() {
-  const { selectedId, objects, markers, updateObject, updateMarker, removeObject, removeMarker, setSelectedId } = useEditorStore()
+const PropertiesPanel = memo(function PropertiesPanel() {
+  const selectedId = useEditorStore(state => state.selectedId)
+  const objects = useEditorStore(state => state.objects)
+  const markers = useEditorStore(state => state.markers)
+  const updateObject = useEditorStore(state => state.updateObject)
+  const updateMarker = useEditorStore(state => state.updateMarker)
+  const removeObject = useEditorStore(state => state.removeObject)
+  const removeMarker = useEditorStore(state => state.removeMarker)
+  const setSelectedId = useEditorStore(state => state.setSelectedId)
 
-  // 선택된 오브젝트 찾기
-  const selectedObject = selectedId && !selectedId.startsWith('marker_')
-    ? objects.find(o => o.id === selectedId)
-    : null
+  // useMemo로 선택된 오브젝트/마커 메모이제이션
+  const selectedObject = useMemo(() => {
+    if (!selectedId || selectedId.startsWith('marker_')) return null
+    return objects.find(o => o.id === selectedId) || null
+  }, [selectedId, objects])
 
-  // 선택된 마커 찾기
-  const selectedMarker = selectedId?.startsWith('marker_')
-    ? markers.find(m => m.id === selectedId.replace('marker_', ''))
-    : null
+  const selectedMarker = useMemo(() => {
+    if (!selectedId || !selectedId.startsWith('marker_')) return null
+    return markers.find(m => m.id === selectedId.replace('marker_', '')) || null
+  }, [selectedId, markers])
+
+  const handleClose = useCallback(() => setSelectedId(null), [setSelectedId])
 
   if (!selectedObject && !selectedMarker) return null
-
-  const handleClose = () => setSelectedId(null)
-
-  // 0.5 단위로 스냅
-  const snap = (val: number) => Math.round(val * 2) / 2
 
   return (
     <div className="absolute top-4 left-4 z-20 w-64 bg-slate-800/95 backdrop-blur-sm rounded-xl p-4 border border-white/10 shadow-xl">
@@ -417,10 +440,10 @@ function PropertiesPanel() {
       </div>
     </div>
   )
-}
+})
 
-// 도움말 오버레이 (좌측 하단)
-function HelpOverlay() {
+// 도움말 오버레이 (좌측 하단) - 변경 없음, memo로 최적화
+const HelpOverlay = memo(function HelpOverlay() {
   return (
     <div className="absolute bottom-6 left-4 z-10 bg-slate-800/70 backdrop-blur-sm rounded-xl p-3 border border-white/10 text-white/40 text-xs">
       <div className="grid grid-cols-2 gap-x-4 gap-y-1">
@@ -436,7 +459,7 @@ function HelpOverlay() {
       </div>
     </div>
   )
-}
+})
 
 export function EditorUI({ onExit }: { onExit: () => void }) {
   return (

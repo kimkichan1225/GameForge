@@ -93,6 +93,7 @@ interface EditorState {
   setTestPlaying: (playing: boolean) => void
 
   // 설치 가능한 오브젝트/마커
+  currentPlaceable: PlaceableType
   setCurrentPlaceable: (type: PlaceableType) => void
   placeObjectAt: (position: [number, number, number], isAdjacent?: boolean, yaw?: number) => void
 
