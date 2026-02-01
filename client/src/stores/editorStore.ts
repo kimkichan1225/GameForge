@@ -17,12 +17,13 @@ export interface MapObject {
 }
 
 // 마커 타입 정의
-// - Race: spawn, checkpoint, finish
+// - Race: spawn, checkpoint, finish, killzone
 // - Shooter Team: spawn_a, spawn_b
 // - Shooter Domination: spawn_a, spawn_b, capture_point
 // - Shooter FFA: spawn
+// - 공통: killzone (모든 모드에서 사용 가능)
 export type MarkerType =
-  | 'spawn' | 'checkpoint' | 'finish'  // Race
+  | 'spawn' | 'checkpoint' | 'finish' | 'killzone'  // Race + 공통
   | 'spawn_a' | 'spawn_b'              // Shooter Team/Domination
   | 'capture_point'                     // Shooter Domination
 

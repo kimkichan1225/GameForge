@@ -16,6 +16,7 @@ const RACE_MARKERS = [
   { type: 'spawn' as MarkerType, label: 'Spawn', icon: '6', color: '#00ff00' },
   { type: 'checkpoint' as MarkerType, label: 'Check', icon: '7', color: '#ffff00' },
   { type: 'finish' as MarkerType, label: 'Finish', icon: '8', color: '#ff0000' },
+  { type: 'killzone' as MarkerType, label: 'Kill', icon: '9', color: '#ff00ff' },
 ]
 
 const TEAM_MARKERS = [
