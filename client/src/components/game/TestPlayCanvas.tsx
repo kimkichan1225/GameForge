@@ -13,8 +13,11 @@ import {
   createPlayer,
   loadMapObjects,
   checkGrounded,
+  updatePlayerCollider,
+  COLLIDER_CONFIG,
   RAPIER,
 } from '../../lib/physics'
+import type { Posture } from '../../stores/gameStore'
 
 // ============ 상수 ============
 const WALK_SPEED = 4
@@ -148,6 +151,7 @@ interface PhysicsContext {
   world: RAPIER.World
   playerBody: RAPIER.RigidBody
   playerCollider: RAPIER.Collider
+  setPlayerCollider: (collider: RAPIER.Collider) => void
 }
 
 // ============ 플레이어 컴포넌트 ============
@@ -169,6 +173,7 @@ const Player = memo(function Player({
   const dashTimer = useRef(0)
   const dashCooldown = useRef(0)
   const currentAnim = useRef('')
+  const currentPosture = useRef<Posture>('standing')
   const prev = useRef({ space: false, c: false, z: false, v: false })
   const initialized = useRef(false)
 
@@ -234,10 +239,17 @@ const Player = memo(function Player({
     const keys = input.current
     const store = useGameStore.getState()
     const { posture, cameraAngle } = store
-    const { world, playerBody, playerCollider } = physics
+    const { world, playerBody, playerCollider, setPlayerCollider } = physics
 
-    // 바닥 체크
-    const isGrounded = checkGrounded(world, playerBody, playerCollider)
+    // 자세 변경 시 콜라이더 업데이트
+    if (posture !== currentPosture.current) {
+      const newCollider = updatePlayerCollider(world, playerBody, playerCollider, posture)
+      setPlayerCollider(newCollider)
+      currentPosture.current = posture
+    }
+
+    // 바닥 체크 (현재 자세에 맞게)
+    const isGrounded = checkGrounded(world, playerBody, playerCollider, posture)
     grounded.current = isGrounded
     const vel = playerBody.linvel()
 
@@ -323,9 +335,10 @@ const Player = memo(function Player({
     playerBody.setLinvel({ x: _move.x * speed, y: shouldJump ? JUMP_POWER : vel.y, z: _move.z * speed }, true)
     world.step()
 
-    // 위치 동기화
+    // 위치 동기화 (자세별 centerY 적용)
     const pos = playerBody.translation()
-    group.current.position.set(pos.x, pos.y - 0.9, pos.z)
+    const centerY = COLLIDER_CONFIG[posture].centerY
+    group.current.position.set(pos.x, pos.y - centerY, pos.z)
 
     // 애니메이션
     if (isGrounded && !dashing.current && !jumping.current) {
@@ -333,7 +346,7 @@ const Player = memo(function Player({
     }
 
     // 스토어 업데이트
-    store.setPlayerPos([pos.x, pos.y - 0.9, pos.z])
+    store.setPlayerPos([pos.x, pos.y - centerY, pos.z])
     store.setGroundedState(isGrounded, !jumping.current)
   })
 
@@ -475,18 +488,33 @@ const Ground = memo(function Ground() {
 })
 
 // ============ 디버그 콜라이더 ============
-const DebugColliders = memo(function DebugColliders({ playerPos }: { playerPos: [number, number, number] }) {
+const DebugColliders = memo(function DebugColliders({
+  playerPos,
+  posture
+}: {
+  playerPos: [number, number, number]
+  posture: Posture
+}) {
   const objects = useEditorStore(state => state.objects)
   const greenMat = useMemo(() => getDebugGreenMaterial(), [])
   const blueMat = useMemo(() => getDebugBlueMaterial(), [])
 
+  const config = COLLIDER_CONFIG[posture]
+  const { halfHeight, radius, centerY } = config
+
   return (
     <group>
-      {/* 플레이어 캡슐 */}
-      <group position={[playerPos[0], playerPos[1] + 0.9, playerPos[2]]}>
-        <mesh position={[0, 0.6, 0]} material={greenMat}><sphereGeometry args={[0.3, 16, 16]} /></mesh>
-        <mesh material={greenMat}><cylinderGeometry args={[0.3, 0.3, 1.2, 16]} /></mesh>
-        <mesh position={[0, -0.6, 0]} material={greenMat}><sphereGeometry args={[0.3, 16, 16]} /></mesh>
+      {/* 플레이어 캡슐 (자세별 크기) */}
+      <group position={[playerPos[0], playerPos[1] + centerY, playerPos[2]]}>
+        <mesh position={[0, halfHeight, 0]} material={greenMat}>
+          <sphereGeometry args={[radius, 16, 16]} />
+        </mesh>
+        <mesh material={greenMat}>
+          <cylinderGeometry args={[radius, radius, halfHeight * 2, 16]} />
+        </mesh>
+        <mesh position={[0, -halfHeight, 0]} material={greenMat}>
+          <sphereGeometry args={[radius, 16, 16]} />
+        </mesh>
       </group>
 
       {/* 바닥 */}
@@ -530,6 +558,7 @@ const SceneContent = memo(function SceneContent({
   showDebug: boolean
 }) {
   const playerPos = useGameStore(state => state.playerPos)
+  const posture = useGameStore(state => state.posture)
 
   if (!physics) return null
 
@@ -558,7 +587,7 @@ const SceneContent = memo(function SceneContent({
       <MapObjects />
       <Player startPosition={startPosition} physics={physics} />
       <FollowCamera />
-      {showDebug && <DebugColliders playerPos={playerPos} />}
+      {showDebug && <DebugColliders playerPos={playerPos} posture={posture} />}
     </>
   )
 })
@@ -639,14 +668,40 @@ const LoadingScreen = memo(function LoadingScreen() {
 export function TestPlayCanvas({ onExit }: { onExit: () => void }) {
   const markers = useEditorStore(state => state.markers)
   const objects = useEditorStore(state => state.objects)
-  const [physics, setPhysics] = useState<PhysicsContext | null>(null)
   const [loading, setLoading] = useState(true)
   const [showDebug, setShowDebug] = useState(false)
+
+  // 물리 상태를 ref로 관리 (콜라이더가 변경될 수 있음)
+  const physicsRef = useRef<{
+    world: RAPIER.World
+    playerBody: RAPIER.RigidBody
+    playerCollider: RAPIER.Collider
+  } | null>(null)
+
+  const [physicsReady, setPhysicsReady] = useState(false)
 
   const startPosition = useMemo((): [number, number, number] => {
     const spawnMarker = markers.find(m => m.type === 'spawn' || m.type === 'spawn_a')
     return spawnMarker ? [spawnMarker.position[0], spawnMarker.position[1], spawnMarker.position[2]] : [0, 0, 0]
   }, [markers])
+
+  // setPlayerCollider 콜백
+  const setPlayerCollider = useCallback((collider: RAPIER.Collider) => {
+    if (physicsRef.current) {
+      physicsRef.current.playerCollider = collider
+    }
+  }, [])
+
+  // PhysicsContext 생성
+  const physics = useMemo((): PhysicsContext | null => {
+    if (!physicsRef.current || !physicsReady) return null
+    return {
+      world: physicsRef.current.world,
+      playerBody: physicsRef.current.playerBody,
+      playerCollider: physicsRef.current.playerCollider,
+      setPlayerCollider,
+    }
+  }, [physicsReady, setPlayerCollider])
 
   useEffect(() => {
     let mounted = true
@@ -661,7 +716,8 @@ export function TestPlayCanvas({ onExit }: { onExit: () => void }) {
         loadMapObjects(world, objects)
         const { rigidBody, collider } = createPlayer(world, startPosition)
 
-        setPhysics({ world, playerBody: rigidBody, playerCollider: collider })
+        physicsRef.current = { world, playerBody: rigidBody, playerCollider: collider }
+        setPhysicsReady(true)
         setLoading(false)
       } catch (error) {
         console.error('Failed to initialize physics:', error)

@@ -1,7 +1,27 @@
 import RAPIER from '@dimforge/rapier3d-compat'
 import type { MapObject } from '../stores/editorStore'
+import type { Posture } from '../stores/gameStore'
 
 let rapierInstance: typeof RAPIER | null = null
+
+// 자세별 콜라이더 설정
+export const COLLIDER_CONFIG = {
+  standing: {
+    halfHeight: 0.6,   // 캡슐 반높이
+    radius: 0.3,       // 캡슐 반지름
+    centerY: 0.9,      // 바닥에서 콜라이더 중심까지 높이
+  },
+  sitting: {
+    halfHeight: 0.3,
+    radius: 0.3,
+    centerY: 0.6,
+  },
+  crawling: {
+    halfHeight: 0.1,
+    radius: 0.3,
+    centerY: 0.4,
+  },
+} as const
 
 // Rapier 초기화 (WASM 로드)
 export async function initRapier(): Promise<typeof RAPIER> {
@@ -29,26 +49,59 @@ export function createGround(world: RAPIER.World): RAPIER.Collider {
 // 플레이어 RigidBody + Collider 생성 (캡슐)
 export function createPlayer(
   world: RAPIER.World,
-  position: [number, number, number]
+  position: [number, number, number],
+  posture: Posture = 'standing'
 ): { rigidBody: RAPIER.RigidBody; collider: RAPIER.Collider } {
   if (!rapierInstance) throw new Error('Rapier not initialized')
 
+  const config = COLLIDER_CONFIG[posture]
+
   // Dynamic RigidBody
   const bodyDesc = rapierInstance.RigidBodyDesc.dynamic()
-    .setTranslation(position[0], position[1] + 0.9, position[2])
+    .setTranslation(position[0], position[1] + config.centerY, position[2])
     .setLinearDamping(0.5)
-    .lockRotations() // 회전 잠금 (캐릭터가 넘어지지 않게)
+    .lockRotations()
 
   const rigidBody = world.createRigidBody(bodyDesc)
 
-  // 캡슐 Collider (반지름 0.3, 높이 1.2 -> 전체 높이 약 1.8)
-  const colliderDesc = rapierInstance.ColliderDesc.capsule(0.6, 0.3)
+  // 캡슐 Collider
+  const colliderDesc = rapierInstance.ColliderDesc.capsule(config.halfHeight, config.radius)
     .setFriction(0.0)
     .setRestitution(0.0)
 
   const collider = world.createCollider(colliderDesc, rigidBody)
 
   return { rigidBody, collider }
+}
+
+// 플레이어 콜라이더 변경 (자세 변경 시)
+export function updatePlayerCollider(
+  world: RAPIER.World,
+  rigidBody: RAPIER.RigidBody,
+  oldCollider: RAPIER.Collider,
+  newPosture: Posture
+): RAPIER.Collider {
+  if (!rapierInstance) throw new Error('Rapier not initialized')
+
+  const config = COLLIDER_CONFIG[newPosture]
+  const pos = rigidBody.translation()
+
+  // 기존 콜라이더 제거
+  world.removeCollider(oldCollider, false)
+
+  // 새 콜라이더 생성
+  const colliderDesc = rapierInstance.ColliderDesc.capsule(config.halfHeight, config.radius)
+    .setFriction(0.0)
+    .setRestitution(0.0)
+
+  const newCollider = world.createCollider(colliderDesc, rigidBody)
+
+  // 리지드바디 Y 위치 조정 (콜라이더 중심 변경에 따라)
+  // 바닥 기준으로 위치 유지
+  const groundY = pos.y - COLLIDER_CONFIG.standing.centerY  // 현재 바닥 위치 추정
+  rigidBody.setTranslation({ x: pos.x, y: groundY + config.centerY, z: pos.z }, true)
+
+  return newCollider
 }
 
 // 맵 오브젝트를 Collider로 변환
@@ -178,21 +231,26 @@ export function applyPlayerMovement(
 export function checkGrounded(
   world: RAPIER.World,
   rigidBody: RAPIER.RigidBody,
-  playerCollider: RAPIER.Collider
+  playerCollider: RAPIER.Collider,
+  posture: Posture = 'standing'
 ): boolean {
   if (!rapierInstance) return false
 
+  const config = COLLIDER_CONFIG[posture]
   const pos = rigidBody.translation()
-  const rayOriginY = pos.y - 0.8  // 캡슐 바닥 근처에서 시작
-  const rayDistance = 0.25  // 경사면을 위해 더 긴 거리
+
+  // 캡슐 바닥 = 중심Y - halfHeight - radius
+  const capsuleBottom = config.centerY - config.halfHeight - config.radius
+  const rayOriginY = pos.y - config.centerY + capsuleBottom + 0.1  // 바닥보다 살짝 위
+  const rayDistance = 0.25
 
   // 여러 지점에서 레이캐스트 (중앙 + 사방)
   const offsets = [
-    { x: 0, z: 0 },       // 중앙
-    { x: 0.15, z: 0 },    // 앞
-    { x: -0.15, z: 0 },   // 뒤
-    { x: 0, z: 0.15 },    // 좌
-    { x: 0, z: -0.15 },   // 우
+    { x: 0, z: 0 },
+    { x: 0.15, z: 0 },
+    { x: -0.15, z: 0 },
+    { x: 0, z: 0.15 },
+    { x: 0, z: -0.15 },
   ]
 
   for (const offset of offsets) {
@@ -212,7 +270,7 @@ export function checkGrounded(
     )
 
     if (hit !== null) {
-      return true  // 하나라도 맞으면 바닥에 있음
+      return true
     }
   }
 
