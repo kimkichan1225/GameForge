@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState, useMemo } from 'react'
+import { useRef, useEffect, useState, useMemo, useCallback } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { useGLTF, useAnimations, Grid } from '@react-three/drei'
 import * as THREE from 'three'
@@ -86,12 +86,14 @@ function Player({
 
   // 상태 refs
   const grounded = useRef(true)
+  const canJump = useRef(true)  // 점프 가능 여부 (공중에서 점프 방지)
   const dashing = useRef(false)
   const dashTimer = useRef(0)
   const dashCooldown = useRef(0)
   const dashDir = useRef(new THREE.Vector3())
   const currentAnim = useRef('')
   const prev = useRef({ space: false, c: false, z: false, v: false })
+  const wasGrounded = useRef(true)  // 이전 프레임 grounded 상태
 
   const input = useInput()
 
@@ -179,6 +181,18 @@ function Player({
     const isGrounded = checkGrounded(world, playerBody)
     grounded.current = isGrounded
 
+    // 착지 감지 (공중 -> 바닥)
+    if (isGrounded && !wasGrounded.current) {
+      canJump.current = true  // 착지하면 점프 가능
+      // 착지 시 애니메이션 전환
+      if (!dashing.current) {
+        const moving = keys.forward || keys.backward || keys.left || keys.right
+        const running = keys.shift && posture === 'standing'
+        playAnim(getAnim(moving, running, posture))
+      }
+    }
+    wasGrounded.current = isGrounded
+
     // 쿨다운
     if (dashCooldown.current > 0) dashCooldown.current -= dt
 
@@ -190,10 +204,11 @@ function Player({
       store.setPosture(posture === 'crawling' ? 'standing' : 'crawling')
     }
 
-    // 점프
+    // 점프 (바닥에서만 + 한번만)
     let shouldJump = false
-    if (keys.space && !prev.current.space && isGrounded && posture === 'standing' && !dashing.current) {
+    if (keys.space && !prev.current.space && isGrounded && canJump.current && posture === 'standing' && !dashing.current) {
       shouldJump = true
+      canJump.current = false  // 점프 후 착지 전까지 점프 불가
       playAnim('Jump')
     }
 
@@ -441,14 +456,107 @@ function Ground() {
   )
 }
 
+// 디버그 콜라이더 시각화
+function DebugColliders({ playerPos }: { playerPos: [number, number, number] }) {
+  const objects = useEditorStore(state => state.objects)
+
+  return (
+    <group>
+      {/* 플레이어 캡슐 콜라이더 (반지름 0.3, 반높이 0.6) */}
+      <group position={[playerPos[0], playerPos[1] + 0.9, playerPos[2]]}>
+        {/* 상단 반구 */}
+        <mesh position={[0, 0.6, 0]}>
+          <sphereGeometry args={[0.3, 16, 16]} />
+          <meshBasicMaterial color="#00ff00" wireframe transparent opacity={0.5} />
+        </mesh>
+        {/* 중앙 실린더 */}
+        <mesh>
+          <cylinderGeometry args={[0.3, 0.3, 1.2, 16]} />
+          <meshBasicMaterial color="#00ff00" wireframe transparent opacity={0.5} />
+        </mesh>
+        {/* 하단 반구 */}
+        <mesh position={[0, -0.6, 0]}>
+          <sphereGeometry args={[0.3, 16, 16]} />
+          <meshBasicMaterial color="#00ff00" wireframe transparent opacity={0.5} />
+        </mesh>
+      </group>
+
+      {/* 바닥 콜라이더 */}
+      <mesh position={[0, -0.1, 0]}>
+        <boxGeometry args={[200, 0.2, 200]} />
+        <meshBasicMaterial color="#0088ff" wireframe transparent opacity={0.3} />
+      </mesh>
+
+      {/* 맵 오브젝트 콜라이더 */}
+      {objects.map(obj => (
+        <DebugObjectCollider key={obj.id} obj={obj} />
+      ))}
+    </group>
+  )
+}
+
+function DebugObjectCollider({ obj }: { obj: MapObject }) {
+  const [pos, rot, scale] = [obj.position, obj.rotation, obj.scale]
+
+  // Rapier 콜라이더와 동일한 크기로 시각화
+  switch (obj.type) {
+    case 'box':
+      return (
+        <mesh position={pos} rotation={rot}>
+          <boxGeometry args={[scale[0], scale[1], scale[2]]} />
+          <meshBasicMaterial color="#ff0000" wireframe transparent opacity={0.5} />
+        </mesh>
+      )
+    case 'plane':
+      return (
+        <mesh position={pos} rotation={rot}>
+          <boxGeometry args={[scale[0], 0.1 * scale[1], scale[2]]} />
+          <meshBasicMaterial color="#ff0000" wireframe transparent opacity={0.5} />
+        </mesh>
+      )
+    case 'cylinder':
+      return (
+        <mesh position={pos} rotation={rot}>
+          <cylinderGeometry args={[
+            Math.max(scale[0], scale[2]) / 2 * 0.5,
+            Math.max(scale[0], scale[2]) / 2 * 0.5,
+            scale[1],
+            16
+          ]} />
+          <meshBasicMaterial color="#ff0000" wireframe transparent opacity={0.5} />
+        </mesh>
+      )
+    case 'sphere':
+      return (
+        <mesh position={pos} rotation={rot}>
+          <sphereGeometry args={[Math.max(scale[0], scale[1], scale[2]) / 2 * 0.5, 16, 16]} />
+          <meshBasicMaterial color="#ff0000" wireframe transparent opacity={0.5} />
+        </mesh>
+      )
+    case 'ramp':
+      // ConvexHull은 와이어프레임으로 근사 표시
+      return (
+        <mesh position={pos} rotation={rot} scale={scale} geometry={getWedgeGeometry()}>
+          <meshBasicMaterial color="#ff0000" wireframe transparent opacity={0.5} />
+        </mesh>
+      )
+    default:
+      return null
+  }
+}
+
 // 씬 콘텐츠
 function SceneContent({
   startPosition,
   physics,
+  showDebug,
 }: {
   startPosition: [number, number, number]
   physics: PhysicsContext | null
+  showDebug: boolean
 }) {
+  const playerPos = useGameStore(state => state.playerPos)
+
   if (!physics) return null
 
   return (
@@ -486,12 +594,23 @@ function SceneContent({
 
       {/* 카메라 */}
       <FollowCamera />
+
+      {/* 디버그 콜라이더 */}
+      {showDebug && <DebugColliders playerPos={playerPos} />}
     </>
   )
 }
 
 // UI 오버레이
-function TestPlayUI({ onExit }: { onExit: () => void }) {
+function TestPlayUI({
+  onExit,
+  showDebug,
+  onToggleDebug,
+}: {
+  onExit: () => void
+  showDebug: boolean
+  onToggleDebug: () => void
+}) {
   const animation = useGameStore(state => state.animation)
   const posture = useGameStore(state => state.posture)
 
@@ -501,10 +620,14 @@ function TestPlayUI({ onExit }: { onExit: () => void }) {
         document.exitPointerLock()
         onExit()
       }
+      if (e.key === 'F1') {
+        e.preventDefault()
+        onToggleDebug()
+      }
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [onExit])
+  }, [onExit, onToggleDebug])
 
   return (
     <>
@@ -524,6 +647,7 @@ function TestPlayUI({ onExit }: { onExit: () => void }) {
           <span>Z</span><span>엎드리기</span>
           <span>V</span><span>구르기</span>
           <span>마우스 휠</span><span>줌</span>
+          <span>F1</span><span>콜라이더 표시</span>
         </div>
       </div>
 
@@ -531,6 +655,7 @@ function TestPlayUI({ onExit }: { onExit: () => void }) {
       <div className="absolute top-4 left-4 z-10 bg-slate-800/80 backdrop-blur-sm rounded-lg px-4 py-2 text-white text-sm">
         <div>자세: {posture}</div>
         <div>애니메이션: {animation}</div>
+        {showDebug && <div className="text-green-400">디버그 모드</div>}
       </div>
 
       {/* 크로스헤어 */}
@@ -556,6 +681,7 @@ export function TestPlayCanvas({ onExit }: { onExit: () => void }) {
   const objects = useEditorStore(state => state.objects)
   const [physics, setPhysics] = useState<PhysicsContext | null>(null)
   const [loading, setLoading] = useState(true)
+  const [showDebug, setShowDebug] = useState(false)
 
   // Spawn 마커 위치
   const startPosition = useMemo((): [number, number, number] => {
@@ -600,6 +726,9 @@ export function TestPlayCanvas({ onExit }: { onExit: () => void }) {
     useGameStore.getState().reset()
   }, [])
 
+  // 디버그 토글 (hooks는 조건문 전에 호출해야 함)
+  const toggleDebug = useCallback(() => setShowDebug(prev => !prev), [])
+
   if (loading) {
     return <LoadingScreen />
   }
@@ -607,9 +736,9 @@ export function TestPlayCanvas({ onExit }: { onExit: () => void }) {
   return (
     <div className="w-full h-full relative">
       <Canvas camera={{ fov: 60, near: 0.1, far: 1000 }} shadows>
-        <SceneContent startPosition={startPosition} physics={physics} />
+        <SceneContent startPosition={startPosition} physics={physics} showDebug={showDebug} />
       </Canvas>
-      <TestPlayUI onExit={onExit} />
+      <TestPlayUI onExit={onExit} showDebug={showDebug} onToggleDebug={toggleDebug} />
     </div>
   )
 }
