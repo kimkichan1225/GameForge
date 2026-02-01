@@ -169,21 +169,50 @@ export function applyPlayerMovement(
   rigidBody.setLinvel({ x: newVelX, y: newVelY, z: newVelZ }, true)
 }
 
-// 바닥 체크 (레이캐스트)
+// 바닥 체크 (레이캐스트 - 플레이어 콜라이더 제외)
+// 경사면에서도 감지되도록 여러 지점에서 레이캐스트
 export function checkGrounded(
   world: RAPIER.World,
-  rigidBody: RAPIER.RigidBody
+  rigidBody: RAPIER.RigidBody,
+  playerCollider: RAPIER.Collider
 ): boolean {
   if (!rapierInstance) return false
 
   const pos = rigidBody.translation()
-  const ray = new rapierInstance.Ray(
-    { x: pos.x, y: pos.y - 0.85, z: pos.z },
-    { x: 0, y: -1, z: 0 }
-  )
+  const rayOriginY = pos.y - 0.8  // 캡슐 바닥 근처에서 시작
+  const rayDistance = 0.25  // 경사면을 위해 더 긴 거리
 
-  const hit = world.castRay(ray, 0.2, true)
-  return hit !== null
+  // 여러 지점에서 레이캐스트 (중앙 + 사방)
+  const offsets = [
+    { x: 0, z: 0 },       // 중앙
+    { x: 0.15, z: 0 },    // 앞
+    { x: -0.15, z: 0 },   // 뒤
+    { x: 0, z: 0.15 },    // 좌
+    { x: 0, z: -0.15 },   // 우
+  ]
+
+  for (const offset of offsets) {
+    const ray = new rapierInstance.Ray(
+      { x: pos.x + offset.x, y: rayOriginY, z: pos.z + offset.z },
+      { x: 0, y: -1, z: 0 }
+    )
+
+    const hit = world.castRay(
+      ray,
+      rayDistance,
+      true,
+      undefined,
+      undefined,
+      playerCollider,
+      rigidBody
+    )
+
+    if (hit !== null) {
+      return true  // 하나라도 맞으면 바닥에 있음
+    }
+  }
+
+  return false
 }
 
 export { RAPIER }

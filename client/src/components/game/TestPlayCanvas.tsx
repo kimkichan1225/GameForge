@@ -68,6 +68,7 @@ function getWedgeGeometry(): THREE.BufferGeometry {
 interface PhysicsContext {
   world: RAPIER.World
   playerBody: RAPIER.RigidBody
+  playerCollider: RAPIER.Collider
 }
 
 // 플레이어 컴포넌트
@@ -87,6 +88,7 @@ function Player({
   // 상태 refs
   const grounded = useRef(true)
   const canJump = useRef(true)  // 점프 가능 여부 (공중에서 점프 방지)
+  const jumping = useRef(false)  // 점프 중 (애니메이션 유지용)
   const dashing = useRef(false)
   const dashTimer = useRef(0)
   const dashCooldown = useRef(0)
@@ -175,15 +177,16 @@ function Player({
     const store = useGameStore.getState()
     const posture = store.posture
     const cameraAngle = store.cameraAngle
-    const { world, playerBody } = physics
+    const { world, playerBody, playerCollider } = physics
 
     // 바닥 체크
-    const isGrounded = checkGrounded(world, playerBody)
+    const isGrounded = checkGrounded(world, playerBody, playerCollider)
     grounded.current = isGrounded
 
     // 착지 감지 (공중 -> 바닥)
     if (isGrounded && !wasGrounded.current) {
       canJump.current = true  // 착지하면 점프 가능
+      jumping.current = false  // 점프 종료
       // 착지 시 애니메이션 전환
       if (!dashing.current) {
         const moving = keys.forward || keys.backward || keys.left || keys.right
@@ -209,6 +212,7 @@ function Player({
     if (keys.space && !prev.current.space && isGrounded && canJump.current && posture === 'standing' && !dashing.current) {
       shouldJump = true
       canJump.current = false  // 점프 후 착지 전까지 점프 불가
+      jumping.current = true   // 점프 시작 (애니메이션 유지)
       playAnim('Jump')
     }
 
@@ -283,8 +287,8 @@ function Player({
     const pos = playerBody.translation()
     group.current.position.set(pos.x, pos.y - 0.9, pos.z) // 캡슐 중심 보정
 
-    // 애니메이션
-    if (isGrounded && !dashing.current) {
+    // 애니메이션 (점프 중이 아닐 때만 변경)
+    if (isGrounded && !dashing.current && !jumping.current) {
       const moving = _move.lengthSq() > 0
       const running = keys.shift && posture === 'standing'
       playAnim(getAnim(moving, running, posture))
@@ -292,6 +296,7 @@ function Player({
 
     // 게임 스토어 업데이트
     store.setPlayerPos([pos.x, pos.y - 0.9, pos.z])
+    store.setGroundedState(isGrounded, canJump.current)
   })
 
   return (
@@ -613,6 +618,8 @@ function TestPlayUI({
 }) {
   const animation = useGameStore(state => state.animation)
   const posture = useGameStore(state => state.posture)
+  const isGrounded = useGameStore(state => state.isGrounded)
+  const canJump = useGameStore(state => state.canJump)
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -655,7 +662,17 @@ function TestPlayUI({
       <div className="absolute top-4 left-4 z-10 bg-slate-800/80 backdrop-blur-sm rounded-lg px-4 py-2 text-white text-sm">
         <div>자세: {posture}</div>
         <div>애니메이션: {animation}</div>
-        {showDebug && <div className="text-green-400">디버그 모드</div>}
+        {showDebug && (
+          <>
+            <div className="text-green-400 mt-1">디버그 모드</div>
+            <div className={isGrounded ? 'text-green-400' : 'text-red-400'}>
+              바닥: {isGrounded ? 'O' : 'X'}
+            </div>
+            <div className={canJump ? 'text-green-400' : 'text-red-400'}>
+              점프가능: {canJump ? 'O' : 'X'}
+            </div>
+          </>
+        )}
       </div>
 
       {/* 크로스헤어 */}
@@ -705,9 +722,9 @@ export function TestPlayCanvas({ onExit }: { onExit: () => void }) {
         const world = createWorld()
         createGround(world)
         loadMapObjects(world, objects)
-        const { rigidBody } = createPlayer(world, startPosition)
+        const { rigidBody, collider } = createPlayer(world, startPosition)
 
-        setPhysics({ world, playerBody: rigidBody })
+        setPhysics({ world, playerBody: rigidBody, playerCollider: collider })
         setLoading(false)
       } catch (error) {
         console.error('Failed to initialize physics:', error)
