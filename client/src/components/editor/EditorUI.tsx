@@ -112,12 +112,27 @@ const Toolbar = memo(function Toolbar({ onExit }: { onExit: () => void }) {
   const exportMap = useEditorStore(state => state.exportMap)
   const loadMap = useEditorStore(state => state.loadMap)
   const validateMap = useEditorStore(state => state.validateMap)
+  const setTestPlaying = useEditorStore(state => state.setTestPlaying)
+  const markers = useEditorStore(state => state.markers)
   const mapName = useEditorStore(state => state.mapName)
   const setMapName = useEditorStore(state => state.setMapName)
   const mapMode = useEditorStore(state => state.mapMode)
   const setMapMode = useEditorStore(state => state.setMapMode)
   const shooterSubMode = useEditorStore(state => state.shooterSubMode)
   const setShooterSubMode = useEditorStore(state => state.setShooterSubMode)
+
+  // 테스트 플레이 가능 여부 (스폰 마커 필요)
+  const canPlay = useMemo(() => {
+    return markers.some(m => m.type === 'spawn' || m.type === 'spawn_a')
+  }, [markers])
+
+  const handlePlay = useCallback(() => {
+    if (!canPlay) {
+      alert('테스트 플레이를 시작하려면 Spawn 마커가 필요합니다.')
+      return
+    }
+    setTestPlaying(true)
+  }, [canPlay, setTestPlaying])
 
   // 맵 내보내기 (JSON 파일 다운로드) - 검증 포함
   const handleExport = useCallback(() => {
@@ -220,6 +235,20 @@ const Toolbar = memo(function Toolbar({ onExit }: { onExit: () => void }) {
           </div>
         </>
       )}
+
+      <div className="w-px h-6 bg-white/20" />
+
+      {/* 테스트 플레이 */}
+      <button
+        onClick={handlePlay}
+        className={`px-3 py-1.5 font-medium rounded-lg transition-colors text-sm ${
+          canPlay
+            ? 'bg-green-500 hover:bg-green-400 text-white'
+            : 'bg-white/5 text-white/30 cursor-not-allowed'
+        }`}
+      >
+        ▶ Play
+      </button>
 
       <div className="w-px h-6 bg-white/20" />
 
