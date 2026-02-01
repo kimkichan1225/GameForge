@@ -902,14 +902,16 @@ Timer.after(180, () => {
 
 ### Frontend
 ```
-- React 18+ (TypeScript)
+- React 19 (TypeScript)
+- Vite 7 (빌드 도구)
 - Three.js + React Three Fiber (@react-three/fiber)
 - @react-three/drei (Three.js 헬퍼)
+- @dimforge/rapier3d-compat (물리 엔진 - WASM)
 - Zustand (전역 상태 관리)
 - Socket.io-client (실시간 게임 통신)
 - @supabase/supabase-js (DB, 인증, 스토리지)
 - Monaco Editor (커스텀 스크립팅용)
-- TailwindCSS (스타일링)
+- TailwindCSS v4 (스타일링)
 ```
 
 ### Backend
@@ -957,7 +959,7 @@ Timer.after(180, () => {
 
 ## 프로젝트 구조
 
-### 현재 구현된 구조 (Phase 1 진행 중)
+### 현재 구현된 구조 (Phase 1 완료)
 ```
 GameForge/
 ├── .env                        # 환경 변수 (Supabase)
@@ -970,19 +972,27 @@ GameForge/
     ├── .env                    # 클라이언트 환경 변수
     ├── package.json
     ├── vite.config.ts
+    ├── public/
+    │   └── Runtest.glb         # 플레이어 캐릭터 3D 모델 (애니메이션 포함)
     └── src/
         ├── App.tsx             # 라우팅 설정
         ├── main.tsx
         ├── index.css           # TailwindCSS 설정
         ├── lib/
-        │   └── supabase.ts     # Supabase 클라이언트
+        │   ├── supabase.ts     # Supabase 클라이언트
+        │   └── physics.ts      # Rapier 물리 엔진 래퍼
+        ├── hooks/
+        │   └── useInput.ts     # 키보드 입력 훅
         ├── stores/
         │   ├── authStore.ts    # 인증 상태 관리 (Zustand)
-        │   └── editorStore.ts  # 맵 에디터 상태 관리 (Zustand)
+        │   ├── editorStore.ts  # 맵 에디터 상태 관리 (Zustand)
+        │   └── gameStore.ts    # 게임 플레이 상태 관리 (Zustand)
         ├── components/
-        │   └── editor/
-        │       ├── EditorCanvas.tsx  # 3D 캔버스 (Three.js)
-        │       └── EditorUI.tsx      # 에디터 UI (툴바, 핫바, 속성패널)
+        │   ├── editor/
+        │   │   ├── EditorCanvas.tsx  # 3D 캔버스 (Three.js)
+        │   │   └── EditorUI.tsx      # 에디터 UI (툴바, 핫바, 속성패널)
+        │   └── game/
+        │       └── TestPlayCanvas.tsx # 테스트 플레이 모드 (물리, 캐릭터)
         └── pages/
             ├── Landing.tsx     # 랜딩 페이지 (/)
             ├── Home.tsx        # 게임 메인/로비 (/home)
@@ -1208,7 +1218,7 @@ supabase
 
 ## 개발 현황
 
-### 완료된 기능 (Phase 1 진행 중)
+### 완료된 기능 (Phase 1 완료)
 
 #### 프론트엔드 기본 설정
 - [x] Vite + React + TypeScript 프로젝트 생성
@@ -1234,6 +1244,7 @@ supabase
   - 마커 배치 (Race: Spawn/Checkpoint/Finish, Shooter: Team A/B/Capture)
   - 속성 편집 (위치/회전/크기/색상)
   - 맵 저장/불러오기 (JSON)
+  - 테스트 플레이 모드
 
 #### 인증 시스템
 - [x] Supabase 클라이언트 설정 (`lib/supabase.ts`)
@@ -1280,6 +1291,42 @@ supabase
   - 도움말 오버레이 (좌측 하단)
   - 크로스헤어
 
+#### 테스트 플레이 모드 (Phase 1)
+- [x] Rapier 물리 엔진 통합 (`@dimforge/rapier3d-compat`)
+- [x] 물리 월드 생성 및 관리 (`lib/physics.ts`)
+- [x] 플레이어 캐릭터 시스템
+  - 3D 캐릭터 모델 (GLB with animations)
+  - 캡슐 콜라이더 (자세별 크기 조절)
+  - 3인칭 팔로우 카메라 (마우스 휠 줌)
+- [x] 자세 시스템 (Posture)
+  - Standing (기본 자세)
+  - Sitting (앉기 - C 키)
+  - Crawling (엎드리기 - Z 키)
+  - 자세별 이동 속도/콜라이더 크기 변경
+- [x] 이동 및 액션
+  - WASD 이동 (자세별 속도 차이)
+  - Shift 달리기 (서있을 때만)
+  - Space 점프 (서있을 때만, 1회 제한)
+  - V 구르기/대쉬
+- [x] 애니메이션 시스템
+  - Idle, Walk, Run, Jump, Roll
+  - SitPose, SitWalk, CrawlPose, Crawl
+  - 상태 기반 자동 전환
+- [x] 바닥 감지 (Ground Detection)
+  - 다중 지점 레이캐스트 (경사면 대응)
+  - 자세별 콜라이더 높이 반영
+- [x] 맵 오브젝트 물리 충돌
+  - Box, Cylinder, Sphere, Plane, Ramp 콜라이더
+  - 오브젝트 스케일/회전 반영
+- [x] 디버그 모드 (F1)
+  - 콜라이더 와이어프레임 표시
+  - 바닥 감지/점프 가능 상태 표시
+- [x] 성능 최적화
+  - React.memo 컴포넌트 메모이제이션
+  - 지오메트리/머티리얼 캐싱
+  - useCallback/useMemo 최적화
+  - Ray 인스턴스 재사용
+
 ---
 
 ## 개발 로드맵
@@ -1296,7 +1343,7 @@ supabase
 - [x] 인증 상태 전역 관리 (Zustand)
 - [ ] 보호된 라우트 설정 (로그인 필요 페이지)
 
-### Phase 1: 맵 에디터 + 싱글 테스트 (2-3주)
+### Phase 1: 맵 에디터 + 싱글 테스트 (2-3주) ✅ 완료
 **목표**: 기본적인 맵 제작 및 1인 테스트 가능
 
 - [x] 프로젝트 초기 설정 (React + Vite + TypeScript + TailwindCSS)
@@ -1306,8 +1353,13 @@ supabase
 - [x] 속성 패널 (위치/회전/크기/색상)
 - [x] 게임 마커 배치 (Race: Spawn/Checkpoint/Finish, Shooter: Team A/B/Capture)
 - [x] 맵 저장/불러오기 (JSON 파일)
-- [ ] 맵 저장/불러오기 (Supabase Database)
-- [ ] 테스트 플레이 모드 (3인칭 이동, 달리기 모드 컨트롤)
+- [ ] 맵 저장/불러오기 (Supabase Database) - Phase 6으로 이동
+- [x] 테스트 플레이 모드 (3인칭 이동, 달리기 모드 컨트롤)
+- [x] Rapier 물리 엔진 통합
+- [x] 플레이어 캐릭터 (캡슐 콜라이더, 애니메이션)
+- [x] 자세 시스템 (서기/앉기/엎드리기)
+- [x] 이동/점프/구르기 메카닉
+- [x] 디버그 콜라이더 표시 (F1)
 
 ### Phase 2: 달리기 모드 (1주)
 **목표**: 싱글 플레이어 달리기 모드 완성
