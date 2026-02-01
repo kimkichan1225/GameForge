@@ -30,8 +30,10 @@ const DASH_DURATION = 0.5
 const DASH_COOLDOWN = 1.0
 const FINISH_RADIUS = 1.5  // 피니시 마커 도달 판정 반경
 const CHECKPOINT_RADIUS = 2.0  // 체크포인트 통과 판정 반경
-const KILLZONE_RADIUS = 2.0  // 킬존 마커 판정 반경
+const KILLZONE_RADIUS = 2.0  // 킬존 마커 XZ 판정 반경
+const KILLZONE_HEIGHT = 0.5  // 킬존 마커 Y 판정 높이 (위아래 각각)
 const FALL_THRESHOLD = -10  // 이 Y좌표 아래로 떨어지면 낙사
+const DEAD_DURATION = 2.5  // 사망 애니메이션 지속 시간
 
 const GROUND_ROTATION: [number, number, number] = [-Math.PI / 2, 0, 0]
 const GROUND_POSITION: [number, number, number] = [0, 0, 0]
@@ -186,13 +188,16 @@ const Player = memo(function Player({
   const prev = useRef({ space: false, c: false, z: false, v: false })
   const initialized = useRef(false)
   const hasStartedMoving = useRef(false)
+  const dying = useRef(false)
+  const dyingTimer = useRef(0)
+  const respawnPosRef = useRef<[number, number, number] | null>(null)
 
   const input = useInput()
 
   // 애니메이션 맵 빌드 (한번만)
   useEffect(() => {
     const map: Record<string, string> = {}
-    const targets = ['Idle', 'Walk', 'Run', 'Jump', 'SitPose', 'SitWalk', 'CrawlPose', 'Crawl', 'Roll']
+    const targets = ['Idle', 'Walk', 'Run', 'Jump', 'SitPose', 'SitWalk', 'CrawlPose', 'Crawl', 'Roll', 'Dead']
 
     for (const target of targets) {
       const found = names.find(n => {
@@ -224,10 +229,11 @@ const Player = memo(function Player({
 
     action.reset().fadeIn(0.2).play()
 
-    if (name === 'Jump' || name === 'Roll') {
+    if (name === 'Jump' || name === 'Roll' || name === 'Dead') {
       action.setLoop(THREE.LoopOnce, 1)
       action.clampWhenFinished = true
       if (name === 'Roll') action.timeScale = 2.3
+      if (name === 'Dead') action.timeScale = 1.0
     } else {
       action.setLoop(THREE.LoopRepeat, Infinity)
     }
@@ -254,6 +260,36 @@ const Player = memo(function Player({
     // 물리 객체 유효성 체크
     if (!playerColliderRef.current) return
 
+    const vel = playerBody.linvel()
+    const centerY = COLLIDER_CONFIG[posture].centerY
+
+    // 사망 애니메이션 처리 중
+    if (dying.current) {
+      dyingTimer.current -= dt
+      // 수평 이동 멈추고 중력만 적용
+      playerBody.setLinvel({ x: 0, y: vel.y, z: 0 }, true)
+      world.step()
+
+      const pos = playerBody.translation()
+      group.current.position.set(pos.x, pos.y - centerY, pos.z)
+      store.setPlayerPos([pos.x, pos.y - centerY, pos.z])
+
+      if (dyingTimer.current <= 0) {
+        // 사망 애니메이션 끝 - 리스폰
+        dying.current = false
+        const respawnPos = respawnPosRef.current || startPosition
+        playerBody.setTranslation(
+          { x: respawnPos[0], y: respawnPos[1] + centerY + 1, z: respawnPos[2] },
+          true
+        )
+        playerBody.setLinvel({ x: 0, y: 0, z: 0 }, true)
+        group.current.position.set(respawnPos[0], respawnPos[1], respawnPos[2])
+        store.setPlayerPos([respawnPos[0], respawnPos[1], respawnPos[2]])
+        playAnim('Idle')
+      }
+      return // 사망 중에는 다른 처리 스킵
+    }
+
     // 자세 변경 시 콜라이더 업데이트
     if (posture !== currentPosture.current) {
       const newCollider = updatePlayerCollider(world, playerBody, playerColliderRef.current, currentPosture.current, posture)
@@ -264,7 +300,6 @@ const Player = memo(function Player({
     // 바닥 체크 (현재 자세에 맞게)
     const isGrounded = checkGrounded(world, playerBody, playerColliderRef.current, posture)
     grounded.current = isGrounded
-    const vel = playerBody.linvel()
 
     // 쿨다운
     if (dashCooldown.current > 0) dashCooldown.current -= dt
@@ -348,9 +383,8 @@ const Player = memo(function Player({
     playerBody.setLinvel({ x: _move.x * speed, y: shouldJump ? JUMP_POWER : vel.y, z: _move.z * speed }, true)
     world.step()
 
-    // 위치 동기화 (자세별 centerY 적용)
+    // 위치 동기화
     const pos = playerBody.translation()
-    const centerY = COLLIDER_CONFIG[posture].centerY
     group.current.position.set(pos.x, pos.y - centerY, pos.z)
 
     // 애니메이션
@@ -399,21 +433,32 @@ const Player = memo(function Player({
       }
     }
 
-    // 킬존 체크
-    let shouldRespawn = false
+    // 킬존 체크 (원판 형태: XZ 반경 + Y 높이 제한)
+    let hitKillzone = false
     for (const kz of killzones) {
       const dx = pos.x - kz.position[0]
       const dy = playerFootY - kz.position[1]
       const dz = pos.z - kz.position[2]
-      const distSq = dx * dx + dy * dy + dz * dz
-      if (distSq < KILLZONE_RADIUS * KILLZONE_RADIUS) {
-        shouldRespawn = true
+      const distXZ = dx * dx + dz * dz  // XZ 평면 거리
+      const inRadius = distXZ < KILLZONE_RADIUS * KILLZONE_RADIUS
+      const inHeight = Math.abs(dy) < KILLZONE_HEIGHT
+      if (inRadius && inHeight) {
+        hitKillzone = true
         break
       }
     }
 
-    // 낙사 체크 (Y < -10) 또는 킬존 진입
-    if (playerFootY < FALL_THRESHOLD || shouldRespawn) {
+    // 킬존 진입 시 사망 애니메이션 시작
+    if (hitKillzone) {
+      dying.current = true
+      dyingTimer.current = DEAD_DURATION
+      respawnPosRef.current = lastCheckpointPos || startPosition
+      playAnim('Dead')
+      return
+    }
+
+    // 낙사 체크 (Y < -10) - 즉시 리스폰
+    if (playerFootY < FALL_THRESHOLD) {
       const respawnPos = lastCheckpointPos || startPosition
       playerBody.setTranslation(
         { x: respawnPos[0], y: respawnPos[1] + centerY + 1, z: respawnPos[2] },
@@ -633,24 +678,29 @@ const MARKER_COLORS: Record<string, string> = {
 
 const MarkerMesh = memo(function MarkerMesh({ marker }: { marker: MapMarker }) {
   const color = MARKER_COLORS[marker.type] || '#ffffff'
+  const isKillzone = marker.type === 'killzone'
 
   return (
     <group position={marker.position} rotation={marker.rotation}>
-      {/* 바닥 링 */}
+      {/* 바닥 링 - 킬존은 더 크게 (반경 2.0에 맞춤) */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.05, 0]}>
-        <ringGeometry args={[1.2, 1.5, 32]} />
+        <ringGeometry args={isKillzone ? [1.8, 2.0, 32] : [1.2, 1.5, 32]} />
         <meshBasicMaterial color={color} transparent opacity={0.5} side={THREE.DoubleSide} />
       </mesh>
-      {/* 기둥 */}
-      <mesh position={[0, 1.5, 0]}>
-        <cylinderGeometry args={[0.1, 0.1, 3, 8]} />
-        <meshBasicMaterial color={color} transparent opacity={0.3} />
-      </mesh>
-      {/* 상단 표시 */}
-      <mesh position={[0, 3.2, 0]}>
-        <coneGeometry args={[0.3, 0.5, 4]} />
-        <meshStandardMaterial color={color} emissive={color} emissiveIntensity={0.5} />
-      </mesh>
+      {/* 기둥 - 킬존은 표시 안함 */}
+      {!isKillzone && (
+        <mesh position={[0, 1.5, 0]}>
+          <cylinderGeometry args={[0.1, 0.1, 3, 8]} />
+          <meshBasicMaterial color={color} transparent opacity={0.3} />
+        </mesh>
+      )}
+      {/* 상단 표시 - 킬존은 표시 안함 */}
+      {!isKillzone && (
+        <mesh position={[0, 3.2, 0]}>
+          <coneGeometry args={[0.3, 0.5, 4]} />
+          <meshStandardMaterial color={color} emissive={color} emissiveIntensity={0.5} />
+        </mesh>
+      )}
     </group>
   )
 })

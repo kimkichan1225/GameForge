@@ -16,6 +16,7 @@ const MARKER_COLORS: Record<string, string> = {
   spawn: '#00ff00',
   checkpoint: '#ffff00',
   finish: '#ff0000',
+  killzone: '#ff00ff',
   spawn_a: '#ff4444',
   spawn_b: '#4444ff',
   capture_point: '#ffaa00',
@@ -620,7 +621,7 @@ const KeyboardShortcuts = memo(function KeyboardShortcuts() {
         // 현재 모드에 맞는 마커 배열
         let markers: MarkerType[] = []
         if (mapMode === 'race') {
-          markers = ['spawn', 'checkpoint', 'finish']
+          markers = ['spawn', 'checkpoint', 'finish', 'killzone']
         } else {
           switch (shooterSubMode) {
             case 'team':
