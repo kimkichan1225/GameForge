@@ -260,7 +260,13 @@ const Player = memo(function Player({
     // 물리 객체 유효성 체크
     if (!playerColliderRef.current) return
 
-    const vel = playerBody.linvel()
+    // 물리 엔진 접근 시 에러 보호 (언마운트 중 발생 가능)
+    let vel: { x: number; y: number; z: number }
+    try {
+      vel = playerBody.linvel()
+    } catch {
+      return // 물리 객체가 해제됨
+    }
     const centerY = COLLIDER_CONFIG[posture].centerY
 
     // 사망 애니메이션 처리 중
@@ -288,6 +294,27 @@ const Player = memo(function Player({
         playAnim('Idle')
       }
       return // 사망 중에는 다른 처리 스킵
+    }
+
+    // 재시작 요청 처리
+    if (store.restartRequested) {
+      store.clearRestartRequest()
+      // 플레이어를 스폰 위치로 이동
+      playerBody.setTranslation(
+        { x: startPosition[0], y: startPosition[1] + centerY + 1, z: startPosition[2] },
+        true
+      )
+      playerBody.setLinvel({ x: 0, y: 0, z: 0 }, true)
+      group.current.position.set(startPosition[0], startPosition[1], startPosition[2])
+      store.setPlayerPos([startPosition[0], startPosition[1], startPosition[2]])
+      // 상태 초기화
+      hasStartedMoving.current = false
+      dying.current = false
+      jumping.current = false
+      dashing.current = false
+      currentPosture.current = 'standing'
+      playAnim('Idle')
+      return
     }
 
     // 자세 변경 시 콜라이더 업데이트
@@ -833,7 +860,7 @@ const TestPlayUI = memo(function TestPlayUI({
               <button
                 onClick={() => {
                   useGameStore.getState().reset()
-                  window.location.reload()
+                  useGameStore.getState().requestRestart()
                 }}
                 className="px-6 py-2 bg-green-500 hover:bg-green-400 text-white rounded-lg font-medium"
               >

@@ -414,24 +414,41 @@ function PlacementPreview() {
 
       {/* 마커 미리보기 - 레이캐스트 제외 */}
       <group ref={markerRef} visible={false} raycast={noRaycast}>
-        <mesh raycast={noRaycast}>
-          <coneGeometry args={[0.3, 0.8, 4]} />
-          <meshStandardMaterial
-            color={currentMarker ? MARKER_COLORS[currentMarker] || '#ffffff' : '#ffffff'}
-            transparent
-            opacity={0.5}
-            depthWrite={false}
-          />
-        </mesh>
-        <mesh position={[0, 0, 0.5]} raycast={noRaycast}>
-          <coneGeometry args={[0.15, 0.3, 8]} />
-          <meshStandardMaterial
-            color={currentMarker ? MARKER_COLORS[currentMarker] || '#ffffff' : '#ffffff'}
-            transparent
-            opacity={0.5}
-            depthWrite={false}
-          />
-        </mesh>
+        {currentMarker === 'killzone' ? (
+          /* 킬존: 원형 범위 표시 (반경 2.0) */
+          <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.05, 0]} raycast={noRaycast}>
+            <ringGeometry args={[1.8, 2.0, 32]} />
+            <meshStandardMaterial
+              color={MARKER_COLORS.killzone}
+              transparent
+              opacity={0.5}
+              depthWrite={false}
+              side={THREE.DoubleSide}
+            />
+          </mesh>
+        ) : (
+          /* 기타 마커: 콘 형태 */
+          <>
+            <mesh raycast={noRaycast}>
+              <coneGeometry args={[0.3, 0.8, 4]} />
+              <meshStandardMaterial
+                color={currentMarker ? MARKER_COLORS[currentMarker] || '#ffffff' : '#ffffff'}
+                transparent
+                opacity={0.5}
+                depthWrite={false}
+              />
+            </mesh>
+            <mesh position={[0, 0, 0.5]} raycast={noRaycast}>
+              <coneGeometry args={[0.15, 0.3, 8]} />
+              <meshStandardMaterial
+                color={currentMarker ? MARKER_COLORS[currentMarker] || '#ffffff' : '#ffffff'}
+                transparent
+                opacity={0.5}
+                depthWrite={false}
+              />
+            </mesh>
+          </>
+        )}
       </group>
     </>
   )
@@ -509,21 +526,42 @@ const EditorObject = memo(function EditorObject({ obj, selected }: { obj: MapObj
 // 마커 컴포넌트 (React.memo로 최적화)
 const EditorMarker = memo(function EditorMarker({ marker, selected }: { marker: MapMarker; selected: boolean }) {
   const color = MARKER_COLORS[marker.type] || '#ffffff'
+  const isKillzone = marker.type === 'killzone'
 
   return (
     <group position={marker.position} rotation={marker.rotation}>
-      <mesh userData={{ isEditorObject: true, objectId: `marker_${marker.id}` }}>
-        <coneGeometry args={[0.3, 0.8, 4]} />
-        <meshStandardMaterial
-          color={color}
-          emissive={selected ? color : '#000000'}
-          emissiveIntensity={selected ? 0.5 : 0}
-        />
-      </mesh>
-      <mesh position={[0, 0, 0.5]} rotation={[Math.PI / 2, 0, 0]}>
-        <coneGeometry args={[0.15, 0.3, 8]} />
-        <meshStandardMaterial color={color} />
-      </mesh>
+      {isKillzone ? (
+        /* 킬존: 원형 링 (반경 2.0) */
+        <mesh
+          rotation={[-Math.PI / 2, 0, 0]}
+          position={[0, 0.05, 0]}
+          userData={{ isEditorObject: true, objectId: `marker_${marker.id}` }}
+        >
+          <ringGeometry args={[1.8, 2.0, 32]} />
+          <meshStandardMaterial
+            color={color}
+            emissive={selected ? color : '#000000'}
+            emissiveIntensity={selected ? 0.5 : 0}
+            side={THREE.DoubleSide}
+          />
+        </mesh>
+      ) : (
+        /* 기타 마커: 콘 형태 */
+        <>
+          <mesh userData={{ isEditorObject: true, objectId: `marker_${marker.id}` }}>
+            <coneGeometry args={[0.3, 0.8, 4]} />
+            <meshStandardMaterial
+              color={color}
+              emissive={selected ? color : '#000000'}
+              emissiveIntensity={selected ? 0.5 : 0}
+            />
+          </mesh>
+          <mesh position={[0, 0, 0.5]} rotation={[Math.PI / 2, 0, 0]}>
+            <coneGeometry args={[0.15, 0.3, 8]} />
+            <meshStandardMaterial color={color} />
+          </mesh>
+        </>
+      )}
     </group>
   )
 })

@@ -43,6 +43,11 @@ interface GameStore {
 
   // 리셋
   reset: () => void
+
+  // 게임 재시작 요청 (플레이어 위치 리셋)
+  restartRequested: boolean
+  requestRestart: () => void
+  clearRestartRequest: () => void
 }
 
 const initialState = {
@@ -60,6 +65,7 @@ const initialState = {
   checkpointsPassed: 0,
   lastCheckpointPos: null as [number, number, number] | null,
   passedCheckpointIds: new Set<string>(),
+  restartRequested: false,
 }
 
 export const useGameStore = create<GameStore>((set, get) => ({
@@ -109,4 +115,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   }),
 
   reset: () => set(initialState),
+
+  requestRestart: () => set({ restartRequested: true }),
+  clearRestartRequest: () => set({ restartRequested: false }),
 }))
