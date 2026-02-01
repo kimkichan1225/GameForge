@@ -6,6 +6,15 @@ import { useInput } from '../../hooks/useInput'
 import { useGameStore } from '../../stores/gameStore'
 import { useEditorStore } from '../../stores/editorStore'
 import type { MapObject } from '../../stores/editorStore'
+import {
+  initRapier,
+  createWorld,
+  createGround,
+  createPlayer,
+  loadMapObjects,
+  checkGrounded,
+  RAPIER,
+} from '../../lib/physics'
 
 // 물리 상수
 const WALK_SPEED = 4
@@ -13,13 +22,11 @@ const RUN_SPEED = 8
 const SIT_SPEED = 2
 const CRAWL_SPEED = 1
 const JUMP_POWER = 8
-const GRAVITY = -20
 const DASH_SPEED = 12
 const DASH_DURATION = 0.5
 const DASH_COOLDOWN = 1.0
 
 // 재사용 벡터
-const _vel = new THREE.Vector3()
 const _move = new THREE.Vector3()
 const _yAxis = new THREE.Vector3(0, 1, 0)
 const _targetQuat = new THREE.Quaternion()
@@ -57,8 +64,20 @@ function getWedgeGeometry(): THREE.BufferGeometry {
   return geometry
 }
 
+// 물리 컨텍스트
+interface PhysicsContext {
+  world: RAPIER.World
+  playerBody: RAPIER.RigidBody
+}
+
 // 플레이어 컴포넌트
-function Player({ startPosition }: { startPosition: [number, number, number] }) {
+function Player({
+  startPosition,
+  physics,
+}: {
+  startPosition: [number, number, number]
+  physics: PhysicsContext
+}) {
   const group = useRef<THREE.Group>(null!)
   const { scene, animations } = useGLTF('/Runtest.glb')
   const { actions, names } = useAnimations(animations, scene)
@@ -66,7 +85,6 @@ function Player({ startPosition }: { startPosition: [number, number, number] }) 
   const [animMap, setAnimMap] = useState<Record<string, string>>({})
 
   // 상태 refs
-  const velocityY = useRef(0)
   const grounded = useRef(true)
   const dashing = useRef(false)
   const dashTimer = useRef(0)
@@ -99,15 +117,7 @@ function Player({ startPosition }: { startPosition: [number, number, number] }) 
     })
 
     setAnimMap(map)
-    console.log('Animation map:', map, 'Available animations:', names)
   }, [names])
-
-  // 초기 위치 설정
-  useEffect(() => {
-    if (group.current) {
-      group.current.position.set(startPosition[0], startPosition[1], startPosition[2])
-    }
-  }, [startPosition])
 
   // 초기 애니메이션
   const initialized = useRef(false)
@@ -157,33 +167,38 @@ function Player({ startPosition }: { startPosition: [number, number, number] }) 
   }
 
   useFrame((_, dt) => {
-    if (!group.current) return
+    if (!group.current || !physics) return
 
     const keys = input.current
     const store = useGameStore.getState()
     const posture = store.posture
     const cameraAngle = store.cameraAngle
+    const { world, playerBody } = physics
+
+    // 바닥 체크
+    const isGrounded = checkGrounded(world, playerBody)
+    grounded.current = isGrounded
 
     // 쿨다운
     if (dashCooldown.current > 0) dashCooldown.current -= dt
 
-    // 자세 토글 (C: 앉기, Z: 엎드리기)
-    if (keys.c && !prev.current.c && grounded.current && !dashing.current) {
+    // 자세 토글
+    if (keys.c && !prev.current.c && isGrounded && !dashing.current) {
       store.setPosture(posture === 'sitting' ? 'standing' : 'sitting')
     }
-    if (keys.z && !prev.current.z && grounded.current && !dashing.current) {
+    if (keys.z && !prev.current.z && isGrounded && !dashing.current) {
       store.setPosture(posture === 'crawling' ? 'standing' : 'crawling')
     }
 
     // 점프
-    if (keys.space && !prev.current.space && grounded.current && posture === 'standing' && !dashing.current) {
-      velocityY.current = JUMP_POWER
-      grounded.current = false
+    let shouldJump = false
+    if (keys.space && !prev.current.space && isGrounded && posture === 'standing' && !dashing.current) {
+      shouldJump = true
       playAnim('Jump')
     }
 
-    // 대쉬 (Roll)
-    if (keys.v && !prev.current.v && grounded.current && posture === 'standing' && !dashing.current && dashCooldown.current <= 0) {
+    // 대쉬
+    if (keys.v && !prev.current.v && isGrounded && posture === 'standing' && !dashing.current && dashCooldown.current <= 0) {
       dashing.current = true
       dashTimer.current = DASH_DURATION
       dashCooldown.current = DASH_COOLDOWN
@@ -205,76 +220,67 @@ function Player({ startPosition }: { startPosition: [number, number, number] }) 
 
     prev.current = { space: keys.space, c: keys.c, z: keys.z, v: keys.v }
 
-    // 이동
-    _vel.set(0, 0, 0)
+    // 이동 계산
+    _move.set(0, 0, 0)
 
     if (dashing.current) {
       dashTimer.current -= dt
-      _vel.copy(dashDir.current).multiplyScalar(DASH_SPEED * dt)
+      _move.copy(dashDir.current)
       if (dashTimer.current <= 0) {
         dashing.current = false
-        const moving = keys.forward || keys.backward || keys.left || keys.right
-        const running = keys.shift && posture === 'standing'
-        playAnim(getAnim(moving, running, posture))
       }
     } else {
-      _move.set(0, 0, 0)
       if (keys.forward) _move.z -= 1
       if (keys.backward) _move.z += 1
       if (keys.left) _move.x -= 1
       if (keys.right) _move.x += 1
 
-      const moving = _move.lengthSq() > 0
-      const running = keys.shift && posture === 'standing'
-
-      if (moving) {
+      if (_move.lengthSq() > 0) {
         _move.normalize().applyAxisAngle(_yAxis, cameraAngle)
 
+        // 캐릭터 회전
         const angle = Math.atan2(_move.x, _move.z)
         _targetQuat.setFromAxisAngle(_yAxis, angle)
         scene.quaternion.slerp(_targetQuat, 0.15)
-
-        let speed = WALK_SPEED
-        if (posture === 'sitting') speed = SIT_SPEED
-        else if (posture === 'crawling') speed = CRAWL_SPEED
-        else if (running) speed = RUN_SPEED
-
-        if (!grounded.current) speed *= 0.8
-
-        _vel.copy(_move).multiplyScalar(speed * dt)
-      }
-
-      if (grounded.current) {
-        playAnim(getAnim(moving, running, posture))
       }
     }
 
-    // 중력
-    velocityY.current += GRAVITY * dt
-    group.current.position.x += _vel.x
-    group.current.position.z += _vel.z
-    group.current.position.y += velocityY.current * dt
+    // 속도 결정
+    let speed = WALK_SPEED
+    if (dashing.current) speed = DASH_SPEED
+    else if (posture === 'sitting') speed = SIT_SPEED
+    else if (posture === 'crawling') speed = CRAWL_SPEED
+    else if (keys.shift && posture === 'standing') speed = RUN_SPEED
 
-    // 바닥 체크
-    if (group.current.position.y <= 0) {
-      group.current.position.y = 0
-      velocityY.current = 0
-      if (!grounded.current) {
-        grounded.current = true
-        if (!dashing.current) {
-          const moving = keys.forward || keys.backward || keys.left || keys.right
-          playAnim(getAnim(moving, keys.shift && posture === 'standing', posture))
-        }
-      }
+    // Rapier 물리 적용
+    const vel = playerBody.linvel()
+    const newVel = {
+      x: _move.x * speed,
+      y: shouldJump ? JUMP_POWER : vel.y,
+      z: _move.z * speed,
+    }
+    playerBody.setLinvel(newVel, true)
+
+    // 물리 시뮬레이션
+    world.step()
+
+    // Three.js 위치 동기화
+    const pos = playerBody.translation()
+    group.current.position.set(pos.x, pos.y - 0.9, pos.z) // 캡슐 중심 보정
+
+    // 애니메이션
+    if (isGrounded && !dashing.current) {
+      const moving = _move.lengthSq() > 0
+      const running = keys.shift && posture === 'standing'
+      playAnim(getAnim(moving, running, posture))
     }
 
-    // 위치 업데이트
-    const pos = group.current.position
-    store.setPlayerPos([pos.x, pos.y, pos.z])
+    // 게임 스토어 업데이트
+    store.setPlayerPos([pos.x, pos.y - 0.9, pos.z])
   })
 
   return (
-    <group ref={group}>
+    <group ref={group} position={startPosition}>
       <primitive object={scene} />
     </group>
   )
@@ -397,13 +403,13 @@ function MapObjects() {
   return (
     <>
       {objects.map(obj => (
-        <MapObject key={obj.id} obj={obj} />
+        <MapObjectMesh key={obj.id} obj={obj} />
       ))}
     </>
   )
 }
 
-function MapObject({ obj }: { obj: MapObject }) {
+function MapObjectMesh({ obj }: { obj: MapObject }) {
   const geometry = useMemo(() => {
     if (obj.type === 'ramp') return getWedgeGeometry()
     return undefined
@@ -419,11 +425,8 @@ function MapObject({ obj }: { obj: MapObject }) {
       {obj.type === 'box' && <boxGeometry args={[1, 1, 1]} />}
       {obj.type === 'cylinder' && <cylinderGeometry args={[0.5, 0.5, 1, 32]} />}
       {obj.type === 'sphere' && <sphereGeometry args={[0.5, 32, 32]} />}
-      {obj.type === 'plane' && <planeGeometry args={[1, 1]} />}
-      <meshStandardMaterial
-        color={obj.color}
-        side={obj.type === 'plane' ? THREE.DoubleSide : THREE.FrontSide}
-      />
+      {obj.type === 'plane' && <boxGeometry args={[1, 0.1, 1]} />}
+      <meshStandardMaterial color={obj.color} />
     </mesh>
   )
 }
@@ -439,7 +442,15 @@ function Ground() {
 }
 
 // 씬 콘텐츠
-function SceneContent({ startPosition }: { startPosition: [number, number, number] }) {
+function SceneContent({
+  startPosition,
+  physics,
+}: {
+  startPosition: [number, number, number]
+  physics: PhysicsContext | null
+}) {
+  if (!physics) return null
+
   return (
     <>
       {/* 조명 */}
@@ -471,7 +482,7 @@ function SceneContent({ startPosition }: { startPosition: [number, number, numbe
       <MapObjects />
 
       {/* 플레이어 */}
-      <Player startPosition={startPosition} />
+      <Player startPosition={startPosition} physics={physics} />
 
       {/* 카메라 */}
       <FollowCamera />
@@ -530,11 +541,23 @@ function TestPlayUI({ onExit }: { onExit: () => void }) {
   )
 }
 
+// 로딩 화면
+function LoadingScreen() {
+  return (
+    <div className="w-full h-full bg-slate-900 flex items-center justify-center">
+      <div className="text-white text-xl">물리 엔진 로딩 중...</div>
+    </div>
+  )
+}
+
 // 메인 컴포넌트
 export function TestPlayCanvas({ onExit }: { onExit: () => void }) {
   const markers = useEditorStore(state => state.markers)
+  const objects = useEditorStore(state => state.objects)
+  const [physics, setPhysics] = useState<PhysicsContext | null>(null)
+  const [loading, setLoading] = useState(true)
 
-  // Spawn 마커 위치 찾기
+  // Spawn 마커 위치
   const startPosition = useMemo((): [number, number, number] => {
     const spawnMarker = markers.find(m => m.type === 'spawn' || m.type === 'spawn_a')
     if (spawnMarker) {
@@ -543,15 +566,48 @@ export function TestPlayCanvas({ onExit }: { onExit: () => void }) {
     return [0, 0, 0]
   }, [markers])
 
+  // Rapier 초기화 및 물리 월드 생성
+  useEffect(() => {
+    let mounted = true
+
+    async function init() {
+      try {
+        await initRapier()
+
+        if (!mounted) return
+
+        const world = createWorld()
+        createGround(world)
+        loadMapObjects(world, objects)
+        const { rigidBody } = createPlayer(world, startPosition)
+
+        setPhysics({ world, playerBody: rigidBody })
+        setLoading(false)
+      } catch (error) {
+        console.error('Failed to initialize physics:', error)
+      }
+    }
+
+    init()
+
+    return () => {
+      mounted = false
+    }
+  }, [objects, startPosition])
+
   // 게임 스토어 리셋
   useEffect(() => {
     useGameStore.getState().reset()
   }, [])
 
+  if (loading) {
+    return <LoadingScreen />
+  }
+
   return (
     <div className="w-full h-full relative">
       <Canvas camera={{ fov: 60, near: 0.1, far: 1000 }} shadows>
-        <SceneContent startPosition={startPosition} />
+        <SceneContent startPosition={startPosition} physics={physics} />
       </Canvas>
       <TestPlayUI onExit={onExit} />
     </div>

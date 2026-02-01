@@ -495,12 +495,11 @@ const EditorObject = memo(function EditorObject({ obj, selected }: { obj: MapObj
       {obj.type === 'box' && <boxGeometry args={[1, 1, 1]} />}
       {obj.type === 'cylinder' && <cylinderGeometry args={[0.5, 0.5, 1, 32]} />}
       {obj.type === 'sphere' && <sphereGeometry args={[0.5, 32, 32]} />}
-      {obj.type === 'plane' && <planeGeometry args={[1, 1]} />}
+      {obj.type === 'plane' && <boxGeometry args={[1, 0.1, 1]} />}
       <meshStandardMaterial
         color={selected ? '#ffffff' : obj.color}
         emissive={selected ? obj.color : '#000000'}
         emissiveIntensity={selected ? 0.3 : 0}
-        side={obj.type === 'plane' ? THREE.DoubleSide : THREE.FrontSide}
       />
     </mesh>
   )
