@@ -18,10 +18,16 @@ const MARKER_COLORS: Record<string, string> = {
   capture_point: '#ffaa00',
 }
 
-// 1개만 설치 가능한 마커 타입 상수
-const SINGLETON_MARKERS: MarkerType[] = [
-  'spawn', 'finish', 'spawn_a', 'spawn_b', 'capture_point'
-]
+// 1개만 설치 가능한 마커 타입 (모드별로 다름)
+const getSingletonMarkers = (mapMode: string, shooterSubMode: string): MarkerType[] => {
+  if (mapMode === 'race') {
+    return ['spawn', 'finish'] // checkpoint는 여러개 가능
+  }
+  if (shooterSubMode === 'ffa') {
+    return [] // 개인전은 spawn 여러개 가능
+  }
+  return ['spawn_a', 'spawn_b', 'capture_point']
+}
 
 // 0.5 단위로 스냅하는 유틸 함수
 const snap = (val: number) => Math.round(val * 2) / 2
@@ -261,6 +267,8 @@ function PlacementPreview() {
   const currentMarker = useEditorStore(state => state.currentMarker)
   const objects = useEditorStore(state => state.objects)
   const markers = useEditorStore(state => state.markers)
+  const mapMode = useEditorStore(state => state.mapMode)
+  const shooterSubMode = useEditorStore(state => state.shooterSubMode)
 
   const meshRef = useRef<THREE.Mesh>(null)
   const markerRef = useRef<THREE.Group>(null)
@@ -289,11 +297,12 @@ function PlacementPreview() {
     })
   }, [objects])
 
-  // 마커 설치 가능 여부 체크
+  // 마커 설치 가능 여부 체크 (모드별 싱글톤 적용)
   const canPlaceMarker = useCallback((type: MarkerType) => {
-    if (!SINGLETON_MARKERS.includes(type)) return true
+    const singletonMarkers = getSingletonMarkers(mapMode, shooterSubMode)
+    if (!singletonMarkers.includes(type)) return true
     return !markers.some(m => m.type === type)
-  }, [markers])
+  }, [markers, mapMode, shooterSubMode])
 
   useFrame(() => {
     if (document.pointerLockElement === null) {

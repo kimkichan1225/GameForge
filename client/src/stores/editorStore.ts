@@ -107,6 +107,9 @@ interface EditorState {
   loadMap: (data: MapData) => void
   exportMap: () => MapData
 
+  // 맵 검증
+  validateMap: () => { valid: boolean; missingMarkers: string[] }
+
   // 선택된 오브젝트 복제
   duplicateSelected: () => void
 }
@@ -224,12 +227,20 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     const state = get()
     if (!state.currentMarker) return
 
-    // 1개만 설치 가능한 마커 타입 체크
-    const singletonMarkers: MarkerType[] = [
-      'spawn', 'finish',           // Race (checkpoint는 여러개 가능)
-      'spawn_a', 'spawn_b',        // Shooter 팀전/점령전
-      'capture_point',             // Shooter 점령전
-    ]
+    // 1개만 설치 가능한 마커 타입 결정 (모드에 따라 다름)
+    const getSingletonMarkers = (): MarkerType[] => {
+      if (state.mapMode === 'race') {
+        // 레이스: spawn, finish는 1개만 (checkpoint는 여러개 가능)
+        return ['spawn', 'finish']
+      }
+      // 슈터: 팀전/점령전은 각 마커 1개씩, 개인전은 spawn 무제한
+      if (state.shooterSubMode === 'ffa') {
+        return [] // 개인전은 spawn 여러개 가능
+      }
+      return ['spawn_a', 'spawn_b', 'capture_point']
+    }
+
+    const singletonMarkers = getSingletonMarkers()
 
     // 이미 같은 타입의 마커가 있으면 설치 안함
     if (singletonMarkers.includes(state.currentMarker)) {
@@ -360,6 +371,45 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       markers: state.markers,
       createdAt: Date.now(),
       updatedAt: Date.now(),
+    }
+  },
+
+  validateMap: () => {
+    const state = get()
+    const missingMarkers: string[] = []
+
+    if (state.mapMode === 'race') {
+      // 레이스: Spawn, Finish 필수 (각 1개)
+      if (!state.markers.some(m => m.type === 'spawn')) missingMarkers.push('Spawn (시작점)')
+      if (!state.markers.some(m => m.type === 'finish')) missingMarkers.push('Finish (끝점)')
+    } else {
+      // 슈터
+      switch (state.shooterSubMode) {
+        case 'team':
+          // 팀전: Team A, Team B 스폰 필수 (각 1개)
+          if (!state.markers.some(m => m.type === 'spawn_a')) missingMarkers.push('Team A 스폰')
+          if (!state.markers.some(m => m.type === 'spawn_b')) missingMarkers.push('Team B 스폰')
+          break
+        case 'domination':
+          // 점령전: Team A, Team B, Capture Point 필수 (각 1개)
+          if (!state.markers.some(m => m.type === 'spawn_a')) missingMarkers.push('Team A 스폰')
+          if (!state.markers.some(m => m.type === 'spawn_b')) missingMarkers.push('Team B 스폰')
+          if (!state.markers.some(m => m.type === 'capture_point')) missingMarkers.push('Capture Point (점령 포인트)')
+          break
+        case 'ffa': {
+          // 개인전: Spawn 최소 3개 필수
+          const spawnCount = state.markers.filter(m => m.type === 'spawn').length
+          if (spawnCount < 3) {
+            missingMarkers.push(`Spawn 포인트 (${spawnCount}/3개 - 최소 3개 필요)`)
+          }
+          break
+        }
+      }
+    }
+
+    return {
+      valid: missingMarkers.length === 0,
+      missingMarkers,
     }
   },
 

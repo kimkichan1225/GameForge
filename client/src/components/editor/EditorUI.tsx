@@ -111,6 +111,7 @@ const Toolbar = memo(function Toolbar({ onExit }: { onExit: () => void }) {
   const newMap = useEditorStore(state => state.newMap)
   const exportMap = useEditorStore(state => state.exportMap)
   const loadMap = useEditorStore(state => state.loadMap)
+  const validateMap = useEditorStore(state => state.validateMap)
   const mapName = useEditorStore(state => state.mapName)
   const setMapName = useEditorStore(state => state.setMapName)
   const mapMode = useEditorStore(state => state.mapMode)
@@ -118,8 +119,14 @@ const Toolbar = memo(function Toolbar({ onExit }: { onExit: () => void }) {
   const shooterSubMode = useEditorStore(state => state.shooterSubMode)
   const setShooterSubMode = useEditorStore(state => state.setShooterSubMode)
 
-  // 맵 내보내기 (JSON 파일 다운로드)
+  // 맵 내보내기 (JSON 파일 다운로드) - 검증 포함
   const handleExport = useCallback(() => {
+    const validation = validateMap()
+    if (!validation.valid) {
+      alert(`맵을 저장하려면 다음 마커가 필요합니다:\n\n${validation.missingMarkers.map(m => `• ${m}`).join('\n')}`)
+      return
+    }
+
     const data = exportMap()
     const json = JSON.stringify(data, null, 2)
     const blob = new Blob([json], { type: 'application/json' })
@@ -129,7 +136,7 @@ const Toolbar = memo(function Toolbar({ onExit }: { onExit: () => void }) {
     a.download = `${data.name}.json`
     a.click()
     URL.revokeObjectURL(url)
-  }, [exportMap])
+  }, [exportMap, validateMap])
 
   // 맵 불러오기 (JSON 파일 업로드)
   const handleImport = useCallback(() => {
