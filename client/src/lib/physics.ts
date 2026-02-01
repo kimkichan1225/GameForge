@@ -7,19 +7,19 @@ let rapierInstance: typeof RAPIER | null = null
 // 자세별 콜라이더 설정
 export const COLLIDER_CONFIG = {
   standing: {
-    halfHeight: 0.6,   // 캡슐 반높이
-    radius: 0.3,       // 캡슐 반지름
-    centerY: 0.9,      // 바닥에서 콜라이더 중심까지 높이
+    halfHeight: 0.95,   // 캡슐 반높이
+    radius: 0.4,       // 캡슐 반지름
+    centerY: 1.4,      // 바닥에서 콜라이더 중심까지 높이
   },
   sitting: {
-    halfHeight: 0.3,
-    radius: 0.3,
-    centerY: 0.6,
+    halfHeight: 0.6,
+    radius: 0.4,
+    centerY: 1,
   },
   crawling: {
-    halfHeight: 0.1,
+    halfHeight: 0.2,
     radius: 0.3,
-    centerY: 0.4,
+    centerY: 0.5,
   },
 } as const
 
@@ -79,27 +79,29 @@ export function updatePlayerCollider(
   world: RAPIER.World,
   rigidBody: RAPIER.RigidBody,
   oldCollider: RAPIER.Collider,
+  oldPosture: Posture,
   newPosture: Posture
 ): RAPIER.Collider {
   if (!rapierInstance) throw new Error('Rapier not initialized')
 
-  const config = COLLIDER_CONFIG[newPosture]
+  const oldConfig = COLLIDER_CONFIG[oldPosture]
+  const newConfig = COLLIDER_CONFIG[newPosture]
   const pos = rigidBody.translation()
 
   // 기존 콜라이더 제거
   world.removeCollider(oldCollider, false)
 
   // 새 콜라이더 생성
-  const colliderDesc = rapierInstance.ColliderDesc.capsule(config.halfHeight, config.radius)
+  const colliderDesc = rapierInstance.ColliderDesc.capsule(newConfig.halfHeight, newConfig.radius)
     .setFriction(0.0)
     .setRestitution(0.0)
 
   const newCollider = world.createCollider(colliderDesc, rigidBody)
 
   // 리지드바디 Y 위치 조정 (콜라이더 중심 변경에 따라)
-  // 바닥 기준으로 위치 유지
-  const groundY = pos.y - COLLIDER_CONFIG.standing.centerY  // 현재 바닥 위치 추정
-  rigidBody.setTranslation({ x: pos.x, y: groundY + config.centerY, z: pos.z }, true)
+  // 바닥 기준으로 위치 유지 - 이전 자세의 centerY를 사용해야 정확함
+  const groundY = pos.y - oldConfig.centerY  // 현재 바닥 위치 추정
+  rigidBody.setTranslation({ x: pos.x, y: groundY + newConfig.centerY, z: pos.z }, true)
 
   return newCollider
 }

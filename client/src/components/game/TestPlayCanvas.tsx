@@ -150,8 +150,7 @@ function getDebugRedMaterial() {
 interface PhysicsContext {
   world: RAPIER.World
   playerBody: RAPIER.RigidBody
-  playerCollider: RAPIER.Collider
-  setPlayerCollider: (collider: RAPIER.Collider) => void
+  playerColliderRef: React.MutableRefObject<RAPIER.Collider>
 }
 
 // ============ 플레이어 컴포넌트 ============
@@ -239,17 +238,17 @@ const Player = memo(function Player({
     const keys = input.current
     const store = useGameStore.getState()
     const { posture, cameraAngle } = store
-    const { world, playerBody, playerCollider, setPlayerCollider } = physics
+    const { world, playerBody, playerColliderRef } = physics
 
     // 자세 변경 시 콜라이더 업데이트
     if (posture !== currentPosture.current) {
-      const newCollider = updatePlayerCollider(world, playerBody, playerCollider, posture)
-      setPlayerCollider(newCollider)
+      const newCollider = updatePlayerCollider(world, playerBody, playerColliderRef.current, currentPosture.current, posture)
+      playerColliderRef.current = newCollider
       currentPosture.current = posture
     }
 
     // 바닥 체크 (현재 자세에 맞게)
-    const isGrounded = checkGrounded(world, playerBody, playerCollider, posture)
+    const isGrounded = checkGrounded(world, playerBody, playerColliderRef.current, posture)
     grounded.current = isGrounded
     const vel = playerBody.linvel()
 
@@ -675,8 +674,8 @@ export function TestPlayCanvas({ onExit }: { onExit: () => void }) {
   const physicsRef = useRef<{
     world: RAPIER.World
     playerBody: RAPIER.RigidBody
-    playerCollider: RAPIER.Collider
   } | null>(null)
+  const playerColliderRef = useRef<RAPIER.Collider | null>(null)
 
   const [physicsReady, setPhysicsReady] = useState(false)
 
@@ -685,23 +684,15 @@ export function TestPlayCanvas({ onExit }: { onExit: () => void }) {
     return spawnMarker ? [spawnMarker.position[0], spawnMarker.position[1], spawnMarker.position[2]] : [0, 0, 0]
   }, [markers])
 
-  // setPlayerCollider 콜백
-  const setPlayerCollider = useCallback((collider: RAPIER.Collider) => {
-    if (physicsRef.current) {
-      physicsRef.current.playerCollider = collider
-    }
-  }, [])
-
   // PhysicsContext 생성
   const physics = useMemo((): PhysicsContext | null => {
-    if (!physicsRef.current || !physicsReady) return null
+    if (!physicsRef.current || !playerColliderRef.current || !physicsReady) return null
     return {
       world: physicsRef.current.world,
       playerBody: physicsRef.current.playerBody,
-      playerCollider: physicsRef.current.playerCollider,
-      setPlayerCollider,
+      playerColliderRef: playerColliderRef as React.MutableRefObject<RAPIER.Collider>,
     }
-  }, [physicsReady, setPlayerCollider])
+  }, [physicsReady])
 
   useEffect(() => {
     let mounted = true
@@ -716,7 +707,8 @@ export function TestPlayCanvas({ onExit }: { onExit: () => void }) {
         loadMapObjects(world, objects)
         const { rigidBody, collider } = createPlayer(world, startPosition)
 
-        physicsRef.current = { world, playerBody: rigidBody, playerCollider: collider }
+        physicsRef.current = { world, playerBody: rigidBody }
+        playerColliderRef.current = collider
         setPhysicsReady(true)
         setLoading(false)
       } catch (error) {
