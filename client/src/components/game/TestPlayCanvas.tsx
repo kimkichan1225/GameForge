@@ -523,8 +523,8 @@ function DebugObjectCollider({ obj }: { obj: MapObject }) {
       return (
         <mesh position={pos} rotation={rot}>
           <cylinderGeometry args={[
-            Math.max(scale[0], scale[2]) / 2 * 0.5,
-            Math.max(scale[0], scale[2]) / 2 * 0.5,
+            Math.max(scale[0], scale[2]) * 0.5,  // radiusTop = 0.5 * scale
+            Math.max(scale[0], scale[2]) * 0.5,  // radiusBottom = 0.5 * scale
             scale[1],
             16
           ]} />
@@ -534,7 +534,7 @@ function DebugObjectCollider({ obj }: { obj: MapObject }) {
     case 'sphere':
       return (
         <mesh position={pos} rotation={rot}>
-          <sphereGeometry args={[Math.max(scale[0], scale[1], scale[2]) / 2 * 0.5, 16, 16]} />
+          <sphereGeometry args={[Math.max(scale[0], scale[1], scale[2]) * 0.5, 16, 16]} />
           <meshBasicMaterial color="#ff0000" wireframe transparent opacity={0.5} />
         </mesh>
       )

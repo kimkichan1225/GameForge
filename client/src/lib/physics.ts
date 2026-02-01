@@ -83,15 +83,19 @@ export function createObjectCollider(
       break
 
     case 'cylinder':
+      // cylinderGeometry args=[0.5, 0.5, 1] -> 반지름 0.5, 높이 1
+      // scale 적용 후: 반지름 = 0.5 * max(scaleX, scaleZ), 높이 = scaleY
       colliderDesc = rapierInstance.ColliderDesc.cylinder(
-        scale[1] / 2,
-        Math.max(scale[0], scale[2]) / 2 * 0.5
+        scale[1] / 2,  // halfHeight
+        Math.max(scale[0], scale[2]) * 0.5  // radius = 0.5 * scale
       )
       break
 
     case 'sphere':
+      // sphereGeometry args=[0.5] -> 반지름 0.5
+      // scale 적용 후: 반지름 = 0.5 * max(scale)
       colliderDesc = rapierInstance.ColliderDesc.ball(
-        Math.max(scale[0], scale[1], scale[2]) / 2 * 0.5
+        Math.max(scale[0], scale[1], scale[2]) * 0.5  // radius = 0.5 * scale
       )
       break
 
