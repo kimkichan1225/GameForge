@@ -5,8 +5,11 @@ import * as THREE from 'three'
 import { useEditorStore } from '../../stores/editorStore'
 import type { MapObject, MapMarker, MarkerType, PlaceableType } from '../../stores/editorStore'
 
-// 전역 캐시 - 쐐기 지오메트리
+// ============ 전역 캐시 ============
 let cachedWedgeGeometry: THREE.BufferGeometry | null = null
+
+// 레이캐스트 무시 함수 (전역으로 이동하여 재생성 방지)
+const noRaycast = () => null
 
 // 마커 색상 상수 (컴포넌트 외부로 이동)
 const MARKER_COLORS: Record<string, string> = {
@@ -159,15 +162,15 @@ function FPSCamera() {
   return null
 }
 
-// 바닥 평면
-function Ground() {
+// 바닥 평면 (정적 - memo로 최적화)
+const Ground = memo(function Ground() {
   return (
     <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]}>
       <planeGeometry args={[200, 200]} />
-      <meshStandardMaterial color="#3a5a40" side={THREE.DoubleSide} />
+      <meshStandardMaterial color="#3a5a40" side={THREE.FrontSide} />
     </mesh>
   )
-}
+})
 
 // 레이캐스트 배치 - 좌클릭으로 설치, 우클릭으로 선택
 function RaycastPlacer() {
@@ -391,9 +394,6 @@ function PlacementPreview() {
     if (markerRef.current) markerRef.current.visible = false
   })
 
-  // 레이캐스트 무시 함수
-  const noRaycast = () => null
-
   return (
     <>
       {/* 오브젝트 미리보기 - 레이캐스트 제외 */}
@@ -493,8 +493,8 @@ const EditorObject = memo(function EditorObject({ obj, selected }: { obj: MapObj
       geometry={geometry}
     >
       {obj.type === 'box' && <boxGeometry args={[1, 1, 1]} />}
-      {obj.type === 'cylinder' && <cylinderGeometry args={[0.5, 0.5, 1, 32]} />}
-      {obj.type === 'sphere' && <sphereGeometry args={[0.5, 32, 32]} />}
+      {obj.type === 'cylinder' && <cylinderGeometry args={[0.5, 0.5, 1, 16]} />}
+      {obj.type === 'sphere' && <sphereGeometry args={[0.5, 16, 16]} />}
       {obj.type === 'plane' && <boxGeometry args={[1, 0.1, 1]} />}
       <meshStandardMaterial
         color={selected ? '#ffffff' : obj.color}
@@ -528,7 +528,7 @@ const EditorMarker = memo(function EditorMarker({ marker, selected }: { marker: 
 })
 
 // 씬 콘텐츠 (최적화된 셀렉터 사용)
-function SceneContent() {
+const SceneContent = memo(function SceneContent() {
   const objects = useEditorStore(state => state.objects)
   const markers = useEditorStore(state => state.markers)
   const selectedId = useEditorStore(state => state.selectedId)
@@ -588,10 +588,10 @@ function SceneContent() {
       <PlacementPreview />
     </>
   )
-}
+})
 
 // 키보드 단축키 (최적화된 셀렉터)
-function KeyboardShortcuts() {
+const KeyboardShortcuts = memo(function KeyboardShortcuts() {
   const removeObject = useEditorStore(state => state.removeObject)
   const removeMarker = useEditorStore(state => state.removeMarker)
   const selectedId = useEditorStore(state => state.selectedId)
@@ -601,8 +601,8 @@ function KeyboardShortcuts() {
   const mapMode = useEditorStore(state => state.mapMode)
   const shooterSubMode = useEditorStore(state => state.shooterSubMode)
 
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
+  // 핸들러를 useCallback으로 메모이제이션하여 불필요한 리스너 재등록 방지
+  const handleKeyDown = useCallback((e: KeyboardEvent) => {
       // 입력 필드에서는 단축키 무시
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
 
@@ -659,17 +659,18 @@ function KeyboardShortcuts() {
           }
           break
       }
-    }
-
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
   }, [selectedId, removeObject, removeMarker, duplicateSelected, setCurrentPlaceable, setCurrentMarker, mapMode, shooterSubMode])
 
-  return null
-}
+  useEffect(() => {
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [handleKeyDown])
 
-// 크로스헤어 컴포넌트
-function Crosshair() {
+  return null
+})
+
+// 크로스헤어 컴포넌트 (정적 UI - memo로 리렌더 방지)
+const Crosshair = memo(function Crosshair() {
   return (
     <div className="absolute inset-0 pointer-events-none flex items-center justify-center z-10">
       <div className="relative w-6 h-6">
@@ -682,7 +683,7 @@ function Crosshair() {
       </div>
     </div>
   )
-}
+})
 
 export function EditorCanvas() {
   return (

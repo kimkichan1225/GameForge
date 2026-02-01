@@ -275,6 +275,9 @@ const Toolbar = memo(function Toolbar({ onExit }: { onExit: () => void }) {
   )
 })
 
+// 축 라벨 상수 (컴포넌트 외부로 이동)
+const AXES = ['X', 'Y', 'Z'] as const
+
 // 속성 패널 (우클릭으로 오브젝트 선택 시 표시)
 const PropertiesPanel = memo(function PropertiesPanel() {
   const selectedId = useEditorStore(state => state.selectedId)
@@ -298,6 +301,54 @@ const PropertiesPanel = memo(function PropertiesPanel() {
   }, [selectedId, markers])
 
   const handleClose = useCallback(() => setSelectedId(null), [setSelectedId])
+
+  // 오브젝트 속성 변경 핸들러 (useCallback으로 최적화)
+  const handleColorChange = useCallback((color: string) => {
+    if (selectedObject) updateObject(selectedObject.id, { color })
+  }, [selectedObject?.id, updateObject])
+
+  const handlePositionChange = useCallback((axis: number, value: number) => {
+    if (selectedObject) {
+      const pos = [...selectedObject.position] as [number, number, number]
+      pos[axis] = snap(value)
+      updateObject(selectedObject.id, { position: pos })
+    }
+  }, [selectedObject?.id, selectedObject?.position, updateObject])
+
+  const handleRotationChange = useCallback((axis: number, value: number) => {
+    if (selectedObject) {
+      const rot = [...selectedObject.rotation] as [number, number, number]
+      const deg = Math.round(value / 15) * 15
+      rot[axis] = (deg * Math.PI) / 180
+      updateObject(selectedObject.id, { rotation: rot })
+    }
+  }, [selectedObject?.id, selectedObject?.rotation, updateObject])
+
+  const handleScaleChange = useCallback((axis: number, value: number) => {
+    if (selectedObject) {
+      const scale = [...selectedObject.scale] as [number, number, number]
+      scale[axis] = Math.max(0.5, snap(value))
+      updateObject(selectedObject.id, { scale })
+    }
+  }, [selectedObject?.id, selectedObject?.scale, updateObject])
+
+  // 마커 속성 변경 핸들러
+  const handleMarkerPositionChange = useCallback((axis: number, value: number) => {
+    if (selectedMarker) {
+      const pos = [...selectedMarker.position] as [number, number, number]
+      pos[axis] = snap(value)
+      updateMarker(selectedMarker.id, { position: pos })
+    }
+  }, [selectedMarker?.id, selectedMarker?.position, updateMarker])
+
+  const handleMarkerRotationChange = useCallback((axis: number, value: number) => {
+    if (selectedMarker) {
+      const rot = [...selectedMarker.rotation] as [number, number, number]
+      const deg = Math.round(value / 15) * 15
+      rot[axis] = (deg * Math.PI) / 180
+      updateMarker(selectedMarker.id, { rotation: rot })
+    }
+  }, [selectedMarker?.id, selectedMarker?.rotation, updateMarker])
 
   if (!selectedObject && !selectedMarker) return null
 
@@ -336,13 +387,13 @@ const PropertiesPanel = memo(function PropertiesPanel() {
               <input
                 type="color"
                 value={selectedObject.color}
-                onChange={(e) => updateObject(selectedObject.id, { color: e.target.value })}
+                onChange={(e) => handleColorChange(e.target.value)}
                 className="w-10 h-8 rounded cursor-pointer border-0"
               />
               <input
                 type="text"
                 value={selectedObject.color}
-                onChange={(e) => updateObject(selectedObject.id, { color: e.target.value })}
+                onChange={(e) => handleColorChange(e.target.value)}
                 className="flex-1 px-2 py-1 bg-white/5 border border-white/10 rounded text-white text-xs focus:outline-none focus:border-sky-400 uppercase"
               />
             </div>
@@ -352,18 +403,14 @@ const PropertiesPanel = memo(function PropertiesPanel() {
           <div>
             <label className="block text-white/50 text-xs mb-1.5">Position</label>
             <div className="grid grid-cols-3 gap-1">
-              {['X', 'Y', 'Z'].map((axis, i) => (
+              {AXES.map((axis, i) => (
                 <div key={axis}>
                   <span className="text-white/30 text-[10px]">{axis}</span>
                   <input
                     type="number"
                     step="0.5"
                     value={snap(selectedObject.position[i])}
-                    onChange={(e) => {
-                      const pos = [...selectedObject.position] as [number, number, number]
-                      pos[i] = snap(parseFloat(e.target.value) || 0)
-                      updateObject(selectedObject.id, { position: pos })
-                    }}
+                    onChange={(e) => handlePositionChange(i, parseFloat(e.target.value) || 0)}
                     className="w-full px-2 py-1.5 bg-white/5 border border-white/10 rounded text-white text-xs focus:outline-none focus:border-sky-400"
                   />
                 </div>
@@ -375,19 +422,14 @@ const PropertiesPanel = memo(function PropertiesPanel() {
           <div>
             <label className="block text-white/50 text-xs mb-1.5">Rotation (deg)</label>
             <div className="grid grid-cols-3 gap-1">
-              {['X', 'Y', 'Z'].map((axis, i) => (
+              {AXES.map((axis, i) => (
                 <div key={axis}>
                   <span className="text-white/30 text-[10px]">{axis}</span>
                   <input
                     type="number"
                     step="15"
                     value={Math.round((selectedObject.rotation[i] * 180) / Math.PI / 15) * 15}
-                    onChange={(e) => {
-                      const rot = [...selectedObject.rotation] as [number, number, number]
-                      const deg = Math.round((parseFloat(e.target.value) || 0) / 15) * 15
-                      rot[i] = (deg * Math.PI) / 180
-                      updateObject(selectedObject.id, { rotation: rot })
-                    }}
+                    onChange={(e) => handleRotationChange(i, parseFloat(e.target.value) || 0)}
                     className="w-full px-2 py-1.5 bg-white/5 border border-white/10 rounded text-white text-xs focus:outline-none focus:border-sky-400"
                   />
                 </div>
@@ -399,18 +441,14 @@ const PropertiesPanel = memo(function PropertiesPanel() {
           <div>
             <label className="block text-white/50 text-xs mb-1.5">Scale</label>
             <div className="grid grid-cols-3 gap-1">
-              {['X', 'Y', 'Z'].map((axis, i) => (
+              {AXES.map((axis, i) => (
                 <div key={axis}>
                   <span className="text-white/30 text-[10px]">{axis}</span>
                   <input
                     type="number"
                     step="0.5"
                     value={snap(selectedObject.scale[i])}
-                    onChange={(e) => {
-                      const scale = [...selectedObject.scale] as [number, number, number]
-                      scale[i] = Math.max(0.5, snap(parseFloat(e.target.value) || 0.5))
-                      updateObject(selectedObject.id, { scale: scale })
-                    }}
+                    onChange={(e) => handleScaleChange(i, parseFloat(e.target.value) || 0.5)}
                     className="w-full px-2 py-1.5 bg-white/5 border border-white/10 rounded text-white text-xs focus:outline-none focus:border-sky-400"
                   />
                 </div>
@@ -426,18 +464,14 @@ const PropertiesPanel = memo(function PropertiesPanel() {
           <div>
             <label className="block text-white/50 text-xs mb-1.5">Position</label>
             <div className="grid grid-cols-3 gap-1">
-              {['X', 'Y', 'Z'].map((axis, i) => (
+              {AXES.map((axis, i) => (
                 <div key={axis}>
                   <span className="text-white/30 text-[10px]">{axis}</span>
                   <input
                     type="number"
                     step="0.5"
                     value={snap(selectedMarker.position[i])}
-                    onChange={(e) => {
-                      const pos = [...selectedMarker.position] as [number, number, number]
-                      pos[i] = snap(parseFloat(e.target.value) || 0)
-                      updateMarker(selectedMarker.id, { position: pos })
-                    }}
+                    onChange={(e) => handleMarkerPositionChange(i, parseFloat(e.target.value) || 0)}
                     className="w-full px-2 py-1.5 bg-white/5 border border-white/10 rounded text-white text-xs focus:outline-none focus:border-sky-400"
                   />
                 </div>
@@ -449,19 +483,14 @@ const PropertiesPanel = memo(function PropertiesPanel() {
           <div>
             <label className="block text-white/50 text-xs mb-1.5">Rotation (deg)</label>
             <div className="grid grid-cols-3 gap-1">
-              {['X', 'Y', 'Z'].map((axis, i) => (
+              {AXES.map((axis, i) => (
                 <div key={axis}>
                   <span className="text-white/30 text-[10px]">{axis}</span>
                   <input
                     type="number"
                     step="15"
                     value={Math.round((selectedMarker.rotation[i] * 180) / Math.PI / 15) * 15}
-                    onChange={(e) => {
-                      const rot = [...selectedMarker.rotation] as [number, number, number]
-                      const deg = Math.round((parseFloat(e.target.value) || 0) / 15) * 15
-                      rot[i] = (deg * Math.PI) / 180
-                      updateMarker(selectedMarker.id, { rotation: rot })
-                    }}
+                    onChange={(e) => handleMarkerRotationChange(i, parseFloat(e.target.value) || 0)}
                     className="w-full px-2 py-1.5 bg-white/5 border border-white/10 rounded text-white text-xs focus:outline-none focus:border-sky-400"
                   />
                 </div>

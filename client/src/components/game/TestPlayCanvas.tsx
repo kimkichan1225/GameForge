@@ -95,12 +95,12 @@ function getPlaneGeometry() {
 }
 
 function getCylinderGeometry() {
-  if (!cachedCylinderGeometry) cachedCylinderGeometry = new THREE.CylinderGeometry(0.5, 0.5, 1, 32)
+  if (!cachedCylinderGeometry) cachedCylinderGeometry = new THREE.CylinderGeometry(0.5, 0.5, 1, 16)
   return cachedCylinderGeometry
 }
 
 function getSphereGeometry() {
-  if (!cachedSphereGeometry) cachedSphereGeometry = new THREE.SphereGeometry(0.5, 32, 32)
+  if (!cachedSphereGeometry) cachedSphereGeometry = new THREE.SphereGeometry(0.5, 16, 16)
   return cachedSphereGeometry
 }
 

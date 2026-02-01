@@ -228,6 +228,19 @@ export function applyPlayerMovement(
   rigidBody.setLinvel({ x: newVelX, y: newVelY, z: newVelZ }, true)
 }
 
+// 바닥 체크용 캐시된 객체 (매 프레임 생성 방지)
+const groundCheckOffsets = [
+  { x: 0, z: 0 },
+  { x: 0.15, z: 0 },
+  { x: -0.15, z: 0 },
+  { x: 0, z: 0.15 },
+  { x: 0, z: -0.15 },
+] as const
+
+const rayOrigin = { x: 0, y: 0, z: 0 }
+const rayDir = { x: 0, y: -1, z: 0 }
+let cachedRay: RAPIER.Ray | null = null
+
 // 바닥 체크 (레이캐스트 - 플레이어 콜라이더 제외)
 // 경사면에서도 감지되도록 여러 지점에서 레이캐스트
 export function checkGrounded(
@@ -238,6 +251,11 @@ export function checkGrounded(
 ): boolean {
   if (!rapierInstance) return false
 
+  // Ray 인스턴스 캐싱
+  if (!cachedRay) {
+    cachedRay = new rapierInstance.Ray(rayOrigin, rayDir)
+  }
+
   const config = COLLIDER_CONFIG[posture]
   const pos = rigidBody.translation()
 
@@ -246,23 +264,16 @@ export function checkGrounded(
   const rayOriginY = pos.y - config.centerY + capsuleBottom + 0.1  // 바닥보다 살짝 위
   const rayDistance = 0.25
 
-  // 여러 지점에서 레이캐스트 (중앙 + 사방)
-  const offsets = [
-    { x: 0, z: 0 },
-    { x: 0.15, z: 0 },
-    { x: -0.15, z: 0 },
-    { x: 0, z: 0.15 },
-    { x: 0, z: -0.15 },
-  ]
+  for (let i = 0; i < groundCheckOffsets.length; i++) {
+    const offset = groundCheckOffsets[i]
 
-  for (const offset of offsets) {
-    const ray = new rapierInstance.Ray(
-      { x: pos.x + offset.x, y: rayOriginY, z: pos.z + offset.z },
-      { x: 0, y: -1, z: 0 }
-    )
+    // Ray origin 업데이트 (새 객체 생성 대신 기존 객체 수정)
+    cachedRay.origin.x = pos.x + offset.x
+    cachedRay.origin.y = rayOriginY
+    cachedRay.origin.z = pos.z + offset.z
 
     const hit = world.castRay(
-      ray,
+      cachedRay,
       rayDistance,
       true,
       undefined,
