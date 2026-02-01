@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState, useMemo, useCallback } from 'react'
+import { useRef, useEffect, useState, useMemo, useCallback, memo } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { useGLTF, useAnimations, Grid } from '@react-three/drei'
 import * as THREE from 'three'
@@ -16,7 +16,7 @@ import {
   RAPIER,
 } from '../../lib/physics'
 
-// 물리 상수
+// ============ 상수 ============
 const WALK_SPEED = 4
 const RUN_SPEED = 8
 const SIT_SPEED = 2
@@ -26,37 +26,54 @@ const DASH_SPEED = 12
 const DASH_DURATION = 0.5
 const DASH_COOLDOWN = 1.0
 
-// 재사용 벡터
+const GROUND_ROTATION: [number, number, number] = [-Math.PI / 2, 0, 0]
+const GROUND_POSITION: [number, number, number] = [0, 0, 0]
+const GRID_POSITION: [number, number, number] = [0, 0.01, 0]
+const HEAD_OFFSET = new THREE.Vector3(0, 1.5, 0)
+
+// ============ 재사용 객체 (전역) ============
 const _move = new THREE.Vector3()
 const _yAxis = new THREE.Vector3(0, 1, 0)
 const _targetQuat = new THREE.Quaternion()
+const _dashDir = new THREE.Vector3()
 
-// 전역 쐐기 지오메트리 캐시
+// ============ 캐시된 지오메트리 ============
 let cachedWedgeGeometry: THREE.BufferGeometry | null = null
+let cachedBoxGeometry: THREE.BoxGeometry | null = null
+let cachedPlaneGeometry: THREE.BoxGeometry | null = null
+let cachedCylinderGeometry: THREE.CylinderGeometry | null = null
+let cachedSphereGeometry: THREE.SphereGeometry | null = null
+let cachedGroundGeometry: THREE.PlaneGeometry | null = null
+
+// ============ 캐시된 머티리얼 ============
+const cachedMaterials: Map<string, THREE.MeshStandardMaterial> = new Map()
+let cachedGroundMaterial: THREE.MeshStandardMaterial | null = null
+let cachedDebugGreenMaterial: THREE.MeshBasicMaterial | null = null
+let cachedDebugBlueMaterial: THREE.MeshBasicMaterial | null = null
+let cachedDebugRedMaterial: THREE.MeshBasicMaterial | null = null
 
 function getWedgeGeometry(): THREE.BufferGeometry {
   if (cachedWedgeGeometry) return cachedWedgeGeometry
-
   const geometry = new THREE.BufferGeometry()
   const posArray = new Float32Array([
-    -0.5, 0, -0.5,  0.5, 0, -0.5,  0.5, 0, 0.5,
-    -0.5, 0, -0.5,  0.5, 0, 0.5,  -0.5, 0, 0.5,
-    -0.5, 0, 0.5,  0.5, 0, 0.5,  0.5, 1, 0.5,
-    -0.5, 0, 0.5,  0.5, 1, 0.5,  -0.5, 1, 0.5,
-    -0.5, 1, 0.5,  0.5, 1, 0.5,  0.5, 0, -0.5,
-    -0.5, 1, 0.5,  0.5, 0, -0.5,  -0.5, 0, -0.5,
-    -0.5, 0, -0.5,  -0.5, 0, 0.5,  -0.5, 1, 0.5,
-    0.5, 0, 0.5,  0.5, 0, -0.5,  0.5, 1, 0.5,
+    -0.5, 0, -0.5, 0.5, 0, -0.5, 0.5, 0, 0.5,
+    -0.5, 0, -0.5, 0.5, 0, 0.5, -0.5, 0, 0.5,
+    -0.5, 0, 0.5, 0.5, 0, 0.5, 0.5, 1, 0.5,
+    -0.5, 0, 0.5, 0.5, 1, 0.5, -0.5, 1, 0.5,
+    -0.5, 1, 0.5, 0.5, 1, 0.5, 0.5, 0, -0.5,
+    -0.5, 1, 0.5, 0.5, 0, -0.5, -0.5, 0, -0.5,
+    -0.5, 0, -0.5, -0.5, 0, 0.5, -0.5, 1, 0.5,
+    0.5, 0, 0.5, 0.5, 0, -0.5, 0.5, 1, 0.5,
   ])
   const normArray = new Float32Array([
-    0, -1, 0,  0, -1, 0,  0, -1, 0,
-    0, -1, 0,  0, -1, 0,  0, -1, 0,
-    0, 0, 1,  0, 0, 1,  0, 0, 1,
-    0, 0, 1,  0, 0, 1,  0, 0, 1,
-    0, 0.707, -0.707,  0, 0.707, -0.707,  0, 0.707, -0.707,
-    0, 0.707, -0.707,  0, 0.707, -0.707,  0, 0.707, -0.707,
-    -1, 0, 0,  -1, 0, 0,  -1, 0, 0,
-    1, 0, 0,  1, 0, 0,  1, 0, 0,
+    0, -1, 0, 0, -1, 0, 0, -1, 0,
+    0, -1, 0, 0, -1, 0, 0, -1, 0,
+    0, 0, 1, 0, 0, 1, 0, 0, 1,
+    0, 0, 1, 0, 0, 1, 0, 0, 1,
+    0, 0.707, -0.707, 0, 0.707, -0.707, 0, 0.707, -0.707,
+    0, 0.707, -0.707, 0, 0.707, -0.707, 0, 0.707, -0.707,
+    -1, 0, 0, -1, 0, 0, -1, 0, 0,
+    1, 0, 0, 1, 0, 0, 1, 0, 0,
   ])
   geometry.setAttribute('position', new THREE.BufferAttribute(posArray, 3))
   geometry.setAttribute('normal', new THREE.BufferAttribute(normArray, 3))
@@ -64,15 +81,77 @@ function getWedgeGeometry(): THREE.BufferGeometry {
   return geometry
 }
 
-// 물리 컨텍스트
+function getBoxGeometry() {
+  if (!cachedBoxGeometry) cachedBoxGeometry = new THREE.BoxGeometry(1, 1, 1)
+  return cachedBoxGeometry
+}
+
+function getPlaneGeometry() {
+  if (!cachedPlaneGeometry) cachedPlaneGeometry = new THREE.BoxGeometry(1, 0.1, 1)
+  return cachedPlaneGeometry
+}
+
+function getCylinderGeometry() {
+  if (!cachedCylinderGeometry) cachedCylinderGeometry = new THREE.CylinderGeometry(0.5, 0.5, 1, 32)
+  return cachedCylinderGeometry
+}
+
+function getSphereGeometry() {
+  if (!cachedSphereGeometry) cachedSphereGeometry = new THREE.SphereGeometry(0.5, 32, 32)
+  return cachedSphereGeometry
+}
+
+function getGroundGeometry() {
+  if (!cachedGroundGeometry) cachedGroundGeometry = new THREE.PlaneGeometry(200, 200)
+  return cachedGroundGeometry
+}
+
+function getMaterial(color: string): THREE.MeshStandardMaterial {
+  let mat = cachedMaterials.get(color)
+  if (!mat) {
+    mat = new THREE.MeshStandardMaterial({ color })
+    cachedMaterials.set(color, mat)
+  }
+  return mat
+}
+
+function getGroundMaterial() {
+  if (!cachedGroundMaterial) {
+    cachedGroundMaterial = new THREE.MeshStandardMaterial({ color: '#3a5a40', side: THREE.DoubleSide })
+  }
+  return cachedGroundMaterial
+}
+
+function getDebugGreenMaterial() {
+  if (!cachedDebugGreenMaterial) {
+    cachedDebugGreenMaterial = new THREE.MeshBasicMaterial({ color: '#00ff00', wireframe: true, transparent: true, opacity: 0.5 })
+  }
+  return cachedDebugGreenMaterial
+}
+
+function getDebugBlueMaterial() {
+  if (!cachedDebugBlueMaterial) {
+    cachedDebugBlueMaterial = new THREE.MeshBasicMaterial({ color: '#0088ff', wireframe: true, transparent: true, opacity: 0.3 })
+  }
+  return cachedDebugBlueMaterial
+}
+
+function getDebugRedMaterial() {
+  if (!cachedDebugRedMaterial) {
+    cachedDebugRedMaterial = new THREE.MeshBasicMaterial({ color: '#ff0000', wireframe: true, transparent: true, opacity: 0.5 })
+  }
+  return cachedDebugRedMaterial
+}
+
+// ============ 타입 ============
 interface PhysicsContext {
   world: RAPIER.World
   playerBody: RAPIER.RigidBody
   playerCollider: RAPIER.Collider
 }
 
-// 플레이어 컴포넌트
-function Player({
+// ============ 플레이어 컴포넌트 ============
+const Player = memo(function Player({
   startPosition,
   physics,
 }: {
@@ -83,118 +162,84 @@ function Player({
   const { scene, animations } = useGLTF('/Runtest.glb')
   const { actions, names } = useAnimations(animations, scene)
 
-  const [animMap, setAnimMap] = useState<Record<string, string>>({})
-
-  // 상태 refs
+  const animMapRef = useRef<Record<string, string>>({})
   const grounded = useRef(true)
-  const canJump = useRef(true)  // 점프 가능 여부 (공중에서 점프 방지)
-  const jumping = useRef(false)  // 점프 중 (애니메이션 유지용)
+  const jumping = useRef(false)
   const dashing = useRef(false)
   const dashTimer = useRef(0)
   const dashCooldown = useRef(0)
-  const dashDir = useRef(new THREE.Vector3())
   const currentAnim = useRef('')
   const prev = useRef({ space: false, c: false, z: false, v: false })
-  const wasGrounded = useRef(true)  // 이전 프레임 grounded 상태
+  const initialized = useRef(false)
 
   const input = useInput()
 
-  // 애니메이션 맵 빌드
+  // 애니메이션 맵 빌드 (한번만)
   useEffect(() => {
     const map: Record<string, string> = {}
     const targets = ['Idle', 'Walk', 'Run', 'Jump', 'SitPose', 'SitWalk', 'CrawlPose', 'Crawl', 'Roll']
 
-    targets.forEach(target => {
-      let found = names.find(n => {
+    for (const target of targets) {
+      const found = names.find(n => {
         const parts = n.split('|')
-        const clipName = parts[parts.length - 1]
-        return clipName.toLowerCase() === target.toLowerCase()
-      })
+        return parts[parts.length - 1].toLowerCase() === target.toLowerCase()
+      }) || names.find(n => n.toLowerCase().includes(target.toLowerCase()))
 
-      if (!found) {
-        found = names.find(n => n.toLowerCase().includes(target.toLowerCase()))
-      }
+      if (found) map[target] = found
+    }
 
-      if (found) {
-        map[target] = found
-      }
-    })
+    animMapRef.current = map
 
-    setAnimMap(map)
-  }, [names])
-
-  // 초기 애니메이션
-  const initialized = useRef(false)
-  useEffect(() => {
-    if (Object.keys(animMap).length > 0 && !initialized.current) {
+    if (!initialized.current && Object.keys(map).length > 0) {
       initialized.current = true
       playAnim('Idle')
     }
-  }, [animMap])
+  }, [names])
 
-  const playAnim = (name: string) => {
-    if (currentAnim.current === name) return
-    if (Object.keys(animMap).length === 0) return
+  const playAnim = useCallback((name: string) => {
+    const animMap = animMapRef.current
+    if (currentAnim.current === name || !animMap[name]) return
 
     const clipName = animMap[name]
-    if (!clipName) return
-
     const action = actions[clipName]
     if (!action) return
 
     const prevClip = animMap[currentAnim.current]
-    if (prevClip && actions[prevClip]) {
-      actions[prevClip]?.fadeOut(0.2)
-    }
+    if (prevClip) actions[prevClip]?.fadeOut(0.2)
 
     action.reset().fadeIn(0.2).play()
 
     if (name === 'Jump' || name === 'Roll') {
       action.setLoop(THREE.LoopOnce, 1)
       action.clampWhenFinished = true
-      if (name === 'Roll') {
-        action.timeScale = 2.3
-      }
+      if (name === 'Roll') action.timeScale = 2.3
     } else {
       action.setLoop(THREE.LoopRepeat, Infinity)
     }
 
     currentAnim.current = name
     useGameStore.getState().setAnimation(name)
-  }
+  }, [actions])
 
-  const getAnim = (moving: boolean, running: boolean, posture: string): string => {
+  const getAnim = useCallback((moving: boolean, running: boolean, posture: string): string => {
     if (posture === 'sitting') return moving ? 'SitWalk' : 'SitPose'
     if (posture === 'crawling') return moving ? 'Crawl' : 'CrawlPose'
     if (moving) return running ? 'Run' : 'Walk'
     return 'Idle'
-  }
+  }, [])
 
   useFrame((_, dt) => {
-    if (!group.current || !physics) return
+    if (!group.current) return
 
     const keys = input.current
     const store = useGameStore.getState()
-    const posture = store.posture
-    const cameraAngle = store.cameraAngle
+    const { posture, cameraAngle } = store
     const { world, playerBody, playerCollider } = physics
 
     // 바닥 체크
     const isGrounded = checkGrounded(world, playerBody, playerCollider)
     grounded.current = isGrounded
-
-    // 착지 감지 (공중 -> 바닥)
-    if (isGrounded && !wasGrounded.current) {
-      canJump.current = true  // 착지하면 점프 가능
-      jumping.current = false  // 점프 종료
-      // 착지 시 애니메이션 전환
-      if (!dashing.current) {
-        const moving = keys.forward || keys.backward || keys.left || keys.right
-        const running = keys.shift && posture === 'standing'
-        playAnim(getAnim(moving, running, posture))
-      }
-    }
-    wasGrounded.current = isGrounded
+    const vel = playerBody.linvel()
 
     // 쿨다운
     if (dashCooldown.current > 0) dashCooldown.current -= dt
@@ -207,13 +252,21 @@ function Player({
       store.setPosture(posture === 'crawling' ? 'standing' : 'crawling')
     }
 
-    // 점프 (바닥에서만 + 한번만)
+    // 점프
     let shouldJump = false
-    if (keys.space && !prev.current.space && isGrounded && canJump.current && posture === 'standing' && !dashing.current) {
+    if (keys.space && !prev.current.space && isGrounded && !jumping.current && vel.y < 1 && posture === 'standing' && !dashing.current) {
       shouldJump = true
-      canJump.current = false  // 점프 후 착지 전까지 점프 불가
-      jumping.current = true   // 점프 시작 (애니메이션 유지)
+      jumping.current = true
       playAnim('Jump')
+    }
+
+    // 착지 감지
+    if (jumping.current && isGrounded && vel.y <= 0 && !shouldJump) {
+      jumping.current = false
+      if (!dashing.current) {
+        const moving = keys.forward || keys.backward || keys.left || keys.right
+        playAnim(getAnim(moving, keys.shift && posture === 'standing', posture))
+      }
     }
 
     // 대쉬
@@ -222,18 +275,17 @@ function Player({
       dashTimer.current = DASH_DURATION
       dashCooldown.current = DASH_COOLDOWN
 
-      const dir = new THREE.Vector3()
-      if (keys.forward) dir.z -= 1
-      if (keys.backward) dir.z += 1
-      if (keys.left) dir.x -= 1
-      if (keys.right) dir.x += 1
+      _dashDir.set(0, 0, 0)
+      if (keys.forward) _dashDir.z -= 1
+      if (keys.backward) _dashDir.z += 1
+      if (keys.left) _dashDir.x -= 1
+      if (keys.right) _dashDir.x += 1
 
-      if (dir.lengthSq() === 0) {
-        scene.getWorldDirection(dir)
-        dir.y = 0
+      if (_dashDir.lengthSq() === 0) {
+        scene.getWorldDirection(_dashDir)
+        _dashDir.y = 0
       }
-      dir.normalize().applyAxisAngle(_yAxis, cameraAngle)
-      dashDir.current.copy(dir)
+      _dashDir.normalize().applyAxisAngle(_yAxis, cameraAngle)
       playAnim('Roll')
     }
 
@@ -244,10 +296,8 @@ function Player({
 
     if (dashing.current) {
       dashTimer.current -= dt
-      _move.copy(dashDir.current)
-      if (dashTimer.current <= 0) {
-        dashing.current = false
-      }
+      _move.copy(_dashDir)
+      if (dashTimer.current <= 0) dashing.current = false
     } else {
       if (keys.forward) _move.z -= 1
       if (keys.backward) _move.z += 1
@@ -256,8 +306,6 @@ function Player({
 
       if (_move.lengthSq() > 0) {
         _move.normalize().applyAxisAngle(_yAxis, cameraAngle)
-
-        // 캐릭터 회전
         const angle = Math.atan2(_move.x, _move.z)
         _targetQuat.setFromAxisAngle(_yAxis, angle)
         scene.quaternion.slerp(_targetQuat, 0.15)
@@ -272,31 +320,21 @@ function Player({
     else if (keys.shift && posture === 'standing') speed = RUN_SPEED
 
     // Rapier 물리 적용
-    const vel = playerBody.linvel()
-    const newVel = {
-      x: _move.x * speed,
-      y: shouldJump ? JUMP_POWER : vel.y,
-      z: _move.z * speed,
-    }
-    playerBody.setLinvel(newVel, true)
-
-    // 물리 시뮬레이션
+    playerBody.setLinvel({ x: _move.x * speed, y: shouldJump ? JUMP_POWER : vel.y, z: _move.z * speed }, true)
     world.step()
 
-    // Three.js 위치 동기화
+    // 위치 동기화
     const pos = playerBody.translation()
-    group.current.position.set(pos.x, pos.y - 0.9, pos.z) // 캡슐 중심 보정
+    group.current.position.set(pos.x, pos.y - 0.9, pos.z)
 
-    // 애니메이션 (점프 중이 아닐 때만 변경)
+    // 애니메이션
     if (isGrounded && !dashing.current && !jumping.current) {
-      const moving = _move.lengthSq() > 0
-      const running = keys.shift && posture === 'standing'
-      playAnim(getAnim(moving, running, posture))
+      playAnim(getAnim(_move.lengthSq() > 0, keys.shift && posture === 'standing', posture))
     }
 
-    // 게임 스토어 업데이트
+    // 스토어 업데이트
     store.setPlayerPos([pos.x, pos.y - 0.9, pos.z])
-    store.setGroundedState(isGrounded, canJump.current)
+    store.setGroundedState(isGrounded, !jumping.current)
   })
 
   return (
@@ -304,10 +342,10 @@ function Player({
       <primitive object={scene} />
     </group>
   )
-}
+})
 
-// 3인칭 카메라
-function FollowCamera() {
+// ============ 카메라 ============
+const FollowCamera = memo(function FollowCamera() {
   const { camera, gl } = useThree()
 
   const angleRef = useRef(0)
@@ -326,17 +364,11 @@ function FollowCamera() {
   useEffect(() => {
     const canvas = gl.domElement
 
-    const onClick = () => {
-      canvas.requestPointerLock()
-    }
+    const onClick = () => canvas.requestPointerLock()
 
     const onMouseMove = (e: MouseEvent) => {
       if (!isLocked.current) return
-
-      if (skipNextMove.current) {
-        skipNextMove.current = false
-        return
-      }
+      if (skipNextMove.current) { skipNextMove.current = false; return }
 
       const maxMove = 50
       const moveX = Math.max(-maxMove, Math.min(maxMove, e.movementX))
@@ -348,26 +380,21 @@ function FollowCamera() {
       angleRef.current = angle
 
       let pitch = pitchRef.current + moveY * 0.002
-      pitch = Math.max(-0.5, Math.min(1.2, pitch))
-      pitchRef.current = pitch
+      pitchRef.current = Math.max(-0.5, Math.min(1.2, pitch))
 
       const store = useGameStore.getState()
       store.setCameraAngle(angle)
-      store.setCameraPitch(pitch)
+      store.setCameraPitch(pitchRef.current)
     }
 
     const onWheel = (e: WheelEvent) => {
-      let distance = distanceRef.current + e.deltaY * 0.01
-      distance = Math.max(3, Math.min(20, distance))
-      distanceRef.current = distance
-      useGameStore.getState().setCameraDistance(distance)
+      distanceRef.current = Math.max(3, Math.min(20, distanceRef.current + e.deltaY * 0.01))
+      useGameStore.getState().setCameraDistance(distanceRef.current)
     }
 
     const onPointerLockChange = () => {
       const locked = document.pointerLockElement === canvas
-      if (locked && !isLocked.current) {
-        skipNextMove.current = true
-      }
+      if (locked && !isLocked.current) skipNextMove.current = true
       isLocked.current = locked
     }
 
@@ -385,13 +412,12 @@ function FollowCamera() {
   }, [gl])
 
   useFrame(() => {
-    const store = useGameStore.getState()
-    const playerPos = store.playerPos
+    const playerPos = useGameStore.getState().playerPos
     _targetPos.current.set(playerPos[0], playerPos[1], playerPos[2])
 
-    const distance = distanceRef.current
-    const pitch = pitchRef.current
-    const angle = angleRef.current
+    const { current: distance } = distanceRef
+    const { current: pitch } = pitchRef
+    const { current: angle } = angleRef
 
     _offset.current.set(
       Math.sin(angle) * Math.cos(pitch) * distance,
@@ -409,149 +435,92 @@ function FollowCamera() {
     currentCamPos.current.lerp(_targetCamPos.current, 0.1)
     camera.position.copy(currentCamPos.current)
 
-    _headPos.current.copy(_targetPos.current).add(new THREE.Vector3(0, 1.5, 0))
+    _headPos.current.copy(_targetPos.current).add(HEAD_OFFSET)
     camera.lookAt(_headPos.current)
   })
 
   return null
-}
+})
 
-// 맵 오브젝트 렌더링
-function MapObjects() {
+// ============ 맵 오브젝트 ============
+const MapObjects = memo(function MapObjects() {
   const objects = useEditorStore(state => state.objects)
+  return <>{objects.map(obj => <MapObjectMesh key={obj.id} obj={obj} />)}</>
+})
 
-  return (
-    <>
-      {objects.map(obj => (
-        <MapObjectMesh key={obj.id} obj={obj} />
-      ))}
-    </>
-  )
-}
-
-function MapObjectMesh({ obj }: { obj: MapObject }) {
+const MapObjectMesh = memo(function MapObjectMesh({ obj }: { obj: MapObject }) {
   const geometry = useMemo(() => {
-    if (obj.type === 'ramp') return getWedgeGeometry()
-    return undefined
+    switch (obj.type) {
+      case 'box': return getBoxGeometry()
+      case 'plane': return getPlaneGeometry()
+      case 'cylinder': return getCylinderGeometry()
+      case 'sphere': return getSphereGeometry()
+      case 'ramp': return getWedgeGeometry()
+      default: return undefined
+    }
   }, [obj.type])
 
-  return (
-    <mesh
-      position={obj.position}
-      rotation={obj.rotation}
-      scale={obj.scale}
-      geometry={geometry}
-    >
-      {obj.type === 'box' && <boxGeometry args={[1, 1, 1]} />}
-      {obj.type === 'cylinder' && <cylinderGeometry args={[0.5, 0.5, 1, 32]} />}
-      {obj.type === 'sphere' && <sphereGeometry args={[0.5, 32, 32]} />}
-      {obj.type === 'plane' && <boxGeometry args={[1, 0.1, 1]} />}
-      <meshStandardMaterial color={obj.color} />
-    </mesh>
-  )
-}
+  const material = useMemo(() => getMaterial(obj.color), [obj.color])
 
-// 바닥
-function Ground() {
   return (
-    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]}>
-      <planeGeometry args={[200, 200]} />
-      <meshStandardMaterial color="#3a5a40" side={THREE.DoubleSide} />
-    </mesh>
+    <mesh position={obj.position} rotation={obj.rotation} scale={obj.scale} geometry={geometry} material={material} />
   )
-}
+})
 
-// 디버그 콜라이더 시각화
-function DebugColliders({ playerPos }: { playerPos: [number, number, number] }) {
+// ============ 바닥 ============
+const Ground = memo(function Ground() {
+  const geometry = useMemo(() => getGroundGeometry(), [])
+  const material = useMemo(() => getGroundMaterial(), [])
+  return <mesh rotation={GROUND_ROTATION} position={GROUND_POSITION} geometry={geometry} material={material} />
+})
+
+// ============ 디버그 콜라이더 ============
+const DebugColliders = memo(function DebugColliders({ playerPos }: { playerPos: [number, number, number] }) {
   const objects = useEditorStore(state => state.objects)
+  const greenMat = useMemo(() => getDebugGreenMaterial(), [])
+  const blueMat = useMemo(() => getDebugBlueMaterial(), [])
 
   return (
     <group>
-      {/* 플레이어 캡슐 콜라이더 (반지름 0.3, 반높이 0.6) */}
+      {/* 플레이어 캡슐 */}
       <group position={[playerPos[0], playerPos[1] + 0.9, playerPos[2]]}>
-        {/* 상단 반구 */}
-        <mesh position={[0, 0.6, 0]}>
-          <sphereGeometry args={[0.3, 16, 16]} />
-          <meshBasicMaterial color="#00ff00" wireframe transparent opacity={0.5} />
-        </mesh>
-        {/* 중앙 실린더 */}
-        <mesh>
-          <cylinderGeometry args={[0.3, 0.3, 1.2, 16]} />
-          <meshBasicMaterial color="#00ff00" wireframe transparent opacity={0.5} />
-        </mesh>
-        {/* 하단 반구 */}
-        <mesh position={[0, -0.6, 0]}>
-          <sphereGeometry args={[0.3, 16, 16]} />
-          <meshBasicMaterial color="#00ff00" wireframe transparent opacity={0.5} />
-        </mesh>
+        <mesh position={[0, 0.6, 0]} material={greenMat}><sphereGeometry args={[0.3, 16, 16]} /></mesh>
+        <mesh material={greenMat}><cylinderGeometry args={[0.3, 0.3, 1.2, 16]} /></mesh>
+        <mesh position={[0, -0.6, 0]} material={greenMat}><sphereGeometry args={[0.3, 16, 16]} /></mesh>
       </group>
 
-      {/* 바닥 콜라이더 */}
-      <mesh position={[0, -0.1, 0]}>
-        <boxGeometry args={[200, 0.2, 200]} />
-        <meshBasicMaterial color="#0088ff" wireframe transparent opacity={0.3} />
-      </mesh>
+      {/* 바닥 */}
+      <mesh position={[0, -0.1, 0]} material={blueMat}><boxGeometry args={[200, 0.2, 200]} /></mesh>
 
-      {/* 맵 오브젝트 콜라이더 */}
-      {objects.map(obj => (
-        <DebugObjectCollider key={obj.id} obj={obj} />
-      ))}
+      {/* 오브젝트 */}
+      {objects.map(obj => <DebugObjectCollider key={obj.id} obj={obj} />)}
     </group>
   )
-}
+})
 
-function DebugObjectCollider({ obj }: { obj: MapObject }) {
-  const [pos, rot, scale] = [obj.position, obj.rotation, obj.scale]
+const DebugObjectCollider = memo(function DebugObjectCollider({ obj }: { obj: MapObject }) {
+  const material = useMemo(() => getDebugRedMaterial(), [])
+  const { position: pos, rotation: rot, scale } = obj
 
-  // Rapier 콜라이더와 동일한 크기로 시각화
   switch (obj.type) {
     case 'box':
-      return (
-        <mesh position={pos} rotation={rot}>
-          <boxGeometry args={[scale[0], scale[1], scale[2]]} />
-          <meshBasicMaterial color="#ff0000" wireframe transparent opacity={0.5} />
-        </mesh>
-      )
+      return <mesh position={pos} rotation={rot} material={material}><boxGeometry args={[scale[0], scale[1], scale[2]]} /></mesh>
     case 'plane':
-      return (
-        <mesh position={pos} rotation={rot}>
-          <boxGeometry args={[scale[0], 0.1 * scale[1], scale[2]]} />
-          <meshBasicMaterial color="#ff0000" wireframe transparent opacity={0.5} />
-        </mesh>
-      )
+      return <mesh position={pos} rotation={rot} material={material}><boxGeometry args={[scale[0], 0.1 * scale[1], scale[2]]} /></mesh>
     case 'cylinder':
-      return (
-        <mesh position={pos} rotation={rot}>
-          <cylinderGeometry args={[
-            Math.max(scale[0], scale[2]) * 0.5,  // radiusTop = 0.5 * scale
-            Math.max(scale[0], scale[2]) * 0.5,  // radiusBottom = 0.5 * scale
-            scale[1],
-            16
-          ]} />
-          <meshBasicMaterial color="#ff0000" wireframe transparent opacity={0.5} />
-        </mesh>
-      )
+      const cylRadius = Math.max(scale[0], scale[2]) * 0.5
+      return <mesh position={pos} rotation={rot} material={material}><cylinderGeometry args={[cylRadius, cylRadius, scale[1], 16]} /></mesh>
     case 'sphere':
-      return (
-        <mesh position={pos} rotation={rot}>
-          <sphereGeometry args={[Math.max(scale[0], scale[1], scale[2]) * 0.5, 16, 16]} />
-          <meshBasicMaterial color="#ff0000" wireframe transparent opacity={0.5} />
-        </mesh>
-      )
+      return <mesh position={pos} rotation={rot} material={material}><sphereGeometry args={[Math.max(scale[0], scale[1], scale[2]) * 0.5, 16, 16]} /></mesh>
     case 'ramp':
-      // ConvexHull은 와이어프레임으로 근사 표시
-      return (
-        <mesh position={pos} rotation={rot} scale={scale} geometry={getWedgeGeometry()}>
-          <meshBasicMaterial color="#ff0000" wireframe transparent opacity={0.5} />
-        </mesh>
-      )
+      return <mesh position={pos} rotation={rot} scale={scale} geometry={getWedgeGeometry()} material={material} />
     default:
       return null
   }
-}
+})
 
-// 씬 콘텐츠
-function SceneContent({
+// ============ 씬 콘텐츠 ============
+const SceneContent = memo(function SceneContent({
   startPosition,
   physics,
   showDebug,
@@ -566,16 +535,13 @@ function SceneContent({
 
   return (
     <>
-      {/* 조명 */}
       <ambientLight intensity={0.6} />
       <directionalLight position={[20, 30, 10]} intensity={1} castShadow />
       <hemisphereLight args={['#87ceeb', '#3a5a40', 0.4]} />
 
-      {/* 하늘 */}
       <color attach="background" args={['#87ceeb']} />
       <fog attach="fog" args={['#87ceeb', 50, 150]} />
 
-      {/* 그리드 */}
       <Grid
         args={[200, 200]}
         cellSize={1}
@@ -584,30 +550,21 @@ function SceneContent({
         sectionSize={5}
         sectionThickness={1}
         sectionColor="#1a3a1d"
-        position={[0, 0.01, 0]}
+        position={GRID_POSITION}
         fadeDistance={80}
       />
 
-      {/* 바닥 */}
       <Ground />
-
-      {/* 맵 오브젝트 */}
       <MapObjects />
-
-      {/* 플레이어 */}
       <Player startPosition={startPosition} physics={physics} />
-
-      {/* 카메라 */}
       <FollowCamera />
-
-      {/* 디버그 콜라이더 */}
       {showDebug && <DebugColliders playerPos={playerPos} />}
     </>
   )
-}
+})
 
-// UI 오버레이
-function TestPlayUI({
+// ============ UI ============
+const TestPlayUI = memo(function TestPlayUI({
   onExit,
   showDebug,
   onToggleDebug,
@@ -623,14 +580,8 @@ function TestPlayUI({
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        document.exitPointerLock()
-        onExit()
-      }
-      if (e.key === 'F1') {
-        e.preventDefault()
-        onToggleDebug()
-      }
+      if (e.key === 'Escape') { document.exitPointerLock(); onExit() }
+      if (e.key === 'F1') { e.preventDefault(); onToggleDebug() }
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
@@ -638,12 +589,10 @@ function TestPlayUI({
 
   return (
     <>
-      {/* ESC 안내 */}
       <div className="absolute top-4 right-4 z-10 bg-slate-800/80 backdrop-blur-sm rounded-lg px-4 py-2 text-white text-sm">
         ESC - 에디터로 돌아가기
       </div>
 
-      {/* 조작법 */}
       <div className="absolute bottom-6 left-4 z-10 bg-slate-800/70 backdrop-blur-sm rounded-xl p-3 border border-white/10 text-white/60 text-xs">
         <div className="grid grid-cols-2 gap-x-4 gap-y-1">
           <span>클릭</span><span>마우스 잠금</span>
@@ -658,41 +607,35 @@ function TestPlayUI({
         </div>
       </div>
 
-      {/* 상태 표시 */}
       <div className="absolute top-4 left-4 z-10 bg-slate-800/80 backdrop-blur-sm rounded-lg px-4 py-2 text-white text-sm">
         <div>자세: {posture}</div>
         <div>애니메이션: {animation}</div>
         {showDebug && (
           <>
             <div className="text-green-400 mt-1">디버그 모드</div>
-            <div className={isGrounded ? 'text-green-400' : 'text-red-400'}>
-              바닥: {isGrounded ? 'O' : 'X'}
-            </div>
-            <div className={canJump ? 'text-green-400' : 'text-red-400'}>
-              점프가능: {canJump ? 'O' : 'X'}
-            </div>
+            <div className={isGrounded ? 'text-green-400' : 'text-red-400'}>바닥: {isGrounded ? 'O' : 'X'}</div>
+            <div className={canJump ? 'text-green-400' : 'text-red-400'}>점프가능: {canJump ? 'O' : 'X'}</div>
           </>
         )}
       </div>
 
-      {/* 크로스헤어 */}
       <div className="absolute inset-0 pointer-events-none flex items-center justify-center z-10">
         <div className="w-2 h-2 bg-white/50 rounded-full" />
       </div>
     </>
   )
-}
+})
 
-// 로딩 화면
-function LoadingScreen() {
+// ============ 로딩 ============
+const LoadingScreen = memo(function LoadingScreen() {
   return (
     <div className="w-full h-full bg-slate-900 flex items-center justify-center">
       <div className="text-white text-xl">물리 엔진 로딩 중...</div>
     </div>
   )
-}
+})
 
-// 메인 컴포넌트
+// ============ 메인 컴포넌트 ============
 export function TestPlayCanvas({ onExit }: { onExit: () => void }) {
   const markers = useEditorStore(state => state.markers)
   const objects = useEditorStore(state => state.objects)
@@ -700,23 +643,17 @@ export function TestPlayCanvas({ onExit }: { onExit: () => void }) {
   const [loading, setLoading] = useState(true)
   const [showDebug, setShowDebug] = useState(false)
 
-  // Spawn 마커 위치
   const startPosition = useMemo((): [number, number, number] => {
     const spawnMarker = markers.find(m => m.type === 'spawn' || m.type === 'spawn_a')
-    if (spawnMarker) {
-      return [spawnMarker.position[0], spawnMarker.position[1], spawnMarker.position[2]]
-    }
-    return [0, 0, 0]
+    return spawnMarker ? [spawnMarker.position[0], spawnMarker.position[1], spawnMarker.position[2]] : [0, 0, 0]
   }, [markers])
 
-  // Rapier 초기화 및 물리 월드 생성
   useEffect(() => {
     let mounted = true
 
     async function init() {
       try {
         await initRapier()
-
         if (!mounted) return
 
         const world = createWorld()
@@ -732,23 +669,14 @@ export function TestPlayCanvas({ onExit }: { onExit: () => void }) {
     }
 
     init()
-
-    return () => {
-      mounted = false
-    }
+    return () => { mounted = false }
   }, [objects, startPosition])
 
-  // 게임 스토어 리셋
-  useEffect(() => {
-    useGameStore.getState().reset()
-  }, [])
+  useEffect(() => { useGameStore.getState().reset() }, [])
 
-  // 디버그 토글 (hooks는 조건문 전에 호출해야 함)
   const toggleDebug = useCallback(() => setShowDebug(prev => !prev), [])
 
-  if (loading) {
-    return <LoadingScreen />
-  }
+  if (loading) return <LoadingScreen />
 
   return (
     <div className="w-full h-full relative">
@@ -760,5 +688,4 @@ export function TestPlayCanvas({ onExit }: { onExit: () => void }) {
   )
 }
 
-// GLB 프리로드
 useGLTF.preload('/Runtest.glb')
