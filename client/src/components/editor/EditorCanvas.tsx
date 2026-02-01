@@ -7,6 +7,101 @@ import type { MapObject, MapMarker, MarkerType, PlaceableType } from '../../stor
 
 // ============ 전역 캐시 ============
 let cachedWedgeGeometry: THREE.BufferGeometry | null = null
+let cachedBoxGeometry: THREE.BoxGeometry | null = null
+let cachedPlaneGeometry: THREE.BoxGeometry | null = null
+let cachedCylinderGeometry: THREE.CylinderGeometry | null = null
+let cachedSphereGeometry: THREE.SphereGeometry | null = null
+let cachedConeGeometry: THREE.ConeGeometry | null = null
+let cachedSmallConeGeometry: THREE.ConeGeometry | null = null
+let cachedRingGeometry: THREE.RingGeometry | null = null
+let cachedGroundGeometry: THREE.PlaneGeometry | null = null
+let cachedGroundMaterial: THREE.MeshStandardMaterial | null = null
+const cachedMaterials: Map<string, THREE.MeshStandardMaterial> = new Map()
+
+function getBoxGeometry() {
+  if (!cachedBoxGeometry) cachedBoxGeometry = new THREE.BoxGeometry(1, 1, 1)
+  return cachedBoxGeometry
+}
+function getPlaneGeometry() {
+  if (!cachedPlaneGeometry) cachedPlaneGeometry = new THREE.BoxGeometry(1, 0.1, 1)
+  return cachedPlaneGeometry
+}
+function getCylinderGeometry() {
+  if (!cachedCylinderGeometry) cachedCylinderGeometry = new THREE.CylinderGeometry(0.5, 0.5, 1, 16)
+  return cachedCylinderGeometry
+}
+function getSphereGeometry() {
+  if (!cachedSphereGeometry) cachedSphereGeometry = new THREE.SphereGeometry(0.5, 16, 16)
+  return cachedSphereGeometry
+}
+function getConeGeometry() {
+  if (!cachedConeGeometry) cachedConeGeometry = new THREE.ConeGeometry(0.3, 0.8, 4)
+  return cachedConeGeometry
+}
+function getSmallConeGeometry() {
+  if (!cachedSmallConeGeometry) cachedSmallConeGeometry = new THREE.ConeGeometry(0.15, 0.3, 8)
+  return cachedSmallConeGeometry
+}
+function getRingGeometry() {
+  if (!cachedRingGeometry) cachedRingGeometry = new THREE.RingGeometry(1.8, 2.0, 32)
+  return cachedRingGeometry
+}
+function getGroundGeometry() {
+  if (!cachedGroundGeometry) cachedGroundGeometry = new THREE.PlaneGeometry(200, 200)
+  return cachedGroundGeometry
+}
+function getGroundMaterial() {
+  if (!cachedGroundMaterial) {
+    cachedGroundMaterial = new THREE.MeshStandardMaterial({ color: '#3a5a40', side: THREE.FrontSide })
+  }
+  return cachedGroundMaterial
+}
+function getMaterial(color: string, emissive: string = '#000000', emissiveIntensity: number = 0, doubleSide: boolean = false): THREE.MeshStandardMaterial {
+  const key = `${color}_${emissive}_${emissiveIntensity}_${doubleSide}`
+  let mat = cachedMaterials.get(key)
+  if (!mat) {
+    mat = new THREE.MeshStandardMaterial({
+      color,
+      emissive,
+      emissiveIntensity,
+      side: doubleSide ? THREE.DoubleSide : THREE.FrontSide
+    })
+    cachedMaterials.set(key, mat)
+  }
+  return mat
+}
+
+// 프리뷰용 반투명 재질 캐시
+let cachedPreviewMaterial: THREE.MeshStandardMaterial | null = null
+const cachedTransparentMaterials: Map<string, THREE.MeshStandardMaterial> = new Map()
+
+function getPreviewMaterial(): THREE.MeshStandardMaterial {
+  if (!cachedPreviewMaterial) {
+    cachedPreviewMaterial = new THREE.MeshStandardMaterial({
+      color: '#44ff44',
+      transparent: true,
+      opacity: 0.5,
+      depthWrite: false
+    })
+  }
+  return cachedPreviewMaterial
+}
+
+function getTransparentMaterial(color: string, doubleSide: boolean = false): THREE.MeshStandardMaterial {
+  const key = `${color}_${doubleSide}`
+  let mat = cachedTransparentMaterials.get(key)
+  if (!mat) {
+    mat = new THREE.MeshStandardMaterial({
+      color,
+      transparent: true,
+      opacity: 0.5,
+      depthWrite: false,
+      side: doubleSide ? THREE.DoubleSide : THREE.FrontSide
+    })
+    cachedTransparentMaterials.set(key, mat)
+  }
+  return mat
+}
 
 // 레이캐스트 무시 함수 (전역으로 이동하여 재생성 방지)
 const noRaycast = () => null
@@ -21,6 +116,12 @@ const MARKER_COLORS: Record<string, string> = {
   spawn_b: '#4444ff',
   capture_point: '#ffaa00',
 }
+
+// 마커 위치/회전 상수
+const MARKER_RING_ROTATION: [number, number, number] = [-Math.PI / 2, 0, 0]
+const MARKER_RING_POSITION: [number, number, number] = [0, 0.05, 0]
+const MARKER_ARROW_POSITION: [number, number, number] = [0, 0, 0.5]
+const MARKER_ARROW_ROTATION: [number, number, number] = [Math.PI / 2, 0, 0]
 
 // 1개만 설치 가능한 마커 타입 (모드별로 다름)
 const getSingletonMarkers = (mapMode: string, shooterSubMode: string): MarkerType[] => {
@@ -163,14 +264,15 @@ function FPSCamera() {
   return null
 }
 
+// 상수
+const GROUND_ROTATION: [number, number, number] = [-Math.PI / 2, 0, 0]
+const GROUND_POSITION: [number, number, number] = [0, 0, 0]
+
 // 바닥 평면 (정적 - memo로 최적화)
 const Ground = memo(function Ground() {
-  return (
-    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]}>
-      <planeGeometry args={[200, 200]} />
-      <meshStandardMaterial color="#3a5a40" side={THREE.FrontSide} />
-    </mesh>
-  )
+  const geometry = useMemo(() => getGroundGeometry(), [])
+  const material = useMemo(() => getGroundMaterial(), [])
+  return <mesh rotation={GROUND_ROTATION} position={GROUND_POSITION} geometry={geometry} material={material} />
 })
 
 // 레이캐스트 배치 - 좌클릭으로 설치, 우클릭으로 선택
@@ -395,58 +497,55 @@ function PlacementPreview() {
     if (markerRef.current) markerRef.current.visible = false
   })
 
+  // 캐시된 지오메트리 선택
+  const previewGeometry = useMemo(() => {
+    switch (currentPlaceable) {
+      case 'box': return getBoxGeometry()
+      case 'plane': return getPlaneGeometry()
+      case 'cylinder': return getCylinderGeometry()
+      case 'sphere': return getSphereGeometry()
+      case 'ramp': return getWedgeGeometry()
+      default: return getBoxGeometry()
+    }
+  }, [currentPlaceable])
+
+  const previewMaterial = useMemo(() => getPreviewMaterial(), [])
+  const ringGeometry = useMemo(() => getRingGeometry(), [])
+  const coneGeometry = useMemo(() => getConeGeometry(), [])
+  const smallConeGeometry = useMemo(() => getSmallConeGeometry(), [])
+
+  const killzonePreviewMaterial = useMemo(() => getTransparentMaterial(MARKER_COLORS.killzone, true), [])
+  const markerPreviewMaterial = useMemo(() =>
+    getTransparentMaterial(currentMarker ? MARKER_COLORS[currentMarker] || '#ffffff' : '#ffffff'),
+    [currentMarker]
+  )
+
   return (
     <>
       {/* 오브젝트 미리보기 - 레이캐스트 제외 */}
-      <mesh ref={meshRef} visible={false} raycast={noRaycast}>
-        {currentPlaceable === 'box' && <boxGeometry args={[1, 1, 1]} />}
-        {currentPlaceable === 'cylinder' && <cylinderGeometry args={[0.5, 0.5, 1, 16]} />}
-        {currentPlaceable === 'sphere' && <sphereGeometry args={[0.5, 16, 16]} />}
-        {currentPlaceable === 'plane' && <boxGeometry args={[1, 0.1, 1]} />}
-        {currentPlaceable === 'ramp' && <primitive object={getWedgeGeometry()} attach="geometry" />}
-        <meshStandardMaterial
-          color="#44ff44"
-          transparent
-          opacity={0.5}
-          depthWrite={false}
-        />
-      </mesh>
+      <mesh ref={meshRef} visible={false} raycast={noRaycast} geometry={previewGeometry} material={previewMaterial} />
 
       {/* 마커 미리보기 - 레이캐스트 제외 */}
       <group ref={markerRef} visible={false} raycast={noRaycast}>
         {currentMarker === 'killzone' ? (
           /* 킬존: 원형 범위 표시 (반경 2.0) */
-          <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.05, 0]} raycast={noRaycast}>
-            <ringGeometry args={[1.8, 2.0, 32]} />
-            <meshStandardMaterial
-              color={MARKER_COLORS.killzone}
-              transparent
-              opacity={0.5}
-              depthWrite={false}
-              side={THREE.DoubleSide}
-            />
-          </mesh>
+          <mesh
+            rotation={MARKER_RING_ROTATION}
+            position={MARKER_RING_POSITION}
+            raycast={noRaycast}
+            geometry={ringGeometry}
+            material={killzonePreviewMaterial}
+          />
         ) : (
           /* 기타 마커: 콘 형태 */
           <>
-            <mesh raycast={noRaycast}>
-              <coneGeometry args={[0.3, 0.8, 4]} />
-              <meshStandardMaterial
-                color={currentMarker ? MARKER_COLORS[currentMarker] || '#ffffff' : '#ffffff'}
-                transparent
-                opacity={0.5}
-                depthWrite={false}
-              />
-            </mesh>
-            <mesh position={[0, 0, 0.5]} raycast={noRaycast}>
-              <coneGeometry args={[0.15, 0.3, 8]} />
-              <meshStandardMaterial
-                color={currentMarker ? MARKER_COLORS[currentMarker] || '#ffffff' : '#ffffff'}
-                transparent
-                opacity={0.5}
-                depthWrite={false}
-              />
-            </mesh>
+            <mesh raycast={noRaycast} geometry={coneGeometry} material={markerPreviewMaterial} />
+            <mesh
+              position={MARKER_ARROW_POSITION}
+              raycast={noRaycast}
+              geometry={smallConeGeometry}
+              material={markerPreviewMaterial}
+            />
           </>
         )}
       </group>
@@ -498,9 +597,24 @@ function getWedgeGeometry(): THREE.BufferGeometry {
 const EditorObject = memo(function EditorObject({ obj, selected }: { obj: MapObject; selected: boolean }) {
   // useMemo로 지오메트리 캐싱
   const geometry = useMemo(() => {
-    if (obj.type === 'ramp') return getWedgeGeometry()
-    return undefined
+    switch (obj.type) {
+      case 'box': return getBoxGeometry()
+      case 'plane': return getPlaneGeometry()
+      case 'cylinder': return getCylinderGeometry()
+      case 'sphere': return getSphereGeometry()
+      case 'ramp': return getWedgeGeometry()
+      default: return undefined
+    }
   }, [obj.type])
+
+  const material = useMemo(() =>
+    getMaterial(
+      selected ? '#ffffff' : obj.color,
+      selected ? obj.color : '#000000',
+      selected ? 0.3 : 0
+    ),
+    [selected, obj.color]
+  )
 
   return (
     <mesh
@@ -509,17 +623,8 @@ const EditorObject = memo(function EditorObject({ obj, selected }: { obj: MapObj
       scale={obj.scale}
       userData={{ isEditorObject: true, objectId: obj.id }}
       geometry={geometry}
-    >
-      {obj.type === 'box' && <boxGeometry args={[1, 1, 1]} />}
-      {obj.type === 'cylinder' && <cylinderGeometry args={[0.5, 0.5, 1, 16]} />}
-      {obj.type === 'sphere' && <sphereGeometry args={[0.5, 16, 16]} />}
-      {obj.type === 'plane' && <boxGeometry args={[1, 0.1, 1]} />}
-      <meshStandardMaterial
-        color={selected ? '#ffffff' : obj.color}
-        emissive={selected ? obj.color : '#000000'}
-        emissiveIntensity={selected ? 0.3 : 0}
-      />
-    </mesh>
+      material={material}
+    />
   )
 })
 
@@ -528,38 +633,41 @@ const EditorMarker = memo(function EditorMarker({ marker, selected }: { marker: 
   const color = MARKER_COLORS[marker.type] || '#ffffff'
   const isKillzone = marker.type === 'killzone'
 
+  const ringGeometry = useMemo(() => getRingGeometry(), [])
+  const coneGeometry = useMemo(() => getConeGeometry(), [])
+  const smallConeGeometry = useMemo(() => getSmallConeGeometry(), [])
+
+  const mainMaterial = useMemo(() =>
+    getMaterial(color, selected ? color : '#000000', selected ? 0.5 : 0, isKillzone),
+    [color, selected, isKillzone]
+  )
+  const arrowMaterial = useMemo(() => getMaterial(color, '#000000', 0), [color])
+
   return (
     <group position={marker.position} rotation={marker.rotation}>
       {isKillzone ? (
         /* 킬존: 원형 링 (반경 2.0) */
         <mesh
-          rotation={[-Math.PI / 2, 0, 0]}
-          position={[0, 0.05, 0]}
+          rotation={MARKER_RING_ROTATION}
+          position={MARKER_RING_POSITION}
           userData={{ isEditorObject: true, objectId: `marker_${marker.id}` }}
-        >
-          <ringGeometry args={[1.8, 2.0, 32]} />
-          <meshStandardMaterial
-            color={color}
-            emissive={selected ? color : '#000000'}
-            emissiveIntensity={selected ? 0.5 : 0}
-            side={THREE.DoubleSide}
-          />
-        </mesh>
+          geometry={ringGeometry}
+          material={mainMaterial}
+        />
       ) : (
         /* 기타 마커: 콘 형태 */
         <>
-          <mesh userData={{ isEditorObject: true, objectId: `marker_${marker.id}` }}>
-            <coneGeometry args={[0.3, 0.8, 4]} />
-            <meshStandardMaterial
-              color={color}
-              emissive={selected ? color : '#000000'}
-              emissiveIntensity={selected ? 0.5 : 0}
-            />
-          </mesh>
-          <mesh position={[0, 0, 0.5]} rotation={[Math.PI / 2, 0, 0]}>
-            <coneGeometry args={[0.15, 0.3, 8]} />
-            <meshStandardMaterial color={color} />
-          </mesh>
+          <mesh
+            userData={{ isEditorObject: true, objectId: `marker_${marker.id}` }}
+            geometry={coneGeometry}
+            material={mainMaterial}
+          />
+          <mesh
+            position={MARKER_ARROW_POSITION}
+            rotation={MARKER_ARROW_ROTATION}
+            geometry={smallConeGeometry}
+            material={arrowMaterial}
+          />
         </>
       )}
     </group>

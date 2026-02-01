@@ -191,6 +191,9 @@ const Player = memo(function Player({
   const dying = useRef(false)
   const dyingTimer = useRef(0)
   const respawnPosRef = useRef<[number, number, number] | null>(null)
+  // 스토어 업데이트 최적화용 이전 값 추적
+  const lastGroundedRef = useRef(true)
+  const lastCanJumpRef = useRef(true)
 
   const input = useInput()
 
@@ -419,9 +422,15 @@ const Player = memo(function Player({
       playAnim(getAnim(_move.lengthSq() > 0, keys.shift && posture === 'standing', posture))
     }
 
-    // 스토어 업데이트
+    // 스토어 업데이트 (변경된 값만)
     store.setPlayerPos([pos.x, pos.y - centerY, pos.z])
-    store.setGroundedState(isGrounded, !jumping.current)
+
+    const currentCanJump = !jumping.current
+    if (lastGroundedRef.current !== isGrounded || lastCanJumpRef.current !== currentCanJump) {
+      lastGroundedRef.current = isGrounded
+      lastCanJumpRef.current = currentCanJump
+      store.setGroundedState(isGrounded, currentCanJump)
+    }
 
     // 레이스 로직
     const { raceStatus, startRace, finishRace, passCheckpoint, lastCheckpointPos } = store
@@ -703,30 +712,74 @@ const MARKER_COLORS: Record<string, string> = {
   capture_point: '#ffaa00',
 }
 
+// 캐시된 마커 지오메트리
+let cachedRingGeometry: THREE.RingGeometry | null = null
+let cachedKillzoneRingGeometry: THREE.RingGeometry | null = null
+let cachedMarkerCylinderGeometry: THREE.CylinderGeometry | null = null
+let cachedMarkerConeGeometry: THREE.ConeGeometry | null = null
+
+function getMarkerRingGeometry() {
+  if (!cachedRingGeometry) cachedRingGeometry = new THREE.RingGeometry(1.2, 1.5, 32)
+  return cachedRingGeometry
+}
+function getKillzoneRingGeometry() {
+  if (!cachedKillzoneRingGeometry) cachedKillzoneRingGeometry = new THREE.RingGeometry(1.8, 2.0, 32)
+  return cachedKillzoneRingGeometry
+}
+function getMarkerCylinderGeometry() {
+  if (!cachedMarkerCylinderGeometry) cachedMarkerCylinderGeometry = new THREE.CylinderGeometry(0.1, 0.1, 3, 8)
+  return cachedMarkerCylinderGeometry
+}
+function getMarkerConeGeometry() {
+  if (!cachedMarkerConeGeometry) cachedMarkerConeGeometry = new THREE.ConeGeometry(0.3, 0.5, 4)
+  return cachedMarkerConeGeometry
+}
+
+// 캐시된 마커 머티리얼
+const cachedMarkerMaterials: Map<string, THREE.MeshBasicMaterial> = new Map()
+const cachedMarkerEmissiveMaterials: Map<string, THREE.MeshStandardMaterial> = new Map()
+
+function getMarkerBasicMaterial(color: string, opacity: number): THREE.MeshBasicMaterial {
+  const key = `${color}_${opacity}`
+  let mat = cachedMarkerMaterials.get(key)
+  if (!mat) {
+    mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity, side: THREE.DoubleSide })
+    cachedMarkerMaterials.set(key, mat)
+  }
+  return mat
+}
+
+function getMarkerEmissiveMaterial(color: string): THREE.MeshStandardMaterial {
+  let mat = cachedMarkerEmissiveMaterials.get(color)
+  if (!mat) {
+    mat = new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.5 })
+    cachedMarkerEmissiveMaterials.set(color, mat)
+  }
+  return mat
+}
+
+const MARKER_RING_ROTATION: [number, number, number] = [-Math.PI / 2, 0, 0]
+const MARKER_RING_POSITION: [number, number, number] = [0, 0.05, 0]
+const MARKER_CYLINDER_POSITION: [number, number, number] = [0, 1.5, 0]
+const MARKER_CONE_POSITION: [number, number, number] = [0, 3.2, 0]
+
 const MarkerMesh = memo(function MarkerMesh({ marker }: { marker: MapMarker }) {
   const color = MARKER_COLORS[marker.type] || '#ffffff'
   const isKillzone = marker.type === 'killzone'
 
+  const ringGeometry = useMemo(() => isKillzone ? getKillzoneRingGeometry() : getMarkerRingGeometry(), [isKillzone])
+  const ringMaterial = useMemo(() => getMarkerBasicMaterial(color, 0.5), [color])
+  const cylinderMaterial = useMemo(() => getMarkerBasicMaterial(color, 0.3), [color])
+  const coneMaterial = useMemo(() => getMarkerEmissiveMaterial(color), [color])
+
   return (
     <group position={marker.position} rotation={marker.rotation}>
-      {/* 바닥 링 - 킬존은 더 크게 (반경 2.0에 맞춤) */}
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.05, 0]}>
-        <ringGeometry args={isKillzone ? [1.8, 2.0, 32] : [1.2, 1.5, 32]} />
-        <meshBasicMaterial color={color} transparent opacity={0.5} side={THREE.DoubleSide} />
-      </mesh>
-      {/* 기둥 - 킬존은 표시 안함 */}
+      <mesh rotation={MARKER_RING_ROTATION} position={MARKER_RING_POSITION} geometry={ringGeometry} material={ringMaterial} />
       {!isKillzone && (
-        <mesh position={[0, 1.5, 0]}>
-          <cylinderGeometry args={[0.1, 0.1, 3, 8]} />
-          <meshBasicMaterial color={color} transparent opacity={0.3} />
-        </mesh>
-      )}
-      {/* 상단 표시 - 킬존은 표시 안함 */}
-      {!isKillzone && (
-        <mesh position={[0, 3.2, 0]}>
-          <coneGeometry args={[0.3, 0.5, 4]} />
-          <meshStandardMaterial color={color} emissive={color} emissiveIntensity={0.5} />
-        </mesh>
+        <>
+          <mesh position={MARKER_CYLINDER_POSITION} geometry={getMarkerCylinderGeometry()} material={cylinderMaterial} />
+          <mesh position={MARKER_CONE_POSITION} geometry={getMarkerConeGeometry()} material={coneMaterial} />
+        </>
       )}
     </group>
   )
