@@ -73,7 +73,6 @@ const LocalPlayer = memo(function LocalPlayer({
 
   const input = useInput();
   const sendPosition = useMultiplayerGameStore((state) => state.sendPosition);
-  const status = useMultiplayerGameStore((state) => state.status);
 
   // Build animation map
   useEffect(() => {
@@ -130,7 +129,8 @@ const LocalPlayer = memo(function LocalPlayer({
   }, []);
 
   useFrame((_, dt) => {
-    if (!group.current || status !== 'playing') return;
+    const gameStatus = useMultiplayerGameStore.getState().status;
+    if (!group.current || gameStatus !== 'playing') return;
 
     const keys = input.current;
     const store = useGameStore.getState();
