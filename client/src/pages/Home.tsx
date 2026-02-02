@@ -382,30 +382,40 @@ function Home() {
                     현재 열린 방이 없습니다
                   </div>
                 ) : (
-                  rooms.map((room) => (
-                    <div
-                      key={room.id}
-                      className="flex items-center justify-between p-4 bg-white/5 rounded-xl hover:bg-white/10 transition-colors"
-                    >
-                      <div className="flex items-center gap-4">
-                        <div className="w-3 h-3 rounded-full bg-green-400"></div>
-                        <div>
-                          <div className="text-white font-medium">{room.name}</div>
-                          <div className="text-white/50 text-sm">레이스 모드</div>
+                  rooms.map((room) => {
+                    const isPlaying = room.status === 'playing' || room.status === 'countdown';
+                    const isFull = room.playerCount >= room.maxPlayers;
+                    const canJoin = !isPlaying && !isFull;
+
+                    return (
+                      <div
+                        key={room.id}
+                        className={`flex items-center justify-between p-4 bg-white/5 rounded-xl transition-colors ${
+                          canJoin ? 'hover:bg-white/10' : 'opacity-70'
+                        }`}
+                      >
+                        <div className="flex items-center gap-4">
+                          <div className={`w-3 h-3 rounded-full ${isPlaying ? 'bg-amber-400' : 'bg-green-400'}`}></div>
+                          <div>
+                            <div className="text-white font-medium">{room.name}</div>
+                            <div className={`text-sm ${isPlaying ? 'text-amber-400' : 'text-white/50'}`}>
+                              {isPlaying ? '게임 중' : '레이스 모드'}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-4">
+                          <span className="text-white/70 text-sm">{room.playerCount}/{room.maxPlayers}</span>
+                          <button
+                            onClick={() => handleJoinRoom(room.id)}
+                            disabled={!canJoin}
+                            className="px-4 py-2 bg-sky-500 hover:bg-sky-400 text-white font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {isPlaying ? '게임 중' : isFull ? '가득 참' : '참가'}
+                          </button>
                         </div>
                       </div>
-                      <div className="flex items-center gap-4">
-                        <span className="text-white/70 text-sm">{room.playerCount}/{room.maxPlayers}</span>
-                        <button
-                          onClick={() => handleJoinRoom(room.id)}
-                          disabled={room.playerCount >= room.maxPlayers}
-                          className="px-4 py-2 bg-sky-500 hover:bg-sky-400 text-white font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                          참가
-                        </button>
-                      </div>
-                    </div>
-                  ))
+                    );
+                  })
                 )}
               </div>
             </div>
