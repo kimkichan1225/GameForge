@@ -811,10 +811,12 @@ const MultiplayerUI = memo(function MultiplayerUI({
   onExit,
   onReturnToWaitingRoom,
   totalCheckpoints,
+  finishPosition,
 }: {
   onExit: () => void;
   onReturnToWaitingRoom: () => void;
   totalCheckpoints: number;
+  finishPosition: [number, number, number] | null;
 }) {
   const status = useMultiplayerGameStore((state) => state.status);
   const countdown = useMultiplayerGameStore((state) => state.countdown);
@@ -903,15 +905,36 @@ const MultiplayerUI = memo(function MultiplayerUI({
     return `${seconds}.${milliseconds.toString().padStart(2, '0')}`;
   };
 
-  // 현재 순위 계산 (체크포인트 기준)
+  // 피니시까지의 거리 계산 함수
+  const getDistanceToFinish = useCallback((position: { x: number; y: number; z: number }) => {
+    if (!finishPosition) return Infinity;
+    const dx = position.x - finishPosition[0];
+    const dy = position.y - finishPosition[1];
+    const dz = position.z - finishPosition[2];
+    return Math.sqrt(dx * dx + dy * dy + dz * dz);
+  }, [finishPosition]);
+
+  // 플레이어 정렬 함수 (체크포인트 > 거리)
+  const sortRacingPlayers = useCallback((a: typeof players[0], b: typeof players[0]) => {
+    // 체크포인트가 많은 순
+    if (b.checkpoint !== a.checkpoint) {
+      return b.checkpoint - a.checkpoint;
+    }
+    // 체크포인트가 같으면 피니시에 가까운 순
+    const distA = getDistanceToFinish(a.position);
+    const distB = getDistanceToFinish(b.position);
+    return distA - distB;
+  }, [getDistanceToFinish]);
+
+  // 현재 순위 계산 (체크포인트 기준 + 거리)
   const currentRank = useMemo(() => {
     if (!myId) return 1;
 
     // 완주한 플레이어들 (완주 시간순)
     const finishedPlayers = players.filter(p => p.finished).sort((a, b) => (a.finishTime || 0) - (b.finishTime || 0));
 
-    // 아직 완주하지 않은 플레이어들 (체크포인트 많은 순)
-    const racingPlayers = players.filter(p => !p.finished).sort((a, b) => b.checkpoint - a.checkpoint);
+    // 아직 완주하지 않은 플레이어들 (체크포인트 많은 순 > 피니시 거리 가까운 순)
+    const racingPlayers = players.filter(p => !p.finished).sort(sortRacingPlayers);
 
     const myPlayer = players.find(p => p.id === myId);
     if (!myPlayer) return 1;
@@ -921,7 +944,7 @@ const MultiplayerUI = memo(function MultiplayerUI({
     }
 
     return finishedPlayers.length + racingPlayers.findIndex(p => p.id === myId) + 1;
-  }, [players, myId]);
+  }, [players, myId, sortRacingPlayers]);
 
   const handleResume = async () => {
     setShowPauseMenu(false);
@@ -1063,18 +1086,19 @@ const MultiplayerUI = memo(function MultiplayerUI({
         </div>
       )}
 
-      {/* 플레이어 목록 (체크포인트 진행도 포함) */}
+      {/* 플레이어 목록 (체크포인트 진행도 + 거리 포함) */}
       <div className="absolute top-4 left-4 z-10 bg-slate-900/80 backdrop-blur-sm rounded-xl p-3 border border-white/10 min-w-48">
         <div className="text-white/60 text-xs mb-2">플레이어</div>
         <div className="space-y-1.5">
           {players
             .slice()
             .sort((a, b) => {
-              // 완주한 플레이어 먼저, 그 다음 체크포인트 순
+              // 완주한 플레이어 먼저 (완주 시간순)
               if (a.finished && !b.finished) return -1;
               if (!a.finished && b.finished) return 1;
               if (a.finished && b.finished) return (a.finishTime || 0) - (b.finishTime || 0);
-              return b.checkpoint - a.checkpoint;
+              // 레이싱 중인 플레이어는 체크포인트 > 거리 순
+              return sortRacingPlayers(a, b);
             })
             .map((p, index) => (
               <div
@@ -1323,7 +1347,7 @@ export function MultiplayerCanvas({
           killzones={killzones}
         />
       </Canvas>
-      <MultiplayerUI onExit={onExit} onReturnToWaitingRoom={onReturnToWaitingRoom} totalCheckpoints={checkpoints.length} />
+      <MultiplayerUI onExit={onExit} onReturnToWaitingRoom={onReturnToWaitingRoom} totalCheckpoints={checkpoints.length} finishPosition={finishPosition} />
     </div>
   );
 }
