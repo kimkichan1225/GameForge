@@ -1,4 +1,4 @@
-import { useRef, useEffect, useMemo, useCallback, memo, useState } from 'react'
+import { useRef, useEffect, useMemo, useCallback, memo } from 'react'
 import { Canvas, useThree, useFrame } from '@react-three/fiber'
 import { Grid } from '@react-three/drei'
 import * as THREE from 'three'
@@ -420,7 +420,6 @@ function RaycastPlacer({
 
             // 영역 검사 (X축, Z축)
             if (pos[0] < region.startX || pos[0] >= region.endX || pos[2] < -50 || pos[2] > 50) {
-              console.log('영역 밖에는 마커를 배치할 수 없습니다')
               return
             }
 
@@ -464,7 +463,6 @@ function RaycastPlacer({
 
           // 영역 검사 (X축, Z축)
           if (snappedPos[0] < region.startX || snappedPos[0] >= region.endX || snappedPos[2] < -50 || snappedPos[2] > 50) {
-            console.log('영역 밖에는 오브젝트를 배치할 수 없습니다')
             return
           }
 
@@ -924,17 +922,17 @@ function KeyboardShortcuts({
 interface BuildingCanvasProps {
   currentPlaceable: PlaceableType
   currentMarker: MarkerType | null
+  selectedId: string | null
+  onSelectId: (id: string | null) => void
 }
 
-export function BuildingCanvas({ currentPlaceable, currentMarker }: BuildingCanvasProps) {
+export function BuildingCanvas({ currentPlaceable, currentMarker, selectedId, onSelectId }: BuildingCanvasProps) {
   const region = useMultiplayerGameStore(state => state.myRegion)
   const isVerified = useMultiplayerGameStore(state => state.myVerified)
   const placeObject = useMultiplayerGameStore(state => state.placeObject)
   const placeMarker = useMultiplayerGameStore(state => state.placeMarker)
   const removeObject = useMultiplayerGameStore(state => state.removeObject)
   const removeMarker = useMultiplayerGameStore(state => state.removeMarker)
-
-  const [selectedId, setSelectedId] = useState<string | null>(null)
 
   const handlePlaceObject = useCallback(async (data: Omit<MapObject, 'id'>) => {
     await placeObject(data)
@@ -945,8 +943,8 @@ export function BuildingCanvas({ currentPlaceable, currentMarker }: BuildingCanv
   }, [placeMarker])
 
   const handleSelect = useCallback((id: string | null) => {
-    setSelectedId(id)
-  }, [])
+    onSelectId(id)
+  }, [onSelectId])
 
   const handleDelete = useCallback(async (id: string) => {
     if (id.startsWith('marker_')) {
@@ -954,16 +952,16 @@ export function BuildingCanvas({ currentPlaceable, currentMarker }: BuildingCanv
       const markerId = id.replace('marker_', '')
       const success = await removeMarker(markerId)
       if (success) {
-        setSelectedId(null)
+        onSelectId(null)
       }
     } else {
       // 오브젝트 삭제
       const success = await removeObject(id)
       if (success) {
-        setSelectedId(null)
+        onSelectId(null)
       }
     }
-  }, [removeObject, removeMarker])
+  }, [removeObject, removeMarker, onSelectId])
 
   return (
     <div className="w-full h-full relative">

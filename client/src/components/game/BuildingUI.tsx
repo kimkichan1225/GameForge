@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, memo } from 'react'
+import { useState, useEffect, useCallback, memo, useMemo } from 'react'
 import { useMultiplayerGameStore, type PlayerBuildingStatus } from '../../stores/multiplayerGameStore'
 import type { PlaceableType } from '../../stores/editorStore'
 
@@ -308,6 +308,261 @@ const MarkerStatus = memo(function MarkerStatus({
   )
 })
 
+// 0.5 단위로 스냅
+const snap = (val: number) => Math.round(val * 2) / 2
+
+// 축 라벨 상수
+const AXES = ['X', 'Y', 'Z'] as const
+
+// 속성 패널 (우클릭으로 오브젝트 선택 시 표시)
+const PropertiesPanel = memo(function PropertiesPanel({
+  selectedId,
+  onClose,
+  isVerified,
+}: {
+  selectedId: string | null
+  onClose: () => void
+  isVerified: boolean
+}) {
+  const objects = useMultiplayerGameStore(state => state.myObjects)
+  const markers = useMultiplayerGameStore(state => state.myMarkers)
+  const updateObject = useMultiplayerGameStore(state => state.updateObject)
+  const updateMarker = useMultiplayerGameStore(state => state.updateMarker)
+  const removeObject = useMultiplayerGameStore(state => state.removeObject)
+  const removeMarker = useMultiplayerGameStore(state => state.removeMarker)
+
+  // 선택된 오브젝트/마커 메모이제이션
+  const selectedObject = useMemo(() => {
+    if (!selectedId || selectedId.startsWith('marker_')) return null
+    return objects.find(o => o.id === selectedId) || null
+  }, [selectedId, objects])
+
+  const selectedMarker = useMemo(() => {
+    if (!selectedId || !selectedId.startsWith('marker_')) return null
+    return markers.find(m => m.id === selectedId.replace('marker_', '')) || null
+  }, [selectedId, markers])
+
+  // 오브젝트 속성 변경 핸들러
+  const handleColorChange = useCallback((color: string) => {
+    if (selectedObject) updateObject(selectedObject.id, { color })
+  }, [selectedObject?.id, updateObject])
+
+  const handlePositionChange = useCallback((axis: number, value: number) => {
+    if (selectedObject) {
+      const pos = [...selectedObject.position] as [number, number, number]
+      pos[axis] = snap(value)
+      updateObject(selectedObject.id, { position: pos })
+    }
+  }, [selectedObject?.id, selectedObject?.position, updateObject])
+
+  const handleRotationChange = useCallback((axis: number, value: number) => {
+    if (selectedObject) {
+      const rot = [...selectedObject.rotation] as [number, number, number]
+      const deg = Math.round(value / 15) * 15
+      rot[axis] = (deg * Math.PI) / 180
+      updateObject(selectedObject.id, { rotation: rot })
+    }
+  }, [selectedObject?.id, selectedObject?.rotation, updateObject])
+
+  const handleScaleChange = useCallback((axis: number, value: number) => {
+    if (selectedObject) {
+      const scale = [...selectedObject.scale] as [number, number, number]
+      scale[axis] = Math.max(0.5, snap(value))
+      updateObject(selectedObject.id, { scale })
+    }
+  }, [selectedObject?.id, selectedObject?.scale, updateObject])
+
+  // 마커 속성 변경 핸들러
+  const handleMarkerPositionChange = useCallback((axis: number, value: number) => {
+    if (selectedMarker) {
+      const pos = [...selectedMarker.position] as [number, number, number]
+      pos[axis] = snap(value)
+      updateMarker(selectedMarker.id, { position: pos })
+    }
+  }, [selectedMarker?.id, selectedMarker?.position, updateMarker])
+
+  const handleMarkerRotationChange = useCallback((axis: number, value: number) => {
+    if (selectedMarker) {
+      const rot = [...selectedMarker.rotation] as [number, number, number]
+      const deg = Math.round(value / 15) * 15
+      rot[axis] = (deg * Math.PI) / 180
+      updateMarker(selectedMarker.id, { rotation: rot })
+    }
+  }, [selectedMarker?.id, selectedMarker?.rotation, updateMarker])
+
+  const handleDelete = useCallback(async () => {
+    if (selectedObject) {
+      await removeObject(selectedObject.id)
+      onClose()
+    } else if (selectedMarker) {
+      await removeMarker(selectedMarker.id)
+      onClose()
+    }
+  }, [selectedObject?.id, selectedMarker?.id, removeObject, removeMarker, onClose])
+
+  if (!selectedObject && !selectedMarker) return null
+
+  return (
+    <div className="absolute top-20 right-4 z-20 w-64 bg-slate-800/95 backdrop-blur-sm rounded-xl p-4 border border-white/10 shadow-xl">
+      {/* 헤더 */}
+      <div className="flex items-center justify-between mb-4">
+        <span className="text-white font-medium">
+          {selectedObject?.name || selectedMarker?.type.replace('_', ' ')}
+        </span>
+        <div className="flex gap-2">
+          {!isVerified && (
+            <button
+              onClick={handleDelete}
+              className="text-red-400 hover:text-red-300 text-xs px-2 py-1 bg-red-500/10 rounded"
+            >
+              Delete
+            </button>
+          )}
+          <button
+            onClick={onClose}
+            className="text-white/50 hover:text-white text-lg leading-none"
+          >
+            ×
+          </button>
+        </div>
+      </div>
+
+      {selectedObject && (
+        <div className="space-y-4">
+          {/* 색상 */}
+          <div>
+            <label className="block text-white/50 text-xs mb-1.5">Color</label>
+            <div className="flex gap-2">
+              <input
+                type="color"
+                value={selectedObject.color}
+                onChange={(e) => handleColorChange(e.target.value)}
+                disabled={isVerified}
+                className="w-10 h-8 rounded cursor-pointer border-0 disabled:opacity-50"
+              />
+              <input
+                type="text"
+                value={selectedObject.color}
+                onChange={(e) => handleColorChange(e.target.value)}
+                disabled={isVerified}
+                className="flex-1 px-2 py-1 bg-white/5 border border-white/10 rounded text-white text-xs focus:outline-none focus:border-sky-400 uppercase disabled:opacity-50"
+              />
+            </div>
+          </div>
+
+          {/* 위치 */}
+          <div>
+            <label className="block text-white/50 text-xs mb-1.5">Position</label>
+            <div className="grid grid-cols-3 gap-1">
+              {AXES.map((axis, i) => (
+                <div key={axis}>
+                  <span className="text-white/30 text-[10px]">{axis}</span>
+                  <input
+                    type="number"
+                    step="0.5"
+                    value={snap(selectedObject.position[i])}
+                    onChange={(e) => handlePositionChange(i, parseFloat(e.target.value) || 0)}
+                    disabled={isVerified}
+                    className="w-full px-2 py-1.5 bg-white/5 border border-white/10 rounded text-white text-xs focus:outline-none focus:border-sky-400 disabled:opacity-50"
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* 회전 */}
+          <div>
+            <label className="block text-white/50 text-xs mb-1.5">Rotation (deg)</label>
+            <div className="grid grid-cols-3 gap-1">
+              {AXES.map((axis, i) => (
+                <div key={axis}>
+                  <span className="text-white/30 text-[10px]">{axis}</span>
+                  <input
+                    type="number"
+                    step="15"
+                    value={Math.round((selectedObject.rotation[i] * 180) / Math.PI / 15) * 15}
+                    onChange={(e) => handleRotationChange(i, parseFloat(e.target.value) || 0)}
+                    disabled={isVerified}
+                    className="w-full px-2 py-1.5 bg-white/5 border border-white/10 rounded text-white text-xs focus:outline-none focus:border-sky-400 disabled:opacity-50"
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* 크기 */}
+          <div>
+            <label className="block text-white/50 text-xs mb-1.5">Scale</label>
+            <div className="grid grid-cols-3 gap-1">
+              {AXES.map((axis, i) => (
+                <div key={axis}>
+                  <span className="text-white/30 text-[10px]">{axis}</span>
+                  <input
+                    type="number"
+                    step="0.5"
+                    value={snap(selectedObject.scale[i])}
+                    onChange={(e) => handleScaleChange(i, parseFloat(e.target.value) || 0.5)}
+                    disabled={isVerified}
+                    className="w-full px-2 py-1.5 bg-white/5 border border-white/10 rounded text-white text-xs focus:outline-none focus:border-sky-400 disabled:opacity-50"
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {selectedMarker && (
+        <div className="space-y-4">
+          {/* 위치 */}
+          <div>
+            <label className="block text-white/50 text-xs mb-1.5">Position</label>
+            <div className="grid grid-cols-3 gap-1">
+              {AXES.map((axis, i) => (
+                <div key={axis}>
+                  <span className="text-white/30 text-[10px]">{axis}</span>
+                  <input
+                    type="number"
+                    step="0.5"
+                    value={snap(selectedMarker.position[i])}
+                    onChange={(e) => handleMarkerPositionChange(i, parseFloat(e.target.value) || 0)}
+                    disabled={isVerified}
+                    className="w-full px-2 py-1.5 bg-white/5 border border-white/10 rounded text-white text-xs focus:outline-none focus:border-sky-400 disabled:opacity-50"
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* 회전 */}
+          <div>
+            <label className="block text-white/50 text-xs mb-1.5">Rotation (deg)</label>
+            <div className="grid grid-cols-3 gap-1">
+              {AXES.map((axis, i) => (
+                <div key={axis}>
+                  <span className="text-white/30 text-[10px]">{axis}</span>
+                  <input
+                    type="number"
+                    step="15"
+                    value={Math.round((selectedMarker.rotation[i] * 180) / Math.PI / 15) * 15}
+                    onChange={(e) => handleMarkerRotationChange(i, parseFloat(e.target.value) || 0)}
+                    disabled={isVerified}
+                    className="w-full px-2 py-1.5 bg-white/5 border border-white/10 rounded text-white text-xs focus:outline-none focus:border-sky-400 disabled:opacity-50"
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="mt-4 pt-3 border-t border-white/10 text-white/30 text-[10px]">
+        {isVerified ? '읽기 전용' : 'ESC로 닫기'}
+      </div>
+    </div>
+  )
+})
+
 // 메인 UI 컴포넌트
 interface BuildingUIProps {
   currentPlaceable: PlaceableType
@@ -315,6 +570,8 @@ interface BuildingUIProps {
   onSelectPlaceable: (type: PlaceableType) => void
   onSelectMarker: (type: MarkerType | null) => void
   onStartTest: () => void
+  selectedId: string | null
+  onSelectId: (id: string | null) => void
 }
 
 export function BuildingUI({
@@ -323,6 +580,8 @@ export function BuildingUI({
   onSelectPlaceable,
   onSelectMarker,
   onStartTest,
+  selectedId,
+  onSelectId,
 }: BuildingUIProps) {
   const region = useMultiplayerGameStore(state => state.myRegion)
   const timeRemaining = useMultiplayerGameStore(state => state.buildingTimeRemaining)
@@ -337,6 +596,12 @@ export function BuildingUI({
   const [unverifiedPlayers, setUnverifiedPlayers] = useState<Array<{ playerId: string; nickname: string }>>([])
   const [allVerifiedCountdown, setAllVerifiedCountdown] = useState<number | null>(null)
   const [shuffledOrder, setShuffledOrder] = useState<Array<{ playerId: string; nickname: string }>>([])
+  const [voteKickStatus, setVoteKickStatus] = useState<{
+    targetPlayerId: string;
+    nickname: string;
+    currentVotes: number;
+    votesNeeded: number;
+  } | null>(null)
 
   const hasSpawn = myMarkers.some(m => m.type === 'spawn')
   const hasFinish = myMarkers.some(m => m.type === 'finish')
@@ -368,6 +633,20 @@ export function BuildingUI({
       setShuffledOrder(data.shuffledOrder)
     }
 
+    const handleVoteKickUpdate = (data: {
+      targetPlayerId: string;
+      nickname: string;
+      currentVotes: number;
+      votesNeeded: number;
+    }) => {
+      setVoteKickStatus(data)
+    }
+
+    const handlePlayerKicked = (data: { playerId: string }) => {
+      // 투표가 완료되면 상태 초기화
+      setVoteKickStatus(prev => prev?.targetPlayerId === data.playerId ? null : prev)
+    }
+
     // @ts-expect-error socket.io types
     socket.on('build:timeExtended', handleTimeExtended)
     // @ts-expect-error socket.io types
@@ -376,6 +655,10 @@ export function BuildingUI({
     socket.on('build:earlyStartCountdown', handleEarlyStartCountdown)
     // @ts-expect-error socket.io types
     socket.on('build:completed', handleCompleted)
+    // @ts-expect-error socket.io types
+    socket.on('build:voteKickUpdate', handleVoteKickUpdate)
+    // @ts-expect-error socket.io types
+    socket.on('build:playerKicked', handlePlayerKicked)
 
     return () => {
       // @ts-expect-error socket.io types
@@ -386,6 +669,10 @@ export function BuildingUI({
       socket.off('build:earlyStartCountdown', handleEarlyStartCountdown)
       // @ts-expect-error socket.io types
       socket.off('build:completed', handleCompleted)
+      // @ts-expect-error socket.io types
+      socket.off('build:voteKickUpdate', handleVoteKickUpdate)
+      // @ts-expect-error socket.io types
+      socket.off('build:playerKicked', handlePlayerKicked)
     }
   }, [])
 
@@ -439,8 +726,14 @@ export function BuildingUI({
         />
       </div>
 
-      {/* 우측 테스트 버튼 */}
-      {!myVerified && (
+      {/* 우측 속성 패널 또는 테스트 버튼 */}
+      {selectedId ? (
+        <PropertiesPanel
+          selectedId={selectedId}
+          onClose={() => onSelectId(null)}
+          isVerified={myVerified}
+        />
+      ) : !myVerified && (
         <div className="absolute top-20 right-4 z-10">
           <button
             onClick={handleTestClick}
@@ -520,6 +813,23 @@ export function BuildingUI({
           countdown={allVerifiedCountdown}
           shuffledOrder={shuffledOrder}
         />
+      )}
+
+      {/* 강퇴 투표 현황 표시 */}
+      {voteKickStatus && (
+        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-50 bg-slate-800/95 backdrop-blur-sm rounded-lg px-6 py-3 border border-red-500/30 shadow-xl">
+          <div className="flex items-center gap-4">
+            <div className="text-red-400 text-lg">🗳️</div>
+            <div>
+              <div className="text-white font-medium">
+                {voteKickStatus.nickname} 강퇴 투표 진행 중
+              </div>
+              <div className="text-white/70 text-sm">
+                현재 투표: <span className="text-yellow-400 font-bold">{voteKickStatus.currentVotes}</span> / {voteKickStatus.votesNeeded} (과반수 필요)
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </>
   )

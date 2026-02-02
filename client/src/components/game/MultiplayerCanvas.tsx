@@ -497,8 +497,8 @@ const FollowCamera = memo(function FollowCamera({ startPosition }: { startPositi
     const timer = setTimeout(async () => {
       try {
         await canvas.requestPointerLock();
-      } catch (e) {
-        console.log('포인터 락 요청 취소됨');
+      } catch {
+        // 포인터 락 요청이 취소된 경우 무시
       }
     }, 300);
     return () => clearTimeout(timer);
@@ -831,7 +831,12 @@ const RemotePlayers = memo(function RemotePlayers() {
 const RelayRegionBoundaries = memo(function RelayRegionBoundaries({
   segments,
 }: {
-  segments: Array<{ playerId: string; order: number }>;
+  segments: Array<{
+    playerId: string;
+    order: number;
+    spawnPosition: [number, number, number];
+    region?: { startX: number; endX: number };
+  }>;
 }) {
   const boundaryMaterial = useMemo(
     () =>
@@ -844,14 +849,32 @@ const RelayRegionBoundaries = memo(function RelayRegionBoundaries({
     []
   );
 
-  const walls: JSX.Element[] = [];
+  const walls: React.ReactElement[] = [];
   const wallHeight = 20;
   const depth = 100; // Z축 범위: -50 ~ +50
-  const regionWidth = 50; // 각 영역 X축 폭
 
-  for (let i = 0; i < segments.length; i++) {
-    const startX = i * regionWidth;
-    const endX = (i + 1) * regionWidth;
+  // 세그먼트를 order 순으로 정렬
+  const sortedSegments = [...segments].sort((a, b) => a.order - b.order);
+
+  for (let i = 0; i < sortedSegments.length; i++) {
+    const seg = sortedSegments[i];
+
+    // 실제 region 데이터 사용, 없으면 spawn 위치 기반으로 계산 (fallback)
+    let startX: number;
+    let endX: number;
+
+    if (seg.region) {
+      startX = seg.region.startX;
+      endX = seg.region.endX;
+    } else {
+      // fallback: spawn 위치 기반 계산
+      const spawnX = seg.spawnPosition[0];
+      const regionWidth = 50;
+      startX = Math.floor(spawnX / regionWidth) * regionWidth;
+      endX = startX + regionWidth;
+    }
+
+    const regionWidth = endX - startX;
     const centerX = (startX + endX) / 2;
 
     // 각 영역의 4면 벽 (왼쪽, 오른쪽, 앞, 뒤)
@@ -894,7 +917,12 @@ const SceneContent = memo(function SceneContent({
   finishPosition: [number, number, number] | null;
   checkpoints: MapMarker[];
   killzones: MapMarker[];
-  relaySegments: Array<{ playerId: string; order: number }> | null;
+  relaySegments: Array<{
+    playerId: string;
+    order: number;
+    spawnPosition: [number, number, number];
+    region?: { startX: number; endX: number };
+  }> | null;
 }) {
   if (!physics) return null;
 
@@ -1676,6 +1704,8 @@ export function MultiplayerCanvas({
     return relayMapData.segments.map(seg => ({
       playerId: seg.playerId,
       order: seg.order,
+      spawnPosition: seg.spawnPosition,
+      region: seg.region,
     }));
   }, [isRelayRace, relayMapData]);
 

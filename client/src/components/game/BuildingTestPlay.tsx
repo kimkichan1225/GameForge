@@ -284,189 +284,197 @@ const Player = memo(function Player({
     if (cleaningUpRef.current) return
     if (!playerColliderRef.current) return
 
+    // 물리 객체 유효성 검사
     let vel: { x: number; y: number; z: number }
     try {
+      if (!playerBody.isValid()) return
       vel = playerBody.linvel()
     } catch {
       return
     }
-    const centerY = COLLIDER_CONFIG[posture].centerY
 
-    // 사망 애니메이션 처리
-    if (dying.current) {
-      dyingTimer.current -= dt
-      playerBody.setLinvel({ x: 0, y: vel.y, z: 0 }, true)
+    // 모든 물리 연산을 try-catch로 보호 (cleanup 중 메모리 접근 오류 방지)
+    try {
+      const centerY = COLLIDER_CONFIG[posture].centerY
+
+      // 사망 애니메이션 처리
+      if (dying.current) {
+        dyingTimer.current -= dt
+        playerBody.setLinvel({ x: 0, y: vel.y, z: 0 }, true)
+        world.step()
+
+        const pos = playerBody.translation()
+        const footY = pos.y - centerY
+        group.current.position.set(pos.x, footY, pos.z)
+        store.setPlayerPos([pos.x, footY, pos.z])
+
+        if (dyingTimer.current <= 0) {
+          dying.current = false
+          // 마지막 체크포인트가 있으면 그곳으로, 없으면 시작 위치로 리스폰
+          const respawnPos = lastCheckpointPos.current || startPosition
+          playerBody.setTranslation(
+            { x: respawnPos[0], y: respawnPos[1] + centerY + 1, z: respawnPos[2] },
+            true
+          )
+          playerBody.setLinvel({ x: 0, y: 0, z: 0 }, true)
+          group.current.position.set(respawnPos[0], respawnPos[1], respawnPos[2])
+          store.setPlayerPos([respawnPos[0], respawnPos[1], respawnPos[2]])
+          playAnim('Idle')
+        }
+        return
+      }
+
+      // 자세 변경 시 콜라이더 업데이트
+      if (posture !== currentPosture.current) {
+        const newCollider = updatePlayerCollider(world, playerBody, playerColliderRef.current, currentPosture.current, posture)
+        playerColliderRef.current = newCollider
+        currentPosture.current = posture
+      }
+
+      const isGrounded = checkGrounded(world, playerBody, playerColliderRef.current, posture)
+      grounded.current = isGrounded
+
+      if (dashCooldown.current > 0) dashCooldown.current -= dt
+
+      if (keys.c && !prev.current.c && isGrounded && !dashing.current) {
+        store.setPosture(posture === 'sitting' ? 'standing' : 'sitting')
+      }
+      if (keys.z && !prev.current.z && isGrounded && !dashing.current) {
+        store.setPosture(posture === 'crawling' ? 'standing' : 'crawling')
+      }
+
+      let shouldJump = false
+      if (keys.space && !prev.current.space && isGrounded && !jumping.current && vel.y < 1 && posture === 'standing' && !dashing.current) {
+        shouldJump = true
+        jumping.current = true
+        playAnim('Jump')
+      }
+
+      if (jumping.current && isGrounded && vel.y <= 0 && !shouldJump) {
+        jumping.current = false
+        if (!dashing.current) {
+          const moving = keys.forward || keys.backward || keys.left || keys.right
+          playAnim(getAnim(moving, keys.shift && posture === 'standing', posture))
+        }
+      }
+
+      if (keys.v && !prev.current.v && isGrounded && posture === 'standing' && !dashing.current && dashCooldown.current <= 0) {
+        dashing.current = true
+        dashTimer.current = DASH_DURATION
+        dashCooldown.current = DASH_COOLDOWN
+
+        _dashDir.set(0, 0, 0)
+        if (keys.forward) _dashDir.z -= 1
+        if (keys.backward) _dashDir.z += 1
+        if (keys.left) _dashDir.x -= 1
+        if (keys.right) _dashDir.x += 1
+
+        if (_dashDir.lengthSq() === 0) {
+          scene.getWorldDirection(_dashDir)
+          _dashDir.y = 0
+        }
+        _dashDir.normalize().applyAxisAngle(_yAxis, cameraAngle)
+        playAnim('Roll')
+      }
+
+      prev.current = { space: keys.space, c: keys.c, z: keys.z, v: keys.v }
+
+      _move.set(0, 0, 0)
+
+      if (dashing.current) {
+        dashTimer.current -= dt
+        _move.copy(_dashDir)
+        if (dashTimer.current <= 0) dashing.current = false
+      } else {
+        if (keys.forward) _move.z -= 1
+        if (keys.backward) _move.z += 1
+        if (keys.left) _move.x -= 1
+        if (keys.right) _move.x += 1
+
+        if (_move.lengthSq() > 0) {
+          _move.normalize().applyAxisAngle(_yAxis, cameraAngle)
+          const angle = Math.atan2(_move.x, _move.z)
+          _targetQuat.setFromAxisAngle(_yAxis, angle)
+          scene.quaternion.slerp(_targetQuat, 0.15)
+        }
+      }
+
+      let speed = WALK_SPEED
+      if (dashing.current) speed = DASH_SPEED
+      else if (posture === 'sitting') speed = SIT_SPEED
+      else if (posture === 'crawling') speed = CRAWL_SPEED
+      else if (keys.shift && posture === 'standing') speed = RUN_SPEED
+
+      playerBody.setLinvel({ x: _move.x * speed, y: shouldJump ? JUMP_POWER : vel.y, z: _move.z * speed }, true)
       world.step()
 
       const pos = playerBody.translation()
-      const footY = pos.y - centerY
-      group.current.position.set(pos.x, footY, pos.z)
-      store.setPlayerPos([pos.x, footY, pos.z])
+      const playerFootY = pos.y - centerY
+      group.current.position.set(pos.x, playerFootY, pos.z)
 
-      if (dyingTimer.current <= 0) {
-        dying.current = false
-        // 마지막 체크포인트가 있으면 그곳으로, 없으면 시작 위치로 리스폰
-        const respawnPos = lastCheckpointPos.current || startPosition
-        playerBody.setTranslation(
-          { x: respawnPos[0], y: respawnPos[1] + centerY + 1, z: respawnPos[2] },
-          true
-        )
-        playerBody.setLinvel({ x: 0, y: 0, z: 0 }, true)
-        group.current.position.set(respawnPos[0], respawnPos[1], respawnPos[2])
-        store.setPlayerPos([respawnPos[0], respawnPos[1], respawnPos[2]])
-        playAnim('Idle')
+      // 카메라가 따라올 수 있도록 스토어에 위치 업데이트
+      store.setPlayerPos([pos.x, playerFootY, pos.z])
+
+      if (isGrounded && !dashing.current && !jumping.current) {
+        playAnim(getAnim(_move.lengthSq() > 0, keys.shift && posture === 'standing', posture))
       }
-      return
-    }
 
-    // 자세 변경 시 콜라이더 업데이트
-    if (posture !== currentPosture.current) {
-      const newCollider = updatePlayerCollider(world, playerBody, playerColliderRef.current, currentPosture.current, posture)
-      playerColliderRef.current = newCollider
-      currentPosture.current = posture
-    }
-
-    const isGrounded = checkGrounded(world, playerBody, playerColliderRef.current, posture)
-    grounded.current = isGrounded
-
-    if (dashCooldown.current > 0) dashCooldown.current -= dt
-
-    if (keys.c && !prev.current.c && isGrounded && !dashing.current) {
-      store.setPosture(posture === 'sitting' ? 'standing' : 'sitting')
-    }
-    if (keys.z && !prev.current.z && isGrounded && !dashing.current) {
-      store.setPosture(posture === 'crawling' ? 'standing' : 'crawling')
-    }
-
-    let shouldJump = false
-    if (keys.space && !prev.current.space && isGrounded && !jumping.current && vel.y < 1 && posture === 'standing' && !dashing.current) {
-      shouldJump = true
-      jumping.current = true
-      playAnim('Jump')
-    }
-
-    if (jumping.current && isGrounded && vel.y <= 0 && !shouldJump) {
-      jumping.current = false
-      if (!dashing.current) {
-        const moving = keys.forward || keys.backward || keys.left || keys.right
-        playAnim(getAnim(moving, keys.shift && posture === 'standing', posture))
+      // 체크포인트 통과 체크
+      for (const cp of checkpoints) {
+        if (passedCheckpoints.current.has(cp.id)) continue
+        const dx = pos.x - cp.position[0]
+        const dy = playerFootY - cp.position[1]
+        const dz = pos.z - cp.position[2]
+        const distSq = dx * dx + dy * dy + dz * dz
+        if (distSq < CHECKPOINT_RADIUS * CHECKPOINT_RADIUS) {
+          passedCheckpoints.current.add(cp.id)
+          lastCheckpointPos.current = [cp.position[0], cp.position[1], cp.position[2]]
+        }
       }
-    }
 
-    if (keys.v && !prev.current.v && isGrounded && posture === 'standing' && !dashing.current && dashCooldown.current <= 0) {
-      dashing.current = true
-      dashTimer.current = DASH_DURATION
-      dashCooldown.current = DASH_COOLDOWN
-
-      _dashDir.set(0, 0, 0)
-      if (keys.forward) _dashDir.z -= 1
-      if (keys.backward) _dashDir.z += 1
-      if (keys.left) _dashDir.x -= 1
-      if (keys.right) _dashDir.x += 1
-
-      if (_dashDir.lengthSq() === 0) {
-        scene.getWorldDirection(_dashDir)
-        _dashDir.y = 0
+      // 피니시 도달 체크
+      if (finishPosition && !hasFinishedRef.current) {
+        const dx = pos.x - finishPosition[0]
+        const dy = playerFootY - finishPosition[1]
+        const dz = pos.z - finishPosition[2]
+        const distSq = dx * dx + dy * dy + dz * dz
+        if (distSq < FINISH_RADIUS * FINISH_RADIUS) {
+          hasFinishedRef.current = true
+          onFinish()
+        }
       }
-      _dashDir.normalize().applyAxisAngle(_yAxis, cameraAngle)
-      playAnim('Roll')
-    }
 
-    prev.current = { space: keys.space, c: keys.c, z: keys.z, v: keys.v }
-
-    _move.set(0, 0, 0)
-
-    if (dashing.current) {
-      dashTimer.current -= dt
-      _move.copy(_dashDir)
-      if (dashTimer.current <= 0) dashing.current = false
-    } else {
-      if (keys.forward) _move.z -= 1
-      if (keys.backward) _move.z += 1
-      if (keys.left) _move.x -= 1
-      if (keys.right) _move.x += 1
-
-      if (_move.lengthSq() > 0) {
-        _move.normalize().applyAxisAngle(_yAxis, cameraAngle)
-        const angle = Math.atan2(_move.x, _move.z)
-        _targetQuat.setFromAxisAngle(_yAxis, angle)
-        scene.quaternion.slerp(_targetQuat, 0.15)
+      // 킬존 체크 (원판 형태: XZ 반경 + Y 높이 제한)
+      let hitKillzone = false
+      for (const kz of killzones) {
+        const dx = pos.x - kz.position[0]
+        const dy = playerFootY - kz.position[1]
+        const dz = pos.z - kz.position[2]
+        const distXZ = dx * dx + dz * dz
+        const inRadius = distXZ < KILLZONE_RADIUS * KILLZONE_RADIUS
+        const inHeight = Math.abs(dy) < KILLZONE_HEIGHT
+        if (inRadius && inHeight) {
+          hitKillzone = true
+          break
+        }
       }
-    }
 
-    let speed = WALK_SPEED
-    if (dashing.current) speed = DASH_SPEED
-    else if (posture === 'sitting') speed = SIT_SPEED
-    else if (posture === 'crawling') speed = CRAWL_SPEED
-    else if (keys.shift && posture === 'standing') speed = RUN_SPEED
-
-    playerBody.setLinvel({ x: _move.x * speed, y: shouldJump ? JUMP_POWER : vel.y, z: _move.z * speed }, true)
-    world.step()
-
-    const pos = playerBody.translation()
-    const playerFootY = pos.y - centerY
-    group.current.position.set(pos.x, playerFootY, pos.z)
-
-    // 카메라가 따라올 수 있도록 스토어에 위치 업데이트
-    store.setPlayerPos([pos.x, playerFootY, pos.z])
-
-    if (isGrounded && !dashing.current && !jumping.current) {
-      playAnim(getAnim(_move.lengthSq() > 0, keys.shift && posture === 'standing', posture))
-    }
-
-    // 체크포인트 통과 체크
-    for (const cp of checkpoints) {
-      if (passedCheckpoints.current.has(cp.id)) continue
-      const dx = pos.x - cp.position[0]
-      const dy = playerFootY - cp.position[1]
-      const dz = pos.z - cp.position[2]
-      const distSq = dx * dx + dy * dy + dz * dz
-      if (distSq < CHECKPOINT_RADIUS * CHECKPOINT_RADIUS) {
-        passedCheckpoints.current.add(cp.id)
-        lastCheckpointPos.current = [cp.position[0], cp.position[1], cp.position[2]]
+      // 킬존 진입 시 사망 애니메이션 시작
+      if (hitKillzone && !dying.current) {
+        dying.current = true
+        dyingTimer.current = DEAD_DURATION
+        playAnim('Dead')
+        return
       }
-    }
 
-    // 피니시 도달 체크
-    if (finishPosition && !hasFinishedRef.current) {
-      const dx = pos.x - finishPosition[0]
-      const dy = playerFootY - finishPosition[1]
-      const dz = pos.z - finishPosition[2]
-      const distSq = dx * dx + dy * dy + dz * dz
-      if (distSq < FINISH_RADIUS * FINISH_RADIUS) {
-        hasFinishedRef.current = true
-        onFinish()
+      // 낙사 체크
+      if (playerFootY < FALL_THRESHOLD && !dying.current) {
+        dying.current = true
+        dyingTimer.current = DEAD_DURATION
+        playAnim('Dead')
       }
-    }
-
-    // 킬존 체크 (원판 형태: XZ 반경 + Y 높이 제한)
-    let hitKillzone = false
-    for (const kz of killzones) {
-      const dx = pos.x - kz.position[0]
-      const dy = playerFootY - kz.position[1]
-      const dz = pos.z - kz.position[2]
-      const distXZ = dx * dx + dz * dz
-      const inRadius = distXZ < KILLZONE_RADIUS * KILLZONE_RADIUS
-      const inHeight = Math.abs(dy) < KILLZONE_HEIGHT
-      if (inRadius && inHeight) {
-        hitKillzone = true
-        break
-      }
-    }
-
-    // 킬존 진입 시 사망 애니메이션 시작
-    if (hitKillzone && !dying.current) {
-      dying.current = true
-      dyingTimer.current = DEAD_DURATION
-      playAnim('Dead')
-      return
-    }
-
-    // 낙사 체크
-    if (playerFootY < FALL_THRESHOLD && !dying.current) {
-      dying.current = true
-      dyingTimer.current = DEAD_DURATION
-      playAnim('Dead')
+    } catch {
+      // 물리 엔진 cleanup 중 메모리 접근 오류 무시
     }
   })
 
@@ -497,7 +505,15 @@ const FollowCamera = memo(function FollowCamera() {
   useEffect(() => {
     const canvas = gl.domElement
 
-    const onClick = () => canvas.requestPointerLock()
+    const onClick = async () => {
+      try {
+        if (document.contains(canvas) && document.hasFocus()) {
+          await canvas.requestPointerLock()
+        }
+      } catch {
+        // 포인터 락 실패 시 무시 (사용자가 빠르게 다른 동작을 한 경우)
+      }
+    }
 
     const onMouseMove = (e: MouseEvent) => {
       if (!isLocked.current) return
@@ -757,15 +773,24 @@ const TestPlayUI = memo(function TestPlayUI({
   onExit: () => void
 }) {
   useEffect(() => {
+    let mounted = true
     const canvas = document.querySelector('canvas') as HTMLCanvasElement | null
     if (canvas) {
-      setTimeout(async () => {
+      const timeoutId = setTimeout(async () => {
+        if (!mounted) return
         try {
-          await canvas.requestPointerLock()
+          // 캔버스가 여전히 DOM에 있고 문서가 포커스되어 있는지 확인
+          if (document.contains(canvas) && document.hasFocus()) {
+            await canvas.requestPointerLock()
+          }
         } catch {
-          // 무시
+          // 사용자가 포인터 락 요청 전에 다른 동작을 한 경우 무시
         }
       }, 200)
+      return () => {
+        mounted = false
+        clearTimeout(timeoutId)
+      }
     }
   }, [])
 
@@ -926,11 +951,15 @@ export function BuildingTestPlay({ objects, markers, region, onExit }: BuildingT
   useEffect(() => { useGameStore.getState().reset() }, [])
 
   const handleFinish = useCallback(() => {
+    // 물리 엔진 접근 중지 플래그 먼저 설정
+    cleaningUpRef.current = true
     document.exitPointerLock()
     onExit(true)
   }, [onExit])
 
   const handleExit = useCallback(() => {
+    // 물리 엔진 접근 중지 플래그 먼저 설정
+    cleaningUpRef.current = true
     onExit(false)
   }, [onExit])
 

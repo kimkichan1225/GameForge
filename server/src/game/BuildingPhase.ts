@@ -44,6 +44,7 @@ export interface RelaySegment {
   markers: MapMarker[];  // checkpoint, killzone 등 추가 마커
   spawnPosition: [number, number, number];
   finishPosition: [number, number, number];
+  region: { startX: number; endX: number };  // 실제 빌딩 영역 정보
 }
 
 export interface RelayMapData {
@@ -101,13 +102,13 @@ export class BuildingPhase {
     if (this.timeRemaining > 0) {
       this.intervalId = setInterval(() => this.tick(), 1000);
     }
-
-    console.log(`빌딩 페이즈 시작: 방 ${this.room.id}, 플레이어 ${this.segments.size}명, 시간 ${this.timeRemaining === -1 ? '무제한' : this.timeRemaining + '초'}`);
   }
 
   private allocateRegions(): void {
     const players = Array.from(this.room.players.values());
-    let currentX = 0;
+    const totalWidth = players.length * SEGMENT_SIZE;
+    // 영역을 중앙에 배치 (바닥 중심이 0,0이므로)
+    let currentX = -totalWidth / 2;
 
     for (const player of players) {
       const segment: BuildingSegment = {
@@ -308,6 +309,31 @@ export class BuildingPhase {
     return true;
   }
 
+  // 마커 수정
+  updateMarker(playerId: string, markerId: string, updates: Partial<MapMarker>): MapMarker | null {
+    const segment = this.segments.get(playerId);
+    if (!segment) return null;
+    if (segment.isVerified || segment.isTesting) return null;
+
+    const marker = segment.markers.find(m => m.id === markerId);
+    if (!marker) return null;
+
+    // position 업데이트 시 영역 검사
+    if (updates.position) {
+      const x = updates.position[0];
+      if (x < segment.region.startX || x >= segment.region.endX) {
+        return null;
+      }
+      const z = updates.position[2];
+      if (z < -50 || z > 50) {
+        return null;
+      }
+    }
+
+    Object.assign(marker, updates);
+    return marker;
+  }
+
   // 테스트 플레이 시작
   startTest(playerId: string): { success: boolean; error?: string } {
     const segment = this.segments.get(playerId);
@@ -362,6 +388,11 @@ export class BuildingPhase {
     const allVerified = Array.from(this.segments.values()).every(s => s.isVerified);
 
     if (allVerified) {
+      // 이미 조기 시작 카운트다운 중이면 무시 (중복 방지)
+      if (this.earlyStartIntervalId) {
+        return;
+      }
+
       this.io.to(this.room.id).emit('build:allVerified');
 
       // 조기 시작 카운트다운
@@ -548,6 +579,7 @@ export class BuildingPhase {
         markers: additionalMarkers,
         spawnPosition: spawnMarker.position,
         finishPosition: finishMarker.position,
+        region: segment.region,  // 실제 빌딩 영역 포함
       });
     }
 
@@ -564,8 +596,6 @@ export class BuildingPhase {
       })),
       relayMap: relayMapData,
     });
-
-    console.log(`빌딩 페이즈 완료: 방 ${this.room.id}, 릴레이 순서: ${playerIds.join(' → ')}`);
 
     // 콜백 호출 (레이스 자동 시작)
     if (this.onCompleteCallback) {

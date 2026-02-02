@@ -54,18 +54,15 @@ class SocketManager {
 
     this.socket.on('connect', () => {
       window.__gameforge_socket_connecting = false;
-      console.log('서버에 연결됨:', this.socket?.id);
       this.notifyListeners(true);
     });
 
     this.socket.on('disconnect', () => {
-      console.log('서버 연결 해제');
       this.notifyListeners(false);
     });
 
-    this.socket.on('connect_error', (error) => {
+    this.socket.on('connect_error', () => {
       window.__gameforge_socket_connecting = false;
-      console.error('연결 오류:', error.message);
     });
 
     return this.socket;

@@ -24,8 +24,6 @@ app.get('/', (_req, res) => {
 
 // Socket.io connection handling
 io.on('connection', (socket) => {
-  console.log(`클라이언트 연결됨: ${socket.id}`);
-
   // Register room handlers
   registerRoomHandlers(io, socket);
 });

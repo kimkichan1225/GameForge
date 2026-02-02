@@ -163,7 +163,6 @@ export function registerRoomHandlers(io: Server, socket: Socket): void {
     if (room.roomType === 'create_map') {
       room.startBuildingPhase(io, (relayMapData) => {
         // 빌딩 완료 후 자동으로 릴레이 레이스 시작
-        console.log(`빌딩 완료! 릴레이 레이스 자동 시작: 방 ${room.id}`);
         startGameFromBuilding(io, room, relayMapData);
       });
 
@@ -310,6 +309,23 @@ export function registerRoomHandlers(io: Server, socket: Socket): void {
       callback?.({ success: true });
     } else {
       callback?.({ success: false, error: '마커를 삭제할 수 없습니다' });
+    }
+  });
+
+  // 마커 수정
+  socket.on('build:updateMarker', (data: { markerId: string; updates: Partial<MapMarker> }, callback) => {
+    const room = roomManager.getPlayerRoom(socket.id);
+    if (!room?.buildingPhase) {
+      callback?.({ success: false, error: '빌딩 페이즈가 아닙니다' });
+      return;
+    }
+
+    const marker = room.buildingPhase.updateMarker(socket.id, data.markerId, data.updates);
+    if (marker) {
+      socket.emit('build:markerUpdated', { marker });
+      callback?.({ success: true, marker });
+    } else {
+      callback?.({ success: false, error: '마커를 수정할 수 없습니다' });
     }
   });
 

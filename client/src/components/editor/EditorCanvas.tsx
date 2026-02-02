@@ -887,9 +887,8 @@ const ThumbnailCaptureOverlay = memo(function ThumbnailCaptureOverlay() {
       if (canvas) {
         try {
           await canvas.requestPointerLock()
-        } catch (e) {
-          // 포인터 락 요청 취소됨
-          console.log('포인터 락 요청 취소됨')
+        } catch {
+          // 포인터 락 요청 취소됨 (무시)
         }
       }
       window.addEventListener('click', handleClick, true)

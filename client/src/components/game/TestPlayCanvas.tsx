@@ -897,9 +897,8 @@ const TestPlayUI = memo(function TestPlayUI({
       const timer = setTimeout(async () => {
         try {
           await canvas.requestPointerLock()
-        } catch (e) {
+        } catch {
           // 포인터 락 요청이 취소된 경우 무시
-          console.log('포인터 락 요청 취소됨')
         }
       }, 200)
       return () => clearTimeout(timer)
@@ -1148,10 +1147,6 @@ export function TestPlayCanvas({ onExit }: { onExit: () => void }) {
           // WebGL 컨텍스트 손실 이벤트 처리
           gl.domElement.addEventListener('webglcontextlost', (e) => {
             e.preventDefault()
-            console.warn('WebGL context lost')
-          })
-          gl.domElement.addEventListener('webglcontextrestored', () => {
-            console.log('WebGL context restored')
           })
         }}
       >

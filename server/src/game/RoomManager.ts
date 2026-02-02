@@ -53,7 +53,6 @@ export class RoomManager {
     this.rooms.set(roomId, room);
     this.playerRooms.set(hostId, roomId);
 
-    console.log(`방 생성됨: ${roomId} (${roomName}) by ${hostNickname} [${gameMode}/${roomType}${isPrivate ? '/비공개' : ''}]`);
     return room;
   }
 
@@ -74,7 +73,7 @@ export class RoomManager {
     }
 
     this.playerRooms.set(playerId, roomId);
-    console.log(`플레이어 ${nickname} (${playerId})가 방 ${roomId}에 참가`);
+
     return { room, player };
   }
 
@@ -96,7 +95,6 @@ export class RoomManager {
     const isEmpty = room.players.size === 0;
     if (isEmpty) {
       this.rooms.delete(roomId);
-      console.log(`방 ${roomId} 삭제됨 (플레이어 없음)`);
     }
 
     return { room, isEmpty };

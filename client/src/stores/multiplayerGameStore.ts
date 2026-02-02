@@ -23,6 +23,7 @@ export interface RelaySegment {
   markers?: MapMarker[];  // checkpoint, killzone 등 추가 마커
   spawnPosition: [number, number, number];
   finishPosition: [number, number, number];
+  region?: { startX: number; endX: number };  // 실제 빌딩 영역 정보
 }
 
 export interface RelayMapData {
@@ -99,6 +100,7 @@ interface MultiplayerGameStore extends GameState {
   updateObject: (objectId: string, updates: Partial<MapObject>) => Promise<MapObject | null>;
   placeMarker: (data: { type: 'spawn' | 'finish' | 'checkpoint' | 'killzone'; position: [number, number, number]; rotation: [number, number, number] }) => Promise<MapMarker | null>;
   removeMarker: (markerId: string) => Promise<boolean>;
+  updateMarker: (markerId: string, updates: Partial<MapMarker>) => Promise<MapMarker | null>;
   startTest: () => Promise<{ success: boolean; error?: string; segment?: { objects: MapObject[]; markers: MapMarker[]; region: BuildingRegion } }>;
   finishTest: (success: boolean) => Promise<void>;
   voteKick: (targetPlayerId: string) => Promise<{ success: boolean; error?: string; kicked?: boolean }>;
@@ -150,7 +152,6 @@ export const useMultiplayerGameStore = create<MultiplayerGameStore>((set, get) =
       isRelayRace?: boolean;
       relayMapData?: RelayMapData;
     }) => {
-      console.log('[game:starting] 이벤트 수신:', data);
       set({
         countdown: data.countdown,
         status: 'countdown',
@@ -166,7 +167,6 @@ export const useMultiplayerGameStore = create<MultiplayerGameStore>((set, get) =
       isRelayRace?: boolean;
       relayMapData?: RelayMapData;
     }) => {
-      console.log('[game:start] 이벤트 수신:', data);
       if (typeof data?.startTime !== 'number') return;
       set({
         status: 'playing',
@@ -205,9 +205,8 @@ export const useMultiplayerGameStore = create<MultiplayerGameStore>((set, get) =
     });
 
     // Checkpoint reached by another player
-    socket.on('game:checkpoint', (data: { playerId: string; nickname: string; checkpoint: number }) => {
-      if (!data?.nickname) return;
-      console.log(`${data.nickname}이(가) 체크포인트 ${data.checkpoint} 통과`);
+    socket.on('game:checkpoint', (_data: { playerId: string; nickname: string; checkpoint: number }) => {
+      // 체크포인트 통과 이벤트 (UI 알림 등에 활용 가능)
     });
 
     // Grace period started (first player finished)
@@ -218,7 +217,6 @@ export const useMultiplayerGameStore = create<MultiplayerGameStore>((set, get) =
       duration: number;
     }) => {
       if (!data?.firstFinisherId) return;
-      console.log(`${data.nickname}이(가) 1등으로 완주! ${data.duration}초 카운트다운 시작`);
       set({
         firstFinisherId: data.firstFinisherId,
         gracePeriod: Math.max(0, data.duration ?? 0),
@@ -226,20 +224,18 @@ export const useMultiplayerGameStore = create<MultiplayerGameStore>((set, get) =
     });
 
     // Player finished
-    socket.on('game:playerFinished', (data: {
+    socket.on('game:playerFinished', (_data: {
       playerId: string;
       nickname: string;
       time: number;
       isFirstFinisher: boolean;
     }) => {
-      if (!data?.nickname) return;
-      console.log(`${data.nickname}이(가) ${(data.time / 1000).toFixed(2)}초로 완주!`);
+      // 완주 이벤트 (UI 알림 등에 활용 가능)
     });
 
     // Player died
-    socket.on('game:playerDied', (data: { playerId: string; nickname: string }) => {
-      if (!data?.nickname) return;
-      console.log(`${data.nickname}이(가) 사망`);
+    socket.on('game:playerDied', (_data: { playerId: string; nickname: string }) => {
+      // 사망 이벤트 (UI 알림 등에 활용 가능)
     });
 
     // Game finished
@@ -370,7 +366,6 @@ export const useMultiplayerGameStore = create<MultiplayerGameStore>((set, get) =
 
   initBuilding: () => {
     const socket = socketManager.getSocket();
-    console.log('[initBuilding] 호출됨, socket:', !!socket);
     if (!socket) return;
 
     // 빌딩 시작 (이벤트 수신 시)
@@ -392,7 +387,6 @@ export const useMultiplayerGameStore = create<MultiplayerGameStore>((set, get) =
     });
 
     // 서버에 현재 빌딩 상태 요청 (페이지 로드 후 동기화용)
-    console.log('[initBuilding] 빌딩 상태 요청 중...');
     socket.emit('build:requestState', (response: {
       success: boolean;
       region?: BuildingRegion;
@@ -404,7 +398,6 @@ export const useMultiplayerGameStore = create<MultiplayerGameStore>((set, get) =
       allPlayersStatus?: PlayerBuildingStatus[];
       error?: string;
     }) => {
-      console.log('[initBuilding] 빌딩 상태 응답:', response);
       if (response.success && response.region) {
         set({
           buildingPhase: true,
@@ -417,8 +410,6 @@ export const useMultiplayerGameStore = create<MultiplayerGameStore>((set, get) =
           myTesting: response.isTesting ?? false,
           allPlayersStatus: response.allPlayersStatus ?? [],
         });
-      } else {
-        console.error('[initBuilding] 빌딩 상태 요청 실패:', response.error);
       }
     });
 
@@ -513,32 +504,31 @@ export const useMultiplayerGameStore = create<MultiplayerGameStore>((set, get) =
       unverifiedPlayers: Array<{ playerId: string; nickname: string }>;
     }) => {
       set({ buildingTimeRemaining: data.newRemaining });
-      console.log('시간 연장됨. 미검증 플레이어:', data.unverifiedPlayers);
     });
 
     // 모든 플레이어 검증 완료
     socket.on('build:allVerified', () => {
-      console.log('모든 플레이어 검증 완료!');
+      // UI 알림 등에 활용 가능
     });
 
     // 조기 시작 카운트다운
-    socket.on('build:earlyStartCountdown', (data: { countdown: number }) => {
-      console.log(`레이스 시작까지 ${data.countdown}초...`);
+    socket.on('build:earlyStartCountdown', (_data: { countdown: number }) => {
+      // UI 알림 등에 활용 가능
     });
 
     // 강퇴 투표 업데이트
-    socket.on('build:voteKickUpdate', (data: {
+    socket.on('build:voteKickUpdate', (_data: {
       targetPlayerId: string;
       nickname: string;
       currentVotes: number;
       votesNeeded: number;
     }) => {
-      console.log(`강퇴 투표: ${data.nickname} - ${data.currentVotes}/${data.votesNeeded}`);
+      // UI 알림 등에 활용 가능
     });
 
     // 플레이어 강퇴됨
-    socket.on('build:playerKicked', (data: { playerId: string; nickname: string }) => {
-      console.log(`${data.nickname}이(가) 강퇴되었습니다`);
+    socket.on('build:playerKicked', (_data: { playerId: string; nickname: string }) => {
+      // UI 알림 등에 활용 가능
     });
 
     // 내가 강퇴됨
@@ -550,7 +540,6 @@ export const useMultiplayerGameStore = create<MultiplayerGameStore>((set, get) =
         myObjects: [],
         myMarkers: [],
       });
-      console.log('투표에 의해 강퇴되었습니다');
     });
 
     // 빌딩 완료 (서버에서 자동으로 레이스 시작됨)
@@ -564,7 +553,6 @@ export const useMultiplayerGameStore = create<MultiplayerGameStore>((set, get) =
         buildingPhase: false,  // 빌딩 페이즈 종료
         status: 'countdown',   // 상태를 countdown으로 변경하여 빌딩 화면에서 벗어남
       });
-      console.log('빌딩 완료! 릴레이 순서:', data.shuffledOrder.map(p => p.nickname).join(' → '));
     });
   },
 
@@ -669,6 +657,24 @@ export const useMultiplayerGameStore = create<MultiplayerGameStore>((set, get) =
 
       socket.emit('build:removeMarker', { markerId }, (response: { success: boolean }) => {
         resolve(response.success);
+      });
+    });
+  },
+
+  updateMarker: (markerId, updates) => {
+    return new Promise((resolve) => {
+      const socket = socketManager.getSocket();
+      if (!socket) {
+        resolve(null);
+        return;
+      }
+
+      socket.emit('build:updateMarker', { markerId, updates }, (response: { success: boolean; marker?: MapMarker }) => {
+        if (response.success && response.marker) {
+          resolve(response.marker);
+        } else {
+          resolve(null);
+        }
       });
     });
   },

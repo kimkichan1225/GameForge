@@ -6,6 +6,7 @@ import { BuildingUI } from '../components/game/BuildingUI';
 import { BuildingTestPlay } from '../components/game/BuildingTestPlay';
 import { useRoomStore } from '../stores/roomStore';
 import { useMultiplayerGameStore } from '../stores/multiplayerGameStore';
+import { socketManager } from '../lib/socket';
 import type { PlaceableType } from '../stores/editorStore';
 
 export default function MultiplayerGame() {
@@ -29,6 +30,7 @@ export default function MultiplayerGame() {
   // 빌딩 UI 상태
   const [currentPlaceable, setCurrentPlaceable] = useState<PlaceableType>('box');
   const [currentMarker, setCurrentMarker] = useState<'spawn' | 'finish' | 'checkpoint' | 'killzone' | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
   // 게임 이벤트 리스너 초기화 여부 추적
   const gameInitializedRef = useRef(false);
@@ -44,7 +46,6 @@ export default function MultiplayerGame() {
   // 빌딩 페이즈가 완료되면 서버에서 바로 game:starting 이벤트가 오기 때문에 미리 등록해야 함
   useEffect(() => {
     if (currentRoom?.roomType === 'create_map' && !gameInitializedRef.current) {
-      console.log('[MultiplayerGame] 게임 이벤트 리스너 조기 초기화');
       initGame();
       gameInitializedRef.current = true;
     }
@@ -66,6 +67,24 @@ export default function MultiplayerGame() {
     }
   }, [currentRoom?.roomType, currentRoom?.status, initBuilding, cleanupBuilding]);
 
+  // 강퇴 이벤트 리스너 - home으로 리다이렉트
+  useEffect(() => {
+    const socket = socketManager.getSocket();
+    if (!socket) return;
+
+    const handleKicked = () => {
+      cleanupGame();
+      cleanupBuilding();
+      leaveRoom();
+      navigate('/home');
+    };
+
+    socket.on('build:youWereKicked', handleKicked);
+    return () => {
+      socket.off('build:youWereKicked', handleKicked);
+    };
+  }, [cleanupGame, cleanupBuilding, leaveRoom, navigate]);
+
   // 로비로 나가기 (방에서 완전히 퇴장)
   const handleExit = useCallback(() => {
     cleanupGame();
@@ -86,10 +105,7 @@ export default function MultiplayerGame() {
 
   // 테스트 플레이 시작
   const handleStartTest = useCallback(async () => {
-    const result = await startTest();
-    if (!result.success && result.error) {
-      console.error('테스트 시작 실패:', result.error);
-    }
+    await startTest();
   }, [startTest]);
 
   // 테스트 플레이 종료
@@ -104,15 +120,6 @@ export default function MultiplayerGame() {
   // 빌딩 페이즈 여부 판단 (roomStore 또는 multiplayerGameStore 기준)
   const isBuildingPhase = buildingPhase || status === 'building' ||
     (currentRoom?.roomType === 'create_map' && currentRoom?.status === 'building');
-
-  // 디버깅용 로그
-  console.log('[MultiplayerGame] 상태:', {
-    buildingPhase,
-    status,
-    roomType: currentRoom?.roomType,
-    roomStatus: currentRoom?.status,
-    isBuildingPhase,
-  });
 
   // 빌딩 페이즈 - 테스트 플레이 중
   if (isBuildingPhase && myTesting && myRegion) {
@@ -135,6 +142,8 @@ export default function MultiplayerGame() {
         <BuildingCanvas
           currentPlaceable={currentPlaceable}
           currentMarker={currentMarker}
+          selectedId={selectedId}
+          onSelectId={setSelectedId}
         />
         <BuildingUI
           currentPlaceable={currentPlaceable}
@@ -142,6 +151,8 @@ export default function MultiplayerGame() {
           onSelectPlaceable={setCurrentPlaceable}
           onSelectMarker={setCurrentMarker}
           onStartTest={handleStartTest}
+          selectedId={selectedId}
+          onSelectId={setSelectedId}
         />
       </div>
     );
