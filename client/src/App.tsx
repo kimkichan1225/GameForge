@@ -4,6 +4,7 @@ import { useAuthStore } from './stores/authStore'
 import Landing from './pages/Landing'
 import Home from './pages/Home'
 import MapEditor from './pages/MapEditor'
+import MultiplayerGame from './pages/MultiplayerGame'
 
 function App() {
   const initialize = useAuthStore((state) => state.initialize)
@@ -18,6 +19,7 @@ function App() {
         <Route path="/" element={<Landing />} />
         <Route path="/home" element={<Home />} />
         <Route path="/editor" element={<MapEditor />} />
+        <Route path="/multiplayer-game" element={<MultiplayerGame />} />
       </Routes>
     </BrowserRouter>
   )

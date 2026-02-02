@@ -1,15 +1,41 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../stores/authStore'
+import { useRoomStore } from '../stores/roomStore'
+import { socketManager } from '../lib/socket'
 
 type AuthMode = 'login' | 'signup'
 
 function Home() {
   const [authMode, setAuthMode] = useState<AuthMode>('login')
+  const [showCreateRoomModal, setShowCreateRoomModal] = useState(false)
+  const [roomName, setRoomName] = useState('')
+  const [maxPlayers, setMaxPlayers] = useState(4)
+  const [isCreating, setIsCreating] = useState(false)
   const navigate = useNavigate()
 
   // Auth store
   const { user, loading, error, signIn, signUp, signOut, clearError } = useAuthStore()
+  const username = user?.user_metadata?.username || user?.email?.split('@')[0] || ''
+
+  // Room store
+  const {
+    isConnected,
+    rooms,
+    currentRoom,
+    canStart,
+    connect,
+    fetchRooms,
+    createRoom,
+    joinRoom,
+    leaveRoom,
+    setReady,
+    startGame,
+  } = useRoomStore()
+
+  const myId = socketManager.getSocket()?.id
+  const me = currentRoom?.players.find((p) => p.id === myId)
+  const isHost = me?.isHost ?? false
 
   // 로그인 안 된 상태면 모달 표시
   const showAuthModal = !user
@@ -17,14 +43,35 @@ function Home() {
   // Form states
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [username, setUsername] = useState('')
+  const [signupUsername, setSignupUsername] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [formError, setFormError] = useState('')
+
+  // Connect to socket when logged in
+  useEffect(() => {
+    if (user) {
+      connect()
+    }
+  }, [user, connect])
+
+  // Fetch rooms when connected
+  useEffect(() => {
+    if (isConnected) {
+      fetchRooms()
+    }
+  }, [isConnected, fetchRooms])
+
+  // Navigate to game when game starts
+  useEffect(() => {
+    if (currentRoom?.status === 'countdown') {
+      navigate('/multiplayer-game')
+    }
+  }, [currentRoom?.status, navigate])
 
   const resetForm = () => {
     setEmail('')
     setPassword('')
-    setUsername('')
+    setSignupUsername('')
     setConfirmPassword('')
     setFormError('')
     clearError()
@@ -44,25 +91,22 @@ function Home() {
     e.preventDefault()
     setFormError('')
 
-    // 비밀번호 확인
     if (password !== confirmPassword) {
       setFormError('비밀번호가 일치하지 않습니다')
       return
     }
 
-    // 비밀번호 길이 확인
     if (password.length < 6) {
       setFormError('비밀번호는 최소 6자 이상이어야 합니다')
       return
     }
 
-    // 사용자 이름 확인
-    if (username.length < 2) {
+    if (signupUsername.length < 2) {
       setFormError('사용자 이름은 최소 2자 이상이어야 합니다')
       return
     }
 
-    const result = await signUp(email, password, username)
+    const result = await signUp(email, password, signupUsername)
     if (result.success) {
       resetForm()
     }
@@ -76,6 +120,34 @@ function Home() {
     setAuthMode(mode)
     setFormError('')
     clearError()
+  }
+
+  const handleCreateRoom = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!roomName.trim()) return
+
+    setIsCreating(true)
+    const success = await createRoom(username, roomName.trim(), 'default', maxPlayers)
+    setIsCreating(false)
+
+    if (success) {
+      setRoomName('')
+      setShowCreateRoomModal(false)
+    }
+  }
+
+  const handleJoinRoom = async (roomId: string) => {
+    await joinRoom(username, roomId)
+  }
+
+  const handleReady = () => {
+    if (me) {
+      setReady(!me.isReady)
+    }
+  }
+
+  const handleStartGame = async () => {
+    await startGame()
   }
 
   return (
@@ -94,27 +166,15 @@ function Home() {
 
             {/* Menu */}
             <div className="hidden md:flex items-center gap-6">
-              <button className="text-white/70 hover:text-white font-medium transition-colors flex items-center gap-2">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                게임하기
-              </button>
               <button
-                onClick={() => navigate('/editor')}
-                className="text-white/70 hover:text-white font-medium transition-colors flex items-center gap-2"
+                onClick={() => !currentRoom && navigate('/editor')}
+                disabled={!!currentRoom}
+                className="text-white/70 hover:text-white font-medium transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
                 </svg>
                 맵 에디터
-              </button>
-              <button className="text-white/70 hover:text-white font-medium transition-colors flex items-center gap-2">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                </svg>
-                맵 탐색
               </button>
             </div>
 
@@ -124,12 +184,14 @@ function Home() {
                 <div className="flex items-center gap-2">
                   <div className="w-8 h-8 bg-gradient-to-br from-sky-400 to-violet-500 rounded-full flex items-center justify-center">
                     <span className="text-white font-bold text-sm">
-                      {user.user_metadata?.username?.[0]?.toUpperCase() || user.email?.[0]?.toUpperCase()}
+                      {username[0]?.toUpperCase()}
                     </span>
                   </div>
                   <span className="text-white font-medium hidden sm:block">
-                    {user.user_metadata?.username || user.email?.split('@')[0]}
+                    {username}
                   </span>
+                  {/* Connection status */}
+                  <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-400' : 'bg-red-400'}`} />
                 </div>
                 <button
                   onClick={handleSignOut}
@@ -148,37 +210,23 @@ function Home() {
       {/* Main Content */}
       <main className="pt-24 pb-12 px-4">
         <div className="max-w-7xl mx-auto">
-          {/* Welcome Message for logged in users */}
-          {user && (
+          {/* Welcome Message for logged in users (not in room) */}
+          {user && !currentRoom && (
             <div className="mb-8 p-6 bg-gradient-to-r from-sky-500/10 to-violet-500/10 rounded-2xl border border-white/10">
               <h1 className="text-2xl font-bold text-white mb-2">
-                환영합니다, {user.user_metadata?.username || user.email?.split('@')[0]}님!
+                환영합니다, {username}님!
               </h1>
               <p className="text-white/60">게임을 시작하거나 새로운 맵을 만들어보세요.</p>
             </div>
           )}
 
-          {/* Quick Actions */}
-          <div className="grid md:grid-cols-3 gap-6 mb-12">
-            {/* Play Game */}
-            <button className="group relative overflow-hidden bg-gradient-to-br from-sky-500 to-cyan-600 rounded-2xl p-8 text-left hover:shadow-2xl hover:shadow-sky-500/25 transition-all hover:-translate-y-1">
-              <div className="absolute top-0 right-0 w-40 h-40 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2 group-hover:scale-150 transition-transform"></div>
-              <div className="relative">
-                <div className="w-14 h-14 bg-white/20 rounded-xl flex items-center justify-center mb-4">
-                  <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                </div>
-                <h3 className="text-2xl font-bold text-white mb-2">빠른 시작</h3>
-                <p className="text-white/70">랜덤 방에 참가하거나 새 게임 시작</p>
-              </div>
-            </button>
-
-            {/* Create Map */}
+          {/* Quick Actions (not in room) */}
+          {!currentRoom && <div className="grid md:grid-cols-2 gap-6 mb-12">
+            {/* Create Room */}
             <button
-              onClick={() => navigate('/editor')}
-              className="group relative overflow-hidden bg-gradient-to-br from-violet-500 to-purple-600 rounded-2xl p-8 text-left hover:shadow-2xl hover:shadow-violet-500/25 transition-all hover:-translate-y-1"
+              onClick={() => user && setShowCreateRoomModal(true)}
+              disabled={!user || !isConnected || !!currentRoom}
+              className="group relative overflow-hidden bg-gradient-to-br from-sky-500 to-cyan-600 rounded-2xl p-8 text-left hover:shadow-2xl hover:shadow-sky-500/25 transition-all hover:-translate-y-1 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0"
             >
               <div className="absolute top-0 right-0 w-40 h-40 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2 group-hover:scale-150 transition-transform"></div>
               <div className="relative">
@@ -187,73 +235,241 @@ function Home() {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
                   </svg>
                 </div>
-                <h3 className="text-2xl font-bold text-white mb-2">맵 만들기</h3>
-                <p className="text-white/70">나만의 3D 맵을 제작하세요</p>
+                <h3 className="text-2xl font-bold text-white mb-2">방 만들기</h3>
+                <p className="text-white/70">새로운 게임 방을 생성하세요</p>
               </div>
             </button>
 
-            {/* Browse Maps */}
-            <button className="group relative overflow-hidden bg-gradient-to-br from-orange-500 to-amber-600 rounded-2xl p-8 text-left hover:shadow-2xl hover:shadow-orange-500/25 transition-all hover:-translate-y-1">
+            {/* Create Map */}
+            <button
+              onClick={() => !currentRoom && navigate('/editor')}
+              disabled={!!currentRoom}
+              className="group relative overflow-hidden bg-gradient-to-br from-violet-500 to-purple-600 rounded-2xl p-8 text-left hover:shadow-2xl hover:shadow-violet-500/25 transition-all hover:-translate-y-1 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0"
+            >
               <div className="absolute top-0 right-0 w-40 h-40 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2 group-hover:scale-150 transition-transform"></div>
               <div className="relative">
                 <div className="w-14 h-14 bg-white/20 rounded-xl flex items-center justify-center mb-4">
                   <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
                   </svg>
                 </div>
-                <h3 className="text-2xl font-bold text-white mb-2">맵 탐색</h3>
-                <p className="text-white/70">다른 유저들이 만든 맵 플레이</p>
+                <h3 className="text-2xl font-bold text-white mb-2">맵 만들기</h3>
+                <p className="text-white/70">나만의 3D 맵을 제작하세요</p>
               </div>
             </button>
-          </div>
+          </div>}
+
+          {/* Current Room (대기실) */}
+          {currentRoom && (
+            <div className="mb-8 bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 p-6">
+              <div className="flex items-center justify-between mb-6">
+                <div>
+                  <h2 className="text-xl font-bold text-white">{currentRoom.name}</h2>
+                  <p className="text-white/50 text-sm">방 코드: {currentRoom.id}</p>
+                </div>
+                <button
+                  onClick={leaveRoom}
+                  className="px-4 py-2 bg-red-500/20 text-red-400 font-medium rounded-lg hover:bg-red-500/30 transition-colors"
+                >
+                  나가기
+                </button>
+              </div>
+
+              {/* Player List */}
+              <div className="mb-6">
+                <h3 className="text-white/70 text-sm font-medium mb-3">
+                  플레이어 ({currentRoom.players.length}/{currentRoom.maxPlayers})
+                </h3>
+                <div className="space-y-2">
+                  {currentRoom.players.map((player) => (
+                    <div
+                      key={player.id}
+                      className={`flex items-center justify-between p-3 rounded-xl ${
+                        player.id === myId ? 'bg-sky-500/20 border border-sky-500/30' : 'bg-white/5'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-gradient-to-br from-sky-400 to-violet-500 rounded-full flex items-center justify-center">
+                          <span className="text-white font-bold">
+                            {player.nickname[0]?.toUpperCase()}
+                          </span>
+                        </div>
+                        <div>
+                          <div className="text-white font-medium flex items-center gap-2">
+                            {player.nickname}
+                            {player.isHost && (
+                              <span className="px-2 py-0.5 bg-amber-500/20 text-amber-400 text-xs rounded-full">
+                                방장
+                              </span>
+                            )}
+                            {player.id === myId && (
+                              <span className="px-2 py-0.5 bg-sky-500/20 text-sky-400 text-xs rounded-full">
+                                나
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                      <div>
+                        {player.isHost ? (
+                          <span className="text-amber-400 text-sm">방장</span>
+                        ) : player.isReady ? (
+                          <span className="text-green-400 text-sm">준비 완료</span>
+                        ) : (
+                          <span className="text-white/50 text-sm">대기 중</span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div className="flex gap-3">
+                {isHost ? (
+                  <button
+                    onClick={handleStartGame}
+                    disabled={!canStart && currentRoom.players.length > 1}
+                    className="flex-1 py-3 bg-gradient-to-r from-green-500 to-emerald-600 text-white font-bold rounded-xl hover:shadow-lg hover:shadow-green-500/25 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {currentRoom.players.length === 1 ? '게임 시작 (혼자)' : canStart ? '게임 시작' : '모든 플레이어 준비 대기'}
+                  </button>
+                ) : (
+                  <button
+                    onClick={handleReady}
+                    className={`flex-1 py-3 font-bold rounded-xl transition-all ${
+                      me?.isReady
+                        ? 'bg-white/10 text-white hover:bg-white/20'
+                        : 'bg-gradient-to-r from-sky-400 to-violet-500 text-white hover:shadow-lg hover:shadow-sky-500/25'
+                    }`}
+                  >
+                    {me?.isReady ? '준비 취소' : '준비 완료'}
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Room List */}
-          <div className="bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 p-6">
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-xl font-bold text-white">현재 열린 방</h2>
-              <button className="text-sky-400 hover:text-sky-300 font-medium text-sm flex items-center gap-1">
-                새로고침
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                </svg>
-              </button>
-            </div>
-
-            {/* Room Items */}
-            <div className="space-y-3">
-              {[
-                { name: '초보자 환영! 달리기 연습', mode: '달리기', players: '3/8', host: 'Player123' },
-                { name: '치열한 총싸움', mode: '데스매치', players: '6/10', host: 'ProGamer' },
-                { name: '팀전 한판하실분', mode: '팀 데스매치', players: '4/10', host: 'TeamLeader' },
-                { name: '점령전 고수만', mode: '점령전', players: '8/10', host: 'MasterX' },
-              ].map((room, i) => (
-                <div
-                  key={i}
-                  className="flex items-center justify-between p-4 bg-white/5 rounded-xl hover:bg-white/10 transition-colors cursor-pointer"
+          {!currentRoom && (
+            <div className="bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 p-6">
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-xl font-bold text-white">현재 열린 방</h2>
+                <button
+                  onClick={() => fetchRooms()}
+                  disabled={!isConnected}
+                  className="text-sky-400 hover:text-sky-300 font-medium text-sm flex items-center gap-1 disabled:opacity-50"
                 >
-                  <div className="flex items-center gap-4">
-                    <div className={`w-3 h-3 rounded-full ${
-                      room.mode === '달리기' ? 'bg-green-400' :
-                      room.mode === '데스매치' ? 'bg-red-400' :
-                      room.mode === '팀 데스매치' ? 'bg-blue-400' : 'bg-amber-400'
-                    }`}></div>
-                    <div>
-                      <div className="text-white font-medium">{room.name}</div>
-                      <div className="text-white/50 text-sm">{room.host} • {room.mode}</div>
+                  새로고침
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                </button>
+              </div>
+
+              {/* Room Items */}
+              <div className="space-y-3">
+                {!user ? (
+                  <div className="text-center py-12 text-white/50">
+                    로그인이 필요합니다
+                  </div>
+                ) : !isConnected ? (
+                  <div className="text-center py-12 text-white/50">
+                    서버에 연결 중...
+                  </div>
+                ) : rooms.length === 0 ? (
+                  <div className="text-center py-12 text-white/50">
+                    현재 열린 방이 없습니다
+                  </div>
+                ) : (
+                  rooms.map((room) => (
+                    <div
+                      key={room.id}
+                      className="flex items-center justify-between p-4 bg-white/5 rounded-xl hover:bg-white/10 transition-colors"
+                    >
+                      <div className="flex items-center gap-4">
+                        <div className="w-3 h-3 rounded-full bg-green-400"></div>
+                        <div>
+                          <div className="text-white font-medium">{room.name}</div>
+                          <div className="text-white/50 text-sm">레이스 모드</div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-4">
+                        <span className="text-white/70 text-sm">{room.playerCount}/{room.maxPlayers}</span>
+                        <button
+                          onClick={() => handleJoinRoom(room.id)}
+                          disabled={room.playerCount >= room.maxPlayers}
+                          className="px-4 py-2 bg-sky-500 hover:bg-sky-400 text-white font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          참가
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                  <div className="flex items-center gap-4">
-                    <span className="text-white/70 text-sm">{room.players}</span>
-                    <button className="px-4 py-2 bg-sky-500 hover:bg-sky-400 text-white font-medium rounded-lg transition-colors">
-                      참가
-                    </button>
-                  </div>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      </main>
+
+      {/* Create Room Modal */}
+      {showCreateRoomModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setShowCreateRoomModal(false)}></div>
+          <div className="relative w-full max-w-md bg-slate-900 rounded-2xl border border-white/10 shadow-2xl">
+            <div className="p-6">
+              <h2 className="text-xl font-bold text-white mb-6">새 방 만들기</h2>
+              <form onSubmit={handleCreateRoom} className="space-y-4">
+                <div>
+                  <label className="block text-white/70 text-sm font-medium mb-2">방 이름</label>
+                  <input
+                    type="text"
+                    value={roomName}
+                    onChange={(e) => setRoomName(e.target.value)}
+                    className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder-white/30 focus:outline-none focus:border-sky-400 transition-colors"
+                    placeholder="방 이름을 입력하세요"
+                    required
+                    disabled={isCreating}
+                    maxLength={30}
+                  />
                 </div>
-              ))}
+                <div>
+                  <label className="block text-white/70 text-sm font-medium mb-2">최대 인원</label>
+                  <select
+                    value={maxPlayers}
+                    onChange={(e) => setMaxPlayers(Number(e.target.value))}
+                    className="w-full px-4 py-3 bg-slate-800 border border-white/10 rounded-xl text-white focus:outline-none focus:border-sky-400 transition-colors"
+                    disabled={isCreating}
+                  >
+                    <option value={2} className="bg-slate-800 text-white">2명</option>
+                    <option value={4} className="bg-slate-800 text-white">4명</option>
+                    <option value={6} className="bg-slate-800 text-white">6명</option>
+                    <option value={8} className="bg-slate-800 text-white">8명</option>
+                  </select>
+                </div>
+                <div className="flex gap-3 pt-4">
+                  <button
+                    type="button"
+                    onClick={() => setShowCreateRoomModal(false)}
+                    className="flex-1 py-3 bg-white/10 text-white font-medium rounded-xl hover:bg-white/20 transition-colors"
+                    disabled={isCreating}
+                  >
+                    취소
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isCreating || !roomName.trim()}
+                    className="flex-1 py-3 bg-gradient-to-r from-sky-400 to-violet-500 text-white font-bold rounded-xl hover:shadow-lg hover:shadow-sky-500/25 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isCreating ? '생성 중...' : '방 만들기'}
+                  </button>
+                </div>
+              </form>
             </div>
           </div>
         </div>
-      </main>
+      )}
 
       {/* Auth Modal */}
       {showAuthModal && (
@@ -298,8 +514,8 @@ function Home() {
                     </label>
                     <input
                       type="text"
-                      value={username}
-                      onChange={(e) => setUsername(e.target.value)}
+                      value={signupUsername}
+                      onChange={(e) => setSignupUsername(e.target.value)}
                       className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder-white/30 focus:outline-none focus:border-sky-400 transition-colors"
                       placeholder="Player123"
                       required
