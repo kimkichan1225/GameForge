@@ -231,7 +231,8 @@ const LocalPlayer = memo(function LocalPlayer({
         _move.normalize().applyAxisAngle(_yAxis, cameraAngle);
         const angle = Math.atan2(_move.x, _move.z);
         _targetQuat.setFromAxisAngle(_yAxis, angle);
-        scene.quaternion.slerp(_targetQuat, 0.15);
+        const rotLerpFactor = 1 - Math.exp(-10 * dt);
+        scene.quaternion.slerp(_targetQuat, rotLerpFactor);
       }
     }
 

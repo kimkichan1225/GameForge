@@ -85,7 +85,7 @@ export const RemotePlayer = memo(function RemotePlayer({
     currentAnim.current = name;
   };
 
-  useFrame(() => {
+  useFrame((_, dt) => {
     if (!group.current) return;
 
     // Initialize lerped position on first frame
@@ -93,9 +93,13 @@ export const RemotePlayer = memo(function RemotePlayer({
       lerpedPos.current = new THREE.Vector3(position.x, position.y, position.z);
     }
 
-    // Interpolate position
+    // Interpolate position (frame-rate independent)
+    // Using exponential decay: factor = 1 - e^(-speed * dt)
+    const lerpSpeed = 10; // Higher = faster catch-up
+    const lerpFactor = 1 - Math.exp(-lerpSpeed * dt);
+
     _targetPos.set(position.x, position.y, position.z);
-    lerpedPos.current.lerp(_targetPos, 0.15);
+    lerpedPos.current.lerp(_targetPos, lerpFactor);
     group.current.position.copy(lerpedPos.current);
 
     // Play animation received from server
@@ -103,12 +107,13 @@ export const RemotePlayer = memo(function RemotePlayer({
       playAnim(animation);
     }
 
-    // Rotate to face movement direction
+    // Rotate to face movement direction (frame-rate independent)
     const speed = Math.sqrt(velocity.x * velocity.x + velocity.z * velocity.z);
     if (speed > 0.5) {
       const angle = Math.atan2(velocity.x, velocity.z);
       _targetQuat.setFromAxisAngle(_yAxis, angle);
-      clonedScene.quaternion.slerp(_targetQuat, 0.1);
+      const rotLerpFactor = 1 - Math.exp(-8 * dt);
+      clonedScene.quaternion.slerp(_targetQuat, rotLerpFactor);
     }
   });
 
