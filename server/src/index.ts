@@ -7,9 +7,16 @@ import { registerRoomHandlers } from './socket/roomHandlers.js';
 const app = express();
 const httpServer = createServer(app);
 
+// CORS 설정: 환경변수로 허용 origin 지정 (콤마로 구분) 또는 모든 origin 허용
+const allowedOrigins = process.env.CORS_ORIGINS
+  ? process.env.CORS_ORIGINS.split(',').map(o => o.trim())
+  : ['http://localhost:5173', 'http://127.0.0.1:5173'];
+
 const io = new Server(httpServer, {
   cors: {
-    origin: ['http://localhost:5173', 'http://127.0.0.1:5173'],
+    origin: process.env.NODE_ENV === 'production'
+      ? allowedOrigins
+      : ['http://localhost:5173', 'http://127.0.0.1:5173'],
     methods: ['GET', 'POST'],
   },
 });
