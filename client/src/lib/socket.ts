@@ -1,6 +1,8 @@
 import { io, Socket } from 'socket.io-client';
 
-const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:3001';
+// 프로덕션에서는 같은 origin 사용 (빈 문자열 = 현재 호스트)
+const SOCKET_URL = import.meta.env.VITE_SOCKET_URL ||
+  (import.meta.env.PROD ? '' : 'http://localhost:3001');
 
 // HMR 시 소켓 중복 연결 방지를 위해 전역에 저장
 declare global {
