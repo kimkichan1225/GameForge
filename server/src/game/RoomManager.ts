@@ -87,9 +87,7 @@ export class RoomManager {
   getRoomList(): object[] {
     const list: object[] = [];
     for (const room of this.rooms.values()) {
-      if (room.status === 'waiting') {
-        list.push(room.toListItem());
-      }
+      list.push(room.toListItem());
     }
     return list;
   }
