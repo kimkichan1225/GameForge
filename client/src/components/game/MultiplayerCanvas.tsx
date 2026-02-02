@@ -26,6 +26,9 @@ const RUN_SPEED = 8;
 const SIT_SPEED = 2;
 const CRAWL_SPEED = 1;
 const JUMP_POWER = 8;
+const DASH_SPEED = 12;
+const DASH_DURATION = 0.5;
+const DASH_COOLDOWN = 1.0;
 const POSITION_SEND_RATE = 50; // Send position every 50ms
 
 const GROUND_ROTATION: [number, number, number] = [-Math.PI / 2, 0, 0];
@@ -34,6 +37,7 @@ const GRID_POSITION: [number, number, number] = [0, 0.01, 0];
 const HEAD_OFFSET = new THREE.Vector3(0, 1.5, 0);
 
 const _move = new THREE.Vector3();
+const _dashDir = new THREE.Vector3();
 const _yAxis = new THREE.Vector3(0, 1, 0);
 const _targetQuat = new THREE.Quaternion();
 
@@ -59,9 +63,12 @@ const LocalPlayer = memo(function LocalPlayer({
   const animMapRef = useRef<Record<string, string>>({});
   const grounded = useRef(true);
   const jumping = useRef(false);
+  const dashing = useRef(false);
+  const dashTimer = useRef(0);
+  const dashCooldown = useRef(0);
   const currentAnim = useRef('');
   const currentPosture = useRef<Posture>('standing');
-  const prev = useRef({ space: false, c: false, z: false });
+  const prev = useRef({ space: false, c: false, z: false, v: false });
   const lastPositionSent = useRef(0);
 
   const input = useInput();
@@ -139,6 +146,9 @@ const LocalPlayer = memo(function LocalPlayer({
 
     const centerY = COLLIDER_CONFIG[posture].centerY;
 
+    // Update cooldowns
+    if (dashCooldown.current > 0) dashCooldown.current -= dt;
+
     // Update collider on posture change
     if (posture !== currentPosture.current) {
       const newCollider = updatePlayerCollider(
@@ -155,17 +165,22 @@ const LocalPlayer = memo(function LocalPlayer({
     const isGrounded = checkGrounded(world, playerBody, playerColliderRef.current, posture);
     grounded.current = isGrounded;
 
+    // Reset dashing when landing
+    if (isGrounded && vel.y <= 0) {
+      dashing.current = false;
+    }
+
     // Posture toggle
-    if (keys.c && !prev.current.c && isGrounded) {
+    if (keys.c && !prev.current.c && isGrounded && !dashing.current) {
       store.setPosture(posture === 'sitting' ? 'standing' : 'sitting');
     }
-    if (keys.z && !prev.current.z && isGrounded) {
+    if (keys.z && !prev.current.z && isGrounded && !dashing.current) {
       store.setPosture(posture === 'crawling' ? 'standing' : 'crawling');
     }
 
     // Jump
     let shouldJump = false;
-    if (keys.space && !prev.current.space && isGrounded && !jumping.current && posture === 'standing') {
+    if (keys.space && !prev.current.space && isGrounded && !jumping.current && posture === 'standing' && !dashing.current) {
       shouldJump = true;
       jumping.current = true;
       playAnim('Jump');
@@ -178,25 +193,53 @@ const LocalPlayer = memo(function LocalPlayer({
       playAnim(getAnim(moving, keys.shift && posture === 'standing', posture));
     }
 
-    prev.current = { space: keys.space, c: keys.c, z: keys.z };
+    // Dash/Roll
+    if (keys.v && !prev.current.v && isGrounded && posture === 'standing' && !dashing.current && dashCooldown.current <= 0) {
+      dashing.current = true;
+      dashTimer.current = DASH_DURATION;
+      dashCooldown.current = DASH_COOLDOWN;
+
+      _dashDir.set(0, 0, 0);
+      if (keys.forward) _dashDir.z -= 1;
+      if (keys.backward) _dashDir.z += 1;
+      if (keys.left) _dashDir.x -= 1;
+      if (keys.right) _dashDir.x += 1;
+
+      if (_dashDir.lengthSq() === 0) {
+        scene.getWorldDirection(_dashDir);
+        _dashDir.y = 0;
+      }
+      _dashDir.normalize().applyAxisAngle(_yAxis, cameraAngle);
+      playAnim('Roll');
+    }
+
+    prev.current = { space: keys.space, c: keys.c, z: keys.z, v: keys.v };
 
     // Movement
     _move.set(0, 0, 0);
-    if (keys.forward) _move.z -= 1;
-    if (keys.backward) _move.z += 1;
-    if (keys.left) _move.x -= 1;
-    if (keys.right) _move.x += 1;
 
-    if (_move.lengthSq() > 0) {
-      _move.normalize().applyAxisAngle(_yAxis, cameraAngle);
-      const angle = Math.atan2(_move.x, _move.z);
-      _targetQuat.setFromAxisAngle(_yAxis, angle);
-      scene.quaternion.slerp(_targetQuat, 0.15);
+    if (dashing.current) {
+      dashTimer.current -= dt;
+      _move.copy(_dashDir);
+      if (dashTimer.current <= 0) dashing.current = false;
+    } else {
+      if (keys.forward) _move.z -= 1;
+      if (keys.backward) _move.z += 1;
+      if (keys.left) _move.x -= 1;
+      if (keys.right) _move.x += 1;
+
+      if (_move.lengthSq() > 0) {
+        _move.normalize().applyAxisAngle(_yAxis, cameraAngle);
+        const angle = Math.atan2(_move.x, _move.z);
+        _targetQuat.setFromAxisAngle(_yAxis, angle);
+        scene.quaternion.slerp(_targetQuat, 0.15);
+      }
     }
 
     // Speed
     let speed = WALK_SPEED;
-    if (posture === 'sitting') speed = SIT_SPEED;
+    if (dashing.current) speed = DASH_SPEED;
+    else if (posture === 'sitting') speed = SIT_SPEED;
     else if (posture === 'crawling') speed = CRAWL_SPEED;
     else if (keys.shift && posture === 'standing') speed = RUN_SPEED;
 
@@ -212,7 +255,7 @@ const LocalPlayer = memo(function LocalPlayer({
     group.current.position.set(pos.x, pos.y - centerY, pos.z);
 
     // Animation
-    if (isGrounded && !jumping.current) {
+    if (isGrounded && !jumping.current && !dashing.current) {
       playAnim(getAnim(_move.lengthSq() > 0, keys.shift && posture === 'standing', posture));
     }
 
@@ -521,6 +564,12 @@ const MultiplayerUI = memo(function MultiplayerUI({ onExit }: { onExit: () => vo
           <span>Run</span>
           <span>Space</span>
           <span>Jump</span>
+          <span>V</span>
+          <span>Roll</span>
+          <span>C</span>
+          <span>Sit</span>
+          <span>Z</span>
+          <span>Crawl</span>
         </div>
       </div>
 
