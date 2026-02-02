@@ -82,6 +82,7 @@ export const useMultiplayerGameStore = create<MultiplayerGameStore>((set, get) =
     }) => {
       set({
         roomId: data.roomId,
+        status: data.status,
         players: data.players,
         rankings: data.rankings,
       });

@@ -84,12 +84,14 @@ const LocalPlayer = memo(function LocalPlayer({
       const found = names.find((n) => {
         const parts = n.split('|');
         return parts[parts.length - 1].toLowerCase() === target.toLowerCase();
-      });
+      }) || names.find((n) => n.toLowerCase().includes(target.toLowerCase()));
       if (found) map[target] = found;
     }
 
     animMapRef.current = map;
-    playAnim('Idle');
+    if (Object.keys(map).length > 0) {
+      playAnim('Idle');
+    }
   }, [names]);
 
   const playAnim = useCallback(
