@@ -84,8 +84,16 @@ interface RoomState {
   }) => Promise<boolean>;
 }
 
-// 리스너 등록 여부 추적 (HMR 및 중복 호출 방지)
-let listenersRegistered = false;
+// 등록된 리스너 이벤트명 추적 (HMR 및 중복 호출 방지)
+const registeredEvents = new Set<string>();
+
+// 리스너 등록 헬퍼 (중복 방지)
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function registerEvent(socket: ReturnType<typeof socketManager.getSocket>, event: string, handler: (...args: any[]) => void) {
+  if (!socket || registeredEvents.has(event)) return;
+  registeredEvents.add(event);
+  socket.on(event, handler);
+}
 
 export const useRoomStore = create<RoomState>((set, get) => ({
   isConnected: false,
@@ -96,31 +104,26 @@ export const useRoomStore = create<RoomState>((set, get) => ({
   connect: () => {
     const socket = socketManager.connect();
 
-    // 이미 리스너가 등록되어 있으면 스킵
-    if (listenersRegistered) {
-      // 이미 연결된 상태면 상태 업데이트
-      if (socket.connected) {
-        set({ isConnected: true });
-      }
-      return;
+    // 이미 연결된 상태면 상태 업데이트
+    if (socket.connected) {
+      set({ isConnected: true });
     }
-    listenersRegistered = true;
 
-    socket.on('connect', () => {
+    registerEvent(socket, 'connect', () => {
       set({ isConnected: true });
     });
 
-    socket.on('disconnect', () => {
+    registerEvent(socket, 'disconnect', () => {
       set({ isConnected: false, currentRoom: null });
     });
 
     // Room list updates
-    socket.on('room:listUpdated', (rooms: RoomInfo[]) => {
+    registerEvent(socket, 'room:listUpdated', (rooms: RoomInfo[]) => {
       set({ rooms });
     });
 
     // Player joined current room
-    socket.on('room:playerJoined', (data: { player: Player; players: Player[] }) => {
+    registerEvent(socket, 'room:playerJoined', (data: { player: Player; players: Player[] }) => {
       const room = get().currentRoom;
       if (room) {
         set({
@@ -133,7 +136,7 @@ export const useRoomStore = create<RoomState>((set, get) => ({
     });
 
     // Player left current room
-    socket.on('room:playerLeft', (data: { playerId: string; players: Player[]; newHostId: string }) => {
+    registerEvent(socket, 'room:playerLeft', (data: { playerId: string; players: Player[]; newHostId: string }) => {
       const room = get().currentRoom;
       if (room) {
         set({
@@ -147,7 +150,7 @@ export const useRoomStore = create<RoomState>((set, get) => ({
     });
 
     // Player status updated
-    socket.on('room:playerUpdated', (data: { players: Player[]; canStart: boolean }) => {
+    registerEvent(socket, 'room:playerUpdated', (data: { players: Player[]; canStart: boolean }) => {
       const room = get().currentRoom;
       if (room) {
         set({
@@ -158,7 +161,7 @@ export const useRoomStore = create<RoomState>((set, get) => ({
     });
 
     // Game starting
-    socket.on('game:starting', () => {
+    registerEvent(socket, 'game:starting', () => {
       const room = get().currentRoom;
       if (room) {
         set({
@@ -168,7 +171,7 @@ export const useRoomStore = create<RoomState>((set, get) => ({
     });
 
     // Room status updated (after game ends and players return to waiting room)
-    socket.on('room:statusUpdated', (data: { status: RoomDetail['status'] }) => {
+    registerEvent(socket, 'room:statusUpdated', (data: { status: RoomDetail['status'] }) => {
       const room = get().currentRoom;
       if (room) {
         set({
@@ -178,7 +181,7 @@ export const useRoomStore = create<RoomState>((set, get) => ({
     });
 
     // Room settings updated by host
-    socket.on('room:settingsUpdated', (data: RoomDetail) => {
+    registerEvent(socket, 'room:settingsUpdated', (data: RoomDetail) => {
       set({
         currentRoom: data,
       });
@@ -187,7 +190,7 @@ export const useRoomStore = create<RoomState>((set, get) => ({
 
   disconnect: () => {
     socketManager.disconnect();
-    listenersRegistered = false;
+    registeredEvents.clear();
     set({ isConnected: false, currentRoom: null, rooms: [] });
   },
 

@@ -163,14 +163,37 @@ export class GameLoop {
     velocity: { x: number; y: number; z: number },
     animation?: string
   ): void {
-    this.room.updatePlayerPosition(playerId, position, velocity, animation);
+    // 위치 값 유효성 검사 (NaN, Infinity 체크)
+    if (!position || typeof position.x !== 'number' || typeof position.y !== 'number' || typeof position.z !== 'number') {
+      return;
+    }
+    if (!isFinite(position.x) || !isFinite(position.y) || !isFinite(position.z)) {
+      return;
+    }
+
+    // 극단적인 좌표 값 제한 (-1000 ~ 1000)
+    const clamp = (v: number) => Math.max(-1000, Math.min(1000, v));
+    const clampedPosition = {
+      x: clamp(position.x),
+      y: clamp(position.y),
+      z: clamp(position.z),
+    };
+
+    const clampedVelocity = velocity && isFinite(velocity.x) && isFinite(velocity.y) && isFinite(velocity.z)
+      ? { x: clamp(velocity.x), y: clamp(velocity.y), z: clamp(velocity.z) }
+      : { x: 0, y: 0, z: 0 };
+
+    this.room.updatePlayerPosition(playerId, clampedPosition, clampedVelocity, animation);
   }
 
   playerReachedCheckpoint(playerId: string, checkpointIndex: number): boolean {
     const player = this.room.getPlayer(playerId);
     if (!player) return false;
 
-    // Validate checkpoint order
+    // 체크포인트 인덱스 유효성 검사
+    if (typeof checkpointIndex !== 'number' || checkpointIndex < 0) return false;
+
+    // 체크포인트 순서 검증 (네트워크 지연을 고려해 이미 지나간 체크포인트도 허용)
     if (checkpointIndex === player.checkpoint + 1) {
       player.checkpoint = checkpointIndex;
 
@@ -182,6 +205,12 @@ export class GameLoop {
 
       return true;
     }
+
+    // 이미 지나간 체크포인트면 무시 (성공으로 처리)
+    if (checkpointIndex <= player.checkpoint) {
+      return true;
+    }
+
     return false;
   }
 

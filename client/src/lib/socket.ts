@@ -6,6 +6,7 @@ const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:3001';
 declare global {
   interface Window {
     __gameforge_socket?: Socket;
+    __gameforge_socket_connecting?: boolean;
   }
 }
 
@@ -15,15 +16,30 @@ class SocketManager {
 
   connect(): Socket {
     // HMR로 인한 중복 연결 방지: 전역에 저장된 소켓 사용
-    if (window.__gameforge_socket) {
+    if (window.__gameforge_socket?.connected) {
       this.socket = window.__gameforge_socket;
       return this.socket;
     }
 
-    // 이미 소켓이 존재하면 기존 소켓 반환
-    if (this.socket) {
+    // 연결 중인 상태면 기존 소켓 반환
+    if (window.__gameforge_socket_connecting && window.__gameforge_socket) {
+      this.socket = window.__gameforge_socket;
       return this.socket;
     }
+
+    // 기존 소켓이 존재하지만 연결이 끊어진 경우 정리
+    if (window.__gameforge_socket && !window.__gameforge_socket.connected) {
+      window.__gameforge_socket.removeAllListeners();
+      window.__gameforge_socket.disconnect();
+      window.__gameforge_socket = undefined;
+    }
+
+    // 이미 소켓이 존재하고 연결되어 있으면 반환
+    if (this.socket?.connected) {
+      return this.socket;
+    }
+
+    window.__gameforge_socket_connecting = true;
 
     this.socket = io(SOCKET_URL, {
       transports: ['websocket', 'polling'],
@@ -37,6 +53,7 @@ class SocketManager {
     window.__gameforge_socket = this.socket;
 
     this.socket.on('connect', () => {
+      window.__gameforge_socket_connecting = false;
       console.log('서버에 연결됨:', this.socket?.id);
       this.notifyListeners(true);
     });
@@ -47,6 +64,7 @@ class SocketManager {
     });
 
     this.socket.on('connect_error', (error) => {
+      window.__gameforge_socket_connecting = false;
       console.error('연결 오류:', error.message);
     });
 
@@ -55,10 +73,12 @@ class SocketManager {
 
   disconnect(): void {
     if (this.socket) {
+      this.socket.removeAllListeners();
       this.socket.disconnect();
       this.socket = null;
-      window.__gameforge_socket = undefined;
     }
+    window.__gameforge_socket = undefined;
+    window.__gameforge_socket_connecting = false;
   }
 
   getSocket(): Socket | null {

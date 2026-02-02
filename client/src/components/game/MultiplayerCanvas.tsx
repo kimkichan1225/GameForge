@@ -582,13 +582,29 @@ const Ground = memo(function Ground() {
   );
 });
 
-// Cached geometries for map objects
+// Cached geometries for map objects (with cleanup support)
 let cachedBoxGeometry: THREE.BoxGeometry | null = null;
 let cachedPlaneObjGeometry: THREE.BoxGeometry | null = null;
 let cachedCylinderGeometry: THREE.CylinderGeometry | null = null;
 let cachedSphereGeometry: THREE.SphereGeometry | null = null;
 let cachedWedgeGeometry: THREE.BufferGeometry | null = null;
 const cachedMaterials: Map<string, THREE.MeshStandardMaterial> = new Map();
+
+// 캐시 정리 함수 (컴포넌트 언마운트 시 호출)
+function cleanupGeometryCache() {
+  cachedBoxGeometry?.dispose();
+  cachedBoxGeometry = null;
+  cachedPlaneObjGeometry?.dispose();
+  cachedPlaneObjGeometry = null;
+  cachedCylinderGeometry?.dispose();
+  cachedCylinderGeometry = null;
+  cachedSphereGeometry?.dispose();
+  cachedSphereGeometry = null;
+  cachedWedgeGeometry?.dispose();
+  cachedWedgeGeometry = null;
+  cachedMaterials.forEach(mat => mat.dispose());
+  cachedMaterials.clear();
+}
 
 function getBoxGeometry() {
   if (!cachedBoxGeometry) cachedBoxGeometry = new THREE.BoxGeometry(1, 1, 1);
@@ -851,7 +867,7 @@ const MultiplayerUI = memo(function MultiplayerUI({
         <div className="absolute top-20 left-1/2 -translate-x-1/2 z-20">
           <div className="bg-red-500/90 backdrop-blur-sm rounded-xl px-6 py-3 text-center border border-red-400/50">
             <div className="text-white/80 text-sm mb-1">누군가 완주했습니다!</div>
-            <div className="text-5xl font-bold text-white">{Math.ceil(gracePeriod)}</div>
+            <div className="text-5xl font-bold text-white">{Math.max(1, Math.ceil(gracePeriod))}</div>
             <div className="text-white/80 text-sm">초 남음</div>
           </div>
         </div>
@@ -864,7 +880,7 @@ const MultiplayerUI = memo(function MultiplayerUI({
             <div className="text-3xl font-bold text-white mb-1">완주!</div>
             <div className="text-white/80 text-sm">다른 플레이어를 기다리는 중...</div>
             {gracePeriod > 0 && (
-              <div className="text-2xl font-bold text-white mt-2">{Math.ceil(gracePeriod)}초</div>
+              <div className="text-2xl font-bold text-white mt-2">{Math.max(1, Math.ceil(gracePeriod))}초</div>
             )}
           </div>
         </div>
@@ -1051,9 +1067,21 @@ export function MultiplayerCanvas({
             const { mapService } = await import('../../lib/mapService');
             const mapRecord = await mapService.getMap(currentRoom.mapId);
             loadedMapData = mapRecord.data as MapData;
-            setMapData(loadedMapData);
+            if (mounted) setMapData(loadedMapData);
           } catch (err) {
             console.error('맵 로드 실패:', err);
+            // 맵 로드 실패 시 기본 맵으로 진행
+            const now = Date.now();
+            loadedMapData = {
+              id: 'fallback',
+              name: 'Fallback Map',
+              mode: 'race',
+              objects: [],
+              markers: [{ id: 'default-spawn', type: 'spawn', position: [0, 0, 0] as [number, number, number], rotation: [0, 0, 0] as [number, number, number] }],
+              createdAt: now,
+              updatedAt: now,
+            } as MapData;
+            if (mounted) setMapData(loadedMapData);
           }
         }
 
@@ -1085,6 +1113,7 @@ export function MultiplayerCanvas({
         setLoading(false);
       } catch (error) {
         console.error('Failed to initialize physics:', error);
+        if (mounted) setLoading(false);
       }
     }
 
@@ -1093,6 +1122,7 @@ export function MultiplayerCanvas({
     return () => {
       mounted = false;
       cleanupGame();
+      cleanupGeometryCache();
       setPhysicsReady(false);
       playerColliderRef.current = null;
       if (physicsRef.current) {

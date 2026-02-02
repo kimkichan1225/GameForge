@@ -67,11 +67,13 @@ export const useMultiplayerGameStore = create<MultiplayerGameStore>((set, get) =
 
     // Countdown event
     socket.on('game:countdown', (data: { count: number }) => {
+      if (typeof data?.count !== 'number') return;
       set({ countdown: data.count, status: 'countdown' });
     });
 
     // Game start event
     socket.on('game:start', (data: { startTime: number }) => {
+      if (typeof data?.startTime !== 'number') return;
       set({
         status: 'playing',
         startTime: data.startTime,
@@ -90,18 +92,25 @@ export const useMultiplayerGameStore = create<MultiplayerGameStore>((set, get) =
       gracePeriod: number;
       firstFinisherId?: string;
     }) => {
+      // 데이터 유효성 검사
+      if (!data || !Array.isArray(data.players)) return;
+
+      // gracePeriod 음수 방지
+      const gracePeriod = Math.max(0, data.gracePeriod ?? 0);
+
       set({
-        roomId: data.roomId,
-        status: data.status,
+        roomId: data.roomId || '',
+        status: data.status || 'idle',
         players: data.players,
-        rankings: data.rankings,
-        gracePeriod: data.gracePeriod,
+        rankings: Array.isArray(data.rankings) ? data.rankings : [],
+        gracePeriod,
         firstFinisherId: data.firstFinisherId || null,
       });
     });
 
     // Checkpoint reached by another player
     socket.on('game:checkpoint', (data: { playerId: string; nickname: string; checkpoint: number }) => {
+      if (!data?.nickname) return;
       console.log(`${data.nickname}이(가) 체크포인트 ${data.checkpoint} 통과`);
     });
 
@@ -112,10 +121,11 @@ export const useMultiplayerGameStore = create<MultiplayerGameStore>((set, get) =
       time: number;
       duration: number;
     }) => {
+      if (!data?.firstFinisherId) return;
       console.log(`${data.nickname}이(가) 1등으로 완주! ${data.duration}초 카운트다운 시작`);
       set({
         firstFinisherId: data.firstFinisherId,
-        gracePeriod: data.duration,
+        gracePeriod: Math.max(0, data.duration ?? 0),
       });
     });
 
@@ -126,16 +136,19 @@ export const useMultiplayerGameStore = create<MultiplayerGameStore>((set, get) =
       time: number;
       isFirstFinisher: boolean;
     }) => {
+      if (!data?.nickname) return;
       console.log(`${data.nickname}이(가) ${(data.time / 1000).toFixed(2)}초로 완주!`);
     });
 
     // Player died
     socket.on('game:playerDied', (data: { playerId: string; nickname: string }) => {
+      if (!data?.nickname) return;
       console.log(`${data.nickname}이(가) 사망`);
     });
 
     // Game finished
     socket.on('game:finished', (data: { rankings: RankingEntry[] }) => {
+      if (!Array.isArray(data?.rankings)) return;
       set({
         status: 'finished',
         rankings: data.rankings,

@@ -74,11 +74,13 @@ export class Room {
   }
 
   addPlayer(playerId: string, nickname: string): Player | null {
-    if (this.players.size >= this.maxPlayers) {
+    // 대기 상태가 아니면 참가 불가
+    if (this.status !== 'waiting') {
       return null;
     }
 
-    if (this.status !== 'waiting') {
+    // 인원 제한 체크 (race condition 방지를 위해 status 체크 후)
+    if (this.players.size >= this.maxPlayers) {
       return null;
     }
 

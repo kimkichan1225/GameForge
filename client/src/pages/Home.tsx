@@ -166,7 +166,7 @@ function Home() {
       roomName: roomName.trim(),
       mapId: roomType === 'load_map' && selectedMap ? selectedMap.id : 'default',
       mapName: roomType === 'load_map' && selectedMap ? selectedMap.name : undefined,
-      mapThumbnailUrl: roomType === 'load_map' && selectedMap ? selectedMap.thumbnail_url : undefined,
+      mapThumbnailUrl: roomType === 'load_map' && selectedMap ? (selectedMap.thumbnail_url ?? undefined) : undefined,
       maxPlayers,
       gameMode,
       roomType,
@@ -194,14 +194,14 @@ function Home() {
   const handleJoinByCode = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!roomCode.trim()) {
-      setJoinCodeError('방 코드를 입력해주세요')
+      setJoinCodeError('방 ID를 입력해주세요')
       return
     }
 
     setIsJoiningByCode(true)
     setJoinCodeError('')
 
-    const success = await joinRoom(username, roomCode.trim().toUpperCase())
+    const success = await joinRoom(username, roomCode.trim())
     if (!success) {
       setJoinCodeError('방을 찾을 수 없거나 참가할 수 없습니다')
     } else {
@@ -594,19 +594,18 @@ function Home() {
                     </svg>
                   </button>
                 </div>
-                {/* 코드로 참가 */}
+                {/* 방 ID로 참가 */}
                 {user && isConnected && (
                   <form onSubmit={handleJoinByCode} className="flex items-center gap-2">
                     <input
                       type="text"
                       value={roomCode}
                       onChange={(e) => {
-                        setRoomCode(e.target.value.toUpperCase())
+                        setRoomCode(e.target.value)
                         setJoinCodeError('')
                       }}
-                      placeholder="코드 입력"
-                      maxLength={6}
-                      className="w-24 px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-white placeholder-white/30 focus:outline-none focus:border-sky-400 transition-colors uppercase tracking-wider font-mono text-sm"
+                      placeholder="방 ID 입력"
+                      className="w-64 px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-white placeholder-white/30 focus:outline-none focus:border-sky-400 transition-colors font-mono text-xs"
                       disabled={isJoiningByCode}
                     />
                     <button

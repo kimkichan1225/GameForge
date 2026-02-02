@@ -88,9 +88,14 @@ export const RemotePlayer = memo(function RemotePlayer({
   useFrame((_, dt) => {
     if (!group.current) return;
 
+    // 위치 값 유효성 검사
+    const posX = typeof position?.x === 'number' && isFinite(position.x) ? position.x : 0;
+    const posY = typeof position?.y === 'number' && isFinite(position.y) ? position.y : 0;
+    const posZ = typeof position?.z === 'number' && isFinite(position.z) ? position.z : 0;
+
     // Initialize lerped position on first frame
     if (!lerpedPos.current) {
-      lerpedPos.current = new THREE.Vector3(position.x, position.y, position.z);
+      lerpedPos.current = new THREE.Vector3(posX, posY, posZ);
     }
 
     // Interpolate position (frame-rate independent)
@@ -98,19 +103,21 @@ export const RemotePlayer = memo(function RemotePlayer({
     const lerpSpeed = 10; // Higher = faster catch-up
     const lerpFactor = 1 - Math.exp(-lerpSpeed * dt);
 
-    _targetPos.set(position.x, position.y, position.z);
+    _targetPos.set(posX, posY, posZ);
     lerpedPos.current.lerp(_targetPos, lerpFactor);
     group.current.position.copy(lerpedPos.current);
 
-    // Play animation received from server
-    if (animation) {
+    // Play animation received from server (유효한 애니메이션만)
+    if (animation && typeof animation === 'string' && animMap[animation]) {
       playAnim(animation);
     }
 
     // Rotate to face movement direction (frame-rate independent)
-    const speed = Math.sqrt(velocity.x * velocity.x + velocity.z * velocity.z);
+    const velX = typeof velocity?.x === 'number' && isFinite(velocity.x) ? velocity.x : 0;
+    const velZ = typeof velocity?.z === 'number' && isFinite(velocity.z) ? velocity.z : 0;
+    const speed = Math.sqrt(velX * velX + velZ * velZ);
     if (speed > 0.5) {
-      const angle = Math.atan2(velocity.x, velocity.z);
+      const angle = Math.atan2(velX, velZ);
       _targetQuat.setFromAxisAngle(_yAxis, angle);
       const rotLerpFactor = 1 - Math.exp(-8 * dt);
       clonedScene.quaternion.slerp(_targetQuat, rotLerpFactor);
