@@ -810,40 +810,108 @@ const SceneContent = memo(function SceneContent({
 const MultiplayerUI = memo(function MultiplayerUI({
   onExit,
   onReturnToWaitingRoom,
+  totalCheckpoints,
 }: {
   onExit: () => void;
   onReturnToWaitingRoom: () => void;
+  totalCheckpoints: number;
 }) {
   const status = useMultiplayerGameStore((state) => state.status);
   const countdown = useMultiplayerGameStore((state) => state.countdown);
+  const startTime = useMultiplayerGameStore((state) => state.startTime);
   const rankings = useMultiplayerGameStore((state) => state.rankings);
   const players = useMultiplayerGameStore((state) => state.players);
   const gracePeriod = useMultiplayerGameStore((state) => state.gracePeriod);
   const localFinished = useMultiplayerGameStore((state) => state.localFinished);
-  const currentRoom = useRoomStore((state) => state.currentRoom);
+  const localCheckpoint = useMultiplayerGameStore((state) => state.localCheckpoint);
 
+  const [showPauseMenu, setShowPauseMenu] = useState(false);
+  const [elapsedTime, setElapsedTime] = useState(0);
+
+  const myId = socketManager.getSocket()?.id;
+
+  // ESC 키 처리 - 일시정지 메뉴 토글
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        document.exitPointerLock();
-        onExit();
+        if (status === 'playing' || status === 'countdown') {
+          setShowPauseMenu((prev) => !prev);
+          if (!showPauseMenu) {
+            document.exitPointerLock();
+          }
+        }
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onExit]);
+  }, [status, showPauseMenu]);
 
   // 게임 종료 시 포인터락 해제
   useEffect(() => {
     if (status === 'finished') {
       document.exitPointerLock();
+      setShowPauseMenu(false);
+    }
+  }, [status]);
+
+  // 실시간 타이머 업데이트
+  useEffect(() => {
+    if (status !== 'playing' || !startTime || localFinished) {
+      return;
+    }
+
+    const interval = setInterval(() => {
+      setElapsedTime(Date.now() - startTime);
+    }, 10);
+
+    return () => clearInterval(interval);
+  }, [status, startTime, localFinished]);
+
+  // 게임 시작 시 타이머 리셋
+  useEffect(() => {
+    if (status === 'countdown') {
+      setElapsedTime(0);
     }
   }, [status]);
 
   const formatTime = (ms: number) => {
-    const seconds = Math.floor(ms / 1000);
+    const totalSeconds = Math.floor(ms / 1000);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
     const milliseconds = Math.floor((ms % 1000) / 10);
+    if (minutes > 0) {
+      return `${minutes}:${seconds.toString().padStart(2, '0')}.${milliseconds.toString().padStart(2, '0')}`;
+    }
     return `${seconds}.${milliseconds.toString().padStart(2, '0')}`;
+  };
+
+  // 현재 순위 계산 (체크포인트 기준)
+  const currentRank = useMemo(() => {
+    if (!myId) return 1;
+
+    // 완주한 플레이어들 (완주 시간순)
+    const finishedPlayers = players.filter(p => p.finished).sort((a, b) => (a.finishTime || 0) - (b.finishTime || 0));
+
+    // 아직 완주하지 않은 플레이어들 (체크포인트 많은 순)
+    const racingPlayers = players.filter(p => !p.finished).sort((a, b) => b.checkpoint - a.checkpoint);
+
+    const myPlayer = players.find(p => p.id === myId);
+    if (!myPlayer) return 1;
+
+    if (myPlayer.finished) {
+      return finishedPlayers.findIndex(p => p.id === myId) + 1;
+    }
+
+    return finishedPlayers.length + racingPlayers.findIndex(p => p.id === myId) + 1;
+  }, [players, myId]);
+
+  const handleResume = () => {
+    setShowPauseMenu(false);
+  };
+
+  const handleLeaveRoom = () => {
+    setShowPauseMenu(false);
+    onExit();
   };
 
   return (
@@ -851,7 +919,7 @@ const MultiplayerUI = memo(function MultiplayerUI({
       {/* Countdown */}
       {status === 'countdown' && countdown > 0 && (
         <div className="absolute inset-0 z-20 flex items-center justify-center">
-          <div className="text-9xl font-bold text-white drop-shadow-lg">{countdown}</div>
+          <div className="text-9xl font-bold text-white drop-shadow-lg animate-pulse">{countdown}</div>
         </div>
       )}
 
@@ -862,9 +930,34 @@ const MultiplayerUI = memo(function MultiplayerUI({
         </div>
       )}
 
+      {/* 상단 중앙: 타이머 + 순위 + 체크포인트 */}
+      {status === 'playing' && !localFinished && (
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-10">
+          <div className="bg-slate-900/80 backdrop-blur-sm rounded-xl px-6 py-3 border border-white/10">
+            {/* 타이머 */}
+            <div className="text-4xl font-mono font-bold text-white text-center">
+              {formatTime(elapsedTime)}
+            </div>
+            {/* 순위 + 체크포인트 */}
+            <div className="flex items-center justify-center gap-4 mt-1">
+              <div className="flex items-center gap-1">
+                <span className="text-yellow-400 font-bold">{currentRank}</span>
+                <span className="text-white/60 text-sm">/{players.length}위</span>
+              </div>
+              {totalCheckpoints > 0 && (
+                <div className="flex items-center gap-1">
+                  <span className="text-sky-400 font-bold">{localCheckpoint}</span>
+                  <span className="text-white/60 text-sm">/{totalCheckpoints} 체크포인트</span>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Grace period countdown - shown during playing when someone finished */}
       {status === 'playing' && gracePeriod > 0 && !localFinished && (
-        <div className="absolute top-20 left-1/2 -translate-x-1/2 z-20">
+        <div className="absolute top-28 left-1/2 -translate-x-1/2 z-20">
           <div className="bg-red-500/90 backdrop-blur-sm rounded-xl px-6 py-3 text-center border border-red-400/50">
             <div className="text-white/80 text-sm mb-1">누군가 완주했습니다!</div>
             <div className="text-5xl font-bold text-white">{Math.max(1, Math.ceil(gracePeriod))}</div>
@@ -889,30 +982,38 @@ const MultiplayerUI = memo(function MultiplayerUI({
       {/* Finished screen */}
       {status === 'finished' && (
         <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/50">
-          <div className="bg-slate-800/95 backdrop-blur-sm rounded-2xl p-8 text-center border border-white/20 min-w-80">
-            <div className="text-4xl mb-4 text-white">Race Complete!</div>
+          <div className="bg-slate-800/95 backdrop-blur-sm rounded-2xl p-8 text-center border border-white/20 min-w-96">
+            <div className="text-4xl font-bold mb-6 text-white">레이스 완료!</div>
             <div className="space-y-2 mb-6">
               {rankings.map((entry) => (
                 <div
                   key={entry.playerId}
                   className={`flex items-center justify-between p-3 rounded-lg ${
+                    entry.playerId === myId ? 'ring-2 ring-sky-400' : ''
+                  } ${
                     entry.dnf
                       ? 'bg-red-500/20'
                       : entry.rank === 1
-                      ? 'bg-yellow-500/20'
+                      ? 'bg-yellow-500/30'
                       : entry.rank === 2
-                      ? 'bg-gray-400/20'
+                      ? 'bg-gray-400/30'
                       : entry.rank === 3
-                      ? 'bg-orange-600/20'
+                      ? 'bg-orange-600/30'
                       : 'bg-white/10'
                   }`}
                 >
-                  <span className="text-white font-bold">
+                  <span className={`font-bold min-w-12 ${
+                    entry.dnf ? 'text-red-400' :
+                    entry.rank === 1 ? 'text-yellow-400' :
+                    entry.rank === 2 ? 'text-gray-300' :
+                    entry.rank === 3 ? 'text-orange-400' :
+                    'text-white'
+                  }`}>
                     {entry.dnf ? 'DNF' : `#${entry.rank}`}
                   </span>
-                  <span className="text-white">{entry.nickname}</span>
-                  <span className="text-white/70">
-                    {entry.dnf ? '-' : `${formatTime(entry.time)}s`}
+                  <span className="text-white flex-1 text-left ml-4">{entry.nickname}</span>
+                  <span className="text-white/70 font-mono">
+                    {entry.dnf ? '--:--.--' : formatTime(entry.time)}
                   </span>
                 </div>
               ))}
@@ -920,13 +1021,13 @@ const MultiplayerUI = memo(function MultiplayerUI({
             <div className="flex gap-4 justify-center">
               <button
                 onClick={onReturnToWaitingRoom}
-                className="px-6 py-2 bg-green-500 hover:bg-green-400 text-white rounded-lg font-medium"
+                className="px-6 py-2 bg-green-500 hover:bg-green-400 text-white rounded-lg font-medium transition-colors"
               >
                 대기방으로
               </button>
               <button
                 onClick={onExit}
-                className="px-6 py-2 bg-slate-600 hover:bg-slate-500 text-white rounded-lg font-medium"
+                className="px-6 py-2 bg-slate-600 hover:bg-slate-500 text-white rounded-lg font-medium transition-colors"
               >
                 로비로
               </button>
@@ -935,49 +1036,94 @@ const MultiplayerUI = memo(function MultiplayerUI({
         </div>
       )}
 
-      {/* Room info */}
-      <div className="absolute top-4 right-4 z-10 bg-slate-800/80 backdrop-blur-sm rounded-lg px-4 py-2 text-white text-sm">
-        <div>{currentRoom?.name}</div>
-        <div className="text-white/60">Players: {players.length}</div>
-        <div className="text-white/40 text-xs mt-1">ESC - Exit</div>
-      </div>
-
-      {/* Player list */}
-      <div className="absolute top-4 left-4 z-10 bg-slate-800/80 backdrop-blur-sm rounded-lg px-4 py-2 text-white text-sm">
-        <div className="font-bold mb-2">Players</div>
-        {players.map((p) => (
-          <div key={p.id} className="flex items-center gap-2 text-xs">
-            <div className={`w-2 h-2 rounded-full ${p.finished ? 'bg-green-400' : 'bg-sky-400'}`} />
-            <span>{p.nickname}</span>
-            {p.finished && <span className="text-green-400">Finished</span>}
-          </div>
-        ))}
-      </div>
-
-      {/* Controls hint */}
-      <div className="absolute bottom-6 left-4 z-10 bg-slate-800/70 backdrop-blur-sm rounded-xl p-3 border border-white/10 text-white/60 text-xs">
-        <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-          <span>Click</span>
-          <span>Lock Mouse</span>
-          <span>WASD</span>
-          <span>Move</span>
-          <span>Shift</span>
-          <span>Run</span>
-          <span>Space</span>
-          <span>Jump</span>
-          <span>V</span>
-          <span>Roll</span>
-          <span>C</span>
-          <span>Sit</span>
-          <span>Z</span>
-          <span>Crawl</span>
+      {/* 플레이어 목록 (체크포인트 진행도 포함) */}
+      <div className="absolute top-4 left-4 z-10 bg-slate-900/80 backdrop-blur-sm rounded-xl p-3 border border-white/10 min-w-48">
+        <div className="text-white/60 text-xs mb-2">플레이어</div>
+        <div className="space-y-1.5">
+          {players
+            .slice()
+            .sort((a, b) => {
+              // 완주한 플레이어 먼저, 그 다음 체크포인트 순
+              if (a.finished && !b.finished) return -1;
+              if (!a.finished && b.finished) return 1;
+              if (a.finished && b.finished) return (a.finishTime || 0) - (b.finishTime || 0);
+              return b.checkpoint - a.checkpoint;
+            })
+            .map((p, index) => (
+              <div
+                key={p.id}
+                className={`flex items-center gap-2 text-sm py-1 px-2 rounded ${
+                  p.id === myId ? 'bg-sky-500/20' : ''
+                }`}
+              >
+                <span className={`font-bold min-w-5 ${
+                  p.finished ? 'text-green-400' :
+                  index === 0 ? 'text-yellow-400' :
+                  'text-white/60'
+                }`}>
+                  {index + 1}
+                </span>
+                <span className={`flex-1 ${p.id === myId ? 'text-sky-400' : 'text-white'}`}>
+                  {p.nickname}
+                </span>
+                {p.finished ? (
+                  <span className="text-green-400 text-xs">완주</span>
+                ) : totalCheckpoints > 0 ? (
+                  <span className="text-white/40 text-xs">{p.checkpoint}/{totalCheckpoints}</span>
+                ) : null}
+              </div>
+            ))}
         </div>
       </div>
 
-      {/* Crosshair */}
-      <div className="absolute inset-0 pointer-events-none flex items-center justify-center z-10">
-        <div className="w-2 h-2 bg-white/50 rounded-full" />
+      {/* 조작 안내 (한글) */}
+      <div className="absolute bottom-4 left-4 z-10 bg-slate-900/70 backdrop-blur-sm rounded-xl p-3 border border-white/10">
+        <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-xs">
+          <span className="text-white/40">WASD</span>
+          <span className="text-white/60">이동</span>
+          <span className="text-white/40">Shift</span>
+          <span className="text-white/60">달리기</span>
+          <span className="text-white/40">Space</span>
+          <span className="text-white/60">점프</span>
+          <span className="text-white/40">V</span>
+          <span className="text-white/60">구르기</span>
+          <span className="text-white/40">C / Z</span>
+          <span className="text-white/60">앉기 / 엎드리기</span>
+          <span className="text-white/40">ESC</span>
+          <span className="text-white/60">메뉴</span>
+        </div>
       </div>
+
+      {/* 일시정지 메뉴 */}
+      {showPauseMenu && status !== 'finished' && (
+        <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/60">
+          <div className="bg-slate-800/95 backdrop-blur-sm rounded-2xl p-8 text-center border border-white/20 min-w-72">
+            <div className="text-2xl font-bold text-white mb-6">일시정지</div>
+            <div className="space-y-3">
+              <button
+                onClick={handleResume}
+                className="w-full px-6 py-3 bg-sky-500 hover:bg-sky-400 text-white rounded-lg font-medium transition-colors"
+              >
+                게임으로 돌아가기
+              </button>
+              <button
+                onClick={handleLeaveRoom}
+                className="w-full px-6 py-3 bg-red-500/80 hover:bg-red-500 text-white rounded-lg font-medium transition-colors"
+              >
+                방 나가기
+              </button>
+            </div>
+            <div className="text-white/40 text-xs mt-4">ESC를 다시 눌러 게임으로 돌아가기</div>
+          </div>
+        </div>
+      )}
+
+      {/* Crosshair */}
+      {!showPauseMenu && status === 'playing' && (
+        <div className="absolute inset-0 pointer-events-none flex items-center justify-center z-10">
+          <div className="w-1 h-1 bg-white/70 rounded-full" />
+        </div>
+      )}
     </>
   );
 });
@@ -1150,7 +1296,7 @@ export function MultiplayerCanvas({
           killzones={killzones}
         />
       </Canvas>
-      <MultiplayerUI onExit={onExit} onReturnToWaitingRoom={onReturnToWaitingRoom} />
+      <MultiplayerUI onExit={onExit} onReturnToWaitingRoom={onReturnToWaitingRoom} totalCheckpoints={checkpoints.length} />
     </div>
   );
 }
