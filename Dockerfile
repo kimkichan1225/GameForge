@@ -44,8 +44,6 @@ COPY --from=client-builder /app/client/dist ./client/dist
 WORKDIR /app/server
 
 ENV NODE_ENV=production
-ENV PORT=3001
 
-EXPOSE $PORT
-
+# Railway가 PORT 환경변수를 제공함
 CMD ["node", "dist/index.js"]
