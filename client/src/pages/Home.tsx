@@ -89,9 +89,9 @@ function Home() {
     }
   }, [isConnected, fetchRooms])
 
-  // Navigate to game when game starts
+  // Navigate to game when game starts (countdown for load_map, building for create_map)
   useEffect(() => {
-    if (currentRoom?.status === 'countdown') {
+    if (currentRoom?.status === 'countdown' || currentRoom?.status === 'building') {
       navigate('/multiplayer-game')
     }
   }, [currentRoom?.status, navigate])
@@ -638,7 +638,7 @@ function Home() {
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                   {rooms.map((room) => {
-                    const isPlaying = room.status === 'playing' || room.status === 'countdown';
+                    const isPlaying = room.status === 'playing' || room.status === 'countdown' || room.status === 'building';
                     const isFull = room.playerCount >= room.maxPlayers;
                     const canJoin = !isPlaying && !isFull && !room.isPrivate;
                     const modeLabel = room.gameMode === 'race' ? 'Race' : 'Shooter';

@@ -1,8 +1,12 @@
 import { useNavigate } from 'react-router-dom';
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useState } from 'react';
 import { MultiplayerCanvas } from '../components/game/MultiplayerCanvas';
+import { BuildingCanvas } from '../components/game/BuildingCanvas';
+import { BuildingUI } from '../components/game/BuildingUI';
+import { BuildingTestPlay } from '../components/game/BuildingTestPlay';
 import { useRoomStore } from '../stores/roomStore';
 import { useMultiplayerGameStore } from '../stores/multiplayerGameStore';
+import type { PlaceableType } from '../stores/editorStore';
 
 export default function MultiplayerGame() {
   const navigate = useNavigate();
@@ -10,6 +14,20 @@ export default function MultiplayerGame() {
   const leaveRoom = useRoomStore((state) => state.leaveRoom);
   const returnToWaitingRoom = useRoomStore((state) => state.returnToWaitingRoom);
   const cleanupGame = useMultiplayerGameStore((state) => state.cleanupGame);
+  const cleanupBuilding = useMultiplayerGameStore((state) => state.cleanupBuilding);
+  const initBuilding = useMultiplayerGameStore((state) => state.initBuilding);
+  const buildingPhase = useMultiplayerGameStore((state) => state.buildingPhase);
+  const status = useMultiplayerGameStore((state) => state.status);
+  const myTesting = useMultiplayerGameStore((state) => state.myTesting);
+  const myObjects = useMultiplayerGameStore((state) => state.myObjects);
+  const myMarkers = useMultiplayerGameStore((state) => state.myMarkers);
+  const myRegion = useMultiplayerGameStore((state) => state.myRegion);
+  const startTest = useMultiplayerGameStore((state) => state.startTest);
+  const finishTest = useMultiplayerGameStore((state) => state.finishTest);
+
+  // 빌딩 UI 상태
+  const [currentPlaceable, setCurrentPlaceable] = useState<PlaceableType>('box');
+  const [currentMarker, setCurrentMarker] = useState<'spawn' | 'finish' | null>(null);
 
   // Redirect to lobby if no room
   useEffect(() => {
@@ -18,26 +36,98 @@ export default function MultiplayerGame() {
     }
   }, [currentRoom, navigate]);
 
+  // 빌딩 페이즈 이벤트 리스너 초기화 (roomStore의 status 기준으로 먼저 리스너 등록)
+  useEffect(() => {
+    if (currentRoom?.roomType === 'create_map' && currentRoom?.status === 'building') {
+      initBuilding();
+      return () => {
+        cleanupBuilding();
+      };
+    }
+  }, [currentRoom?.roomType, currentRoom?.status, initBuilding, cleanupBuilding]);
+
   // 로비로 나가기 (방에서 완전히 퇴장)
   const handleExit = useCallback(() => {
     cleanupGame();
+    cleanupBuilding();
     leaveRoom();
     navigate('/home');
-  }, [cleanupGame, leaveRoom, navigate]);
+  }, [cleanupGame, cleanupBuilding, leaveRoom, navigate]);
 
   // 대기방으로 돌아가기 (방에 남아서 다시 플레이 준비)
   const handleReturnToWaitingRoom = useCallback(async () => {
     cleanupGame();
+    cleanupBuilding();
     const success = await returnToWaitingRoom();
     if (success) {
       navigate('/home');
     }
-  }, [cleanupGame, returnToWaitingRoom, navigate]);
+  }, [cleanupGame, cleanupBuilding, returnToWaitingRoom, navigate]);
+
+  // 테스트 플레이 시작
+  const handleStartTest = useCallback(async () => {
+    const result = await startTest();
+    if (!result.success && result.error) {
+      console.error('테스트 시작 실패:', result.error);
+    }
+  }, [startTest]);
+
+  // 테스트 플레이 종료
+  const handleTestExit = useCallback(async (success: boolean) => {
+    await finishTest(success);
+  }, [finishTest]);
 
   if (!currentRoom) {
     return null;
   }
 
+  // 빌딩 페이즈 여부 판단 (roomStore 또는 multiplayerGameStore 기준)
+  const isBuildingPhase = buildingPhase || status === 'building' ||
+    (currentRoom?.roomType === 'create_map' && currentRoom?.status === 'building');
+
+  // 디버깅용 로그
+  console.log('[MultiplayerGame] 상태:', {
+    buildingPhase,
+    status,
+    roomType: currentRoom?.roomType,
+    roomStatus: currentRoom?.status,
+    isBuildingPhase,
+  });
+
+  // 빌딩 페이즈 - 테스트 플레이 중
+  if (isBuildingPhase && myTesting && myRegion) {
+    return (
+      <div className="w-screen h-screen">
+        <BuildingTestPlay
+          objects={myObjects}
+          markers={myMarkers}
+          region={myRegion}
+          onExit={handleTestExit}
+        />
+      </div>
+    );
+  }
+
+  // 빌딩 페이즈
+  if (isBuildingPhase) {
+    return (
+      <div className="w-screen h-screen relative">
+        <BuildingCanvas
+          currentPlaceable={currentPlaceable}
+          currentMarker={currentMarker}
+        />
+        <BuildingUI
+          currentPlaceable={currentPlaceable}
+          currentMarker={currentMarker}
+          onSelectPlaceable={setCurrentPlaceable}
+          onSelectMarker={setCurrentMarker}
+          onStartTest={handleStartTest}
+        />
+      </div>
+    );
+  }
+
+  // 레이스 페이즈 (또는 load_map 모드)
   return (
     <div className="w-screen h-screen">
       <MultiplayerCanvas

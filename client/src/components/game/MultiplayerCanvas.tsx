@@ -87,12 +87,15 @@ const LocalPlayer = memo(function LocalPlayer({
   const dying = useRef(false);
   const dyingTimer = useRef(0);
   const passedCheckpoints = useRef<Set<string>>(new Set());
+  const initializedPosition = useRef(false);
+  const prevGameStatus = useRef<string>('');
 
   const input = useInput();
   const sendPosition = useMultiplayerGameStore((state) => state.sendPosition);
   const reachCheckpoint = useMultiplayerGameStore((state) => state.reachCheckpoint);
   const finish = useMultiplayerGameStore((state) => state.finish);
   const notifyDeath = useMultiplayerGameStore((state) => state.notifyDeath);
+  const clearPendingTeleport = useMultiplayerGameStore((state) => state.clearPendingTeleport);
 
   // Build animation map
   useEffect(() => {
@@ -151,6 +154,25 @@ const LocalPlayer = memo(function LocalPlayer({
   useFrame((_, dt) => {
     const gameStatus = useMultiplayerGameStore.getState().status;
     const localFinished = useMultiplayerGameStore.getState().localFinished;
+    const pendingTeleport = useMultiplayerGameStore.getState().pendingTeleport;
+
+    // 게임 시작 시 (countdown → playing 전환) 플레이어 위치 초기화
+    if (gameStatus === 'playing' && prevGameStatus.current !== 'playing' && !initializedPosition.current) {
+      const store = useGameStore.getState();
+      const centerY = COLLIDER_CONFIG[store.posture].centerY;
+      physics.playerBody.setTranslation(
+        { x: startPosition[0], y: startPosition[1] + centerY + 0.5, z: startPosition[2] },
+        true
+      );
+      physics.playerBody.setLinvel({ x: 0, y: 0, z: 0 }, true);
+      if (group.current) {
+        group.current.position.set(startPosition[0], startPosition[1], startPosition[2]);
+      }
+      store.setPlayerPos([startPosition[0], startPosition[1], startPosition[2]]);
+      initializedPosition.current = true;
+    }
+    prevGameStatus.current = gameStatus;
+
     if (!group.current || gameStatus !== 'playing') return;
 
     const keys = input.current;
@@ -168,6 +190,19 @@ const LocalPlayer = memo(function LocalPlayer({
     }
 
     const centerY = COLLIDER_CONFIG[posture].centerY;
+
+    // 릴레이 레이스 텔레포트 처리
+    if (pendingTeleport) {
+      playerBody.setTranslation(
+        { x: pendingTeleport[0], y: pendingTeleport[1] + centerY + 0.5, z: pendingTeleport[2] },
+        true
+      );
+      playerBody.setLinvel({ x: 0, y: 0, z: 0 }, true);
+      group.current.position.set(pendingTeleport[0], pendingTeleport[1], pendingTeleport[2]);
+      store.setPlayerPos([pendingTeleport[0], pendingTeleport[1], pendingTeleport[2]]);
+      clearPendingTeleport();
+      return;
+    }
 
     // 사망 애니메이션 처리 중
     if (dying.current) {
@@ -516,11 +551,22 @@ const FollowCamera = memo(function FollowCamera({ startPosition }: { startPositi
     const localFinished = useMultiplayerGameStore.getState().localFinished;
 
     // 카운트다운 중에는 startPosition 사용, 플레이 중에는 playerPos 사용
+    // 단, playerPos가 (0,0,0) 근처면 아직 초기화 안된 것이므로 startPosition 사용
     if (gameStatus === 'countdown') {
       _targetPos.current.set(startPosition[0], startPosition[1], startPosition[2]);
     } else {
       const playerPos = useGameStore.getState().playerPos;
-      _targetPos.current.set(playerPos[0], playerPos[1], playerPos[2]);
+      // playerPos가 startPosition과 너무 다르면 (초기화 전) startPosition 사용
+      const distFromStart = Math.sqrt(
+        (playerPos[0] - startPosition[0]) ** 2 +
+        (playerPos[2] - startPosition[2]) ** 2
+      );
+      // 플레이 시작 직후 playerPos가 (0,0,0)이고 startPosition이 다른 곳이면 startPosition 사용
+      if (playerPos[0] === 0 && playerPos[1] === 0 && playerPos[2] === 0 && distFromStart > 5) {
+        _targetPos.current.set(startPosition[0], startPosition[1], startPosition[2]);
+      } else {
+        _targetPos.current.set(playerPos[0], playerPos[1], playerPos[2]);
+      }
     }
 
     // 시네마틱 카메라: 카운트다운 중이거나 완주한 경우
@@ -751,6 +797,57 @@ const RemotePlayers = memo(function RemotePlayers() {
   );
 });
 
+// 릴레이 레이스 영역 경계 벽
+const RelayRegionBoundaries = memo(function RelayRegionBoundaries({
+  segments,
+}: {
+  segments: Array<{ playerId: string; order: number }>;
+}) {
+  const boundaryMaterial = useMemo(
+    () =>
+      new THREE.MeshStandardMaterial({
+        color: '#ff4444',
+        transparent: true,
+        opacity: 0.3,
+        side: THREE.DoubleSide,
+      }),
+    []
+  );
+
+  const walls: JSX.Element[] = [];
+  const wallHeight = 20;
+  const depth = 100; // Z축 범위: -50 ~ +50
+  const regionWidth = 50; // 각 영역 X축 폭
+
+  for (let i = 0; i < segments.length; i++) {
+    const startX = i * regionWidth;
+    const endX = (i + 1) * regionWidth;
+    const centerX = (startX + endX) / 2;
+
+    // 각 영역의 4면 벽 (왼쪽, 오른쪽, 앞, 뒤)
+    walls.push(
+      // 왼쪽 벽
+      <mesh key={`wall-left-${i}`} position={[startX, wallHeight / 2, 0]} material={boundaryMaterial}>
+        <boxGeometry args={[0.2, wallHeight, depth]} />
+      </mesh>,
+      // 오른쪽 벽
+      <mesh key={`wall-right-${i}`} position={[endX, wallHeight / 2, 0]} material={boundaryMaterial}>
+        <boxGeometry args={[0.2, wallHeight, depth]} />
+      </mesh>,
+      // 앞 벽 (Z-)
+      <mesh key={`wall-front-${i}`} position={[centerX, wallHeight / 2, -depth / 2]} material={boundaryMaterial}>
+        <boxGeometry args={[regionWidth, wallHeight, 0.2]} />
+      </mesh>,
+      // 뒤 벽 (Z+)
+      <mesh key={`wall-back-${i}`} position={[centerX, wallHeight / 2, depth / 2]} material={boundaryMaterial}>
+        <boxGeometry args={[regionWidth, wallHeight, 0.2]} />
+      </mesh>
+    );
+  }
+
+  return <group>{walls}</group>;
+});
+
 // Scene content
 const SceneContent = memo(function SceneContent({
   startPosition,
@@ -759,6 +856,7 @@ const SceneContent = memo(function SceneContent({
   finishPosition,
   checkpoints,
   killzones,
+  relaySegments,
 }: {
   startPosition: [number, number, number];
   physics: PhysicsContext | null;
@@ -766,6 +864,7 @@ const SceneContent = memo(function SceneContent({
   finishPosition: [number, number, number] | null;
   checkpoints: MapMarker[];
   killzones: MapMarker[];
+  relaySegments: Array<{ playerId: string; order: number }> | null;
 }) {
   if (!physics) return null;
 
@@ -793,6 +892,7 @@ const SceneContent = memo(function SceneContent({
       <Ground />
       {mapData && <MapObjects objects={mapData.objects} />}
       {mapData && <MapMarkers markers={mapData.markers} />}
+      {relaySegments && <RelayRegionBoundaries segments={relaySegments} />}
       <LocalPlayer
         startPosition={startPosition}
         physics={physics}
@@ -1232,38 +1332,122 @@ export function MultiplayerCanvas({
   const initGame = useMultiplayerGameStore((state) => state.initGame);
   const cleanupGame = useMultiplayerGameStore((state) => state.cleanupGame);
   const currentRoom = useRoomStore((state) => state.currentRoom);
+  const isRelayRace = useMultiplayerGameStore((state) => state.isRelayRace);
+  const relayMapData = useMultiplayerGameStore((state) => state.relayMapData);
+
+  // 릴레이 레이스용 병합된 맵 데이터
+  const mergedRelayMapData = useMemo((): MapData | null => {
+    if (!isRelayRace || !relayMapData) return null;
+
+    const mergedObjects: MapObject[] = [];
+    const mergedMarkers: MapMarker[] = [];
+
+    // 모든 세그먼트의 오브젝트와 추가 마커(checkpoint, killzone) 병합
+    for (const segment of relayMapData.segments) {
+      mergedObjects.push(...segment.objects);
+      // 각 세그먼트의 추가 마커 (checkpoint, killzone) 추가
+      if (segment.markers) {
+        for (const marker of segment.markers) {
+          mergedMarkers.push({
+            ...marker,
+            id: `${segment.playerId}-${marker.id}`,  // 고유 ID 보장
+          });
+        }
+      }
+    }
+
+    // 첫 번째 세그먼트의 spawnPosition -> spawn 마커
+    const firstSegment = relayMapData.segments[0];
+    if (firstSegment) {
+      mergedMarkers.push({
+        id: 'relay-spawn',
+        type: 'spawn',
+        position: firstSegment.spawnPosition,
+        rotation: [0, 0, 0],
+      });
+    }
+
+    // 두 번째 이후 세그먼트의 spawnPosition -> checkpoint 마커 (텔레포트 목적지 표시)
+    for (let i = 1; i < relayMapData.segments.length; i++) {
+      const segment = relayMapData.segments[i];
+      mergedMarkers.push({
+        id: `relay-spawn-checkpoint-${i}`,
+        type: 'checkpoint',
+        position: segment.spawnPosition,
+        rotation: [0, 0, 0],
+      });
+    }
+
+    // 중간 세그먼트들의 finishPosition -> checkpoint 마커 (텔레포트 트리거)
+    for (let i = 0; i < relayMapData.segments.length - 1; i++) {
+      const segment = relayMapData.segments[i];
+      mergedMarkers.push({
+        id: `relay-checkpoint-${i}`,
+        type: 'checkpoint',
+        position: segment.finishPosition,
+        rotation: [0, 0, 0],
+      });
+    }
+
+    // 마지막 세그먼트의 finishPosition -> finish 마커
+    const lastSegment = relayMapData.segments[relayMapData.segments.length - 1];
+    if (lastSegment) {
+      mergedMarkers.push({
+        id: 'relay-finish',
+        type: 'finish',
+        position: lastSegment.finishPosition,
+        rotation: [0, 0, 0],
+      });
+    }
+
+    const now = Date.now();
+    return {
+      id: 'relay-merged',
+      name: 'Relay Race Map',
+      mode: 'race',
+      objects: mergedObjects,
+      markers: mergedMarkers,
+      createdAt: now,
+      updatedAt: now,
+    };
+  }, [isRelayRace, relayMapData]);
+
+  // 실제 사용할 맵 데이터 (릴레이 레이스면 병합된 데이터, 아니면 일반 맵 데이터)
+  const effectiveMapData = useMemo(() => {
+    return mergedRelayMapData || mapData;
+  }, [mergedRelayMapData, mapData]);
 
   // 스폰 위치 계산
   const startPosition = useMemo((): [number, number, number] => {
-    if (mapData) {
-      const spawnMarker = mapData.markers.find(m => m.type === 'spawn' || m.type === 'spawn_a');
+    if (effectiveMapData) {
+      const spawnMarker = effectiveMapData.markers.find(m => m.type === 'spawn' || m.type === 'spawn_a');
       if (spawnMarker) {
         return [spawnMarker.position[0], spawnMarker.position[1], spawnMarker.position[2]];
       }
     }
     return [0, 0, 0];
-  }, [mapData]);
+  }, [effectiveMapData]);
 
   // 피니시 위치 계산
   const finishPosition = useMemo((): [number, number, number] | null => {
-    if (mapData) {
-      const finishMarker = mapData.markers.find(m => m.type === 'finish');
+    if (effectiveMapData) {
+      const finishMarker = effectiveMapData.markers.find(m => m.type === 'finish');
       if (finishMarker) {
         return [finishMarker.position[0], finishMarker.position[1], finishMarker.position[2]];
       }
     }
     return null;
-  }, [mapData]);
+  }, [effectiveMapData]);
 
   // 체크포인트 목록
   const checkpoints = useMemo(() => {
-    return mapData?.markers.filter(m => m.type === 'checkpoint') || [];
-  }, [mapData]);
+    return effectiveMapData?.markers.filter(m => m.type === 'checkpoint') || [];
+  }, [effectiveMapData]);
 
   // 킬존 목록
   const killzones = useMemo(() => {
-    return mapData?.markers.filter(m => m.type === 'killzone') || [];
-  }, [mapData]);
+    return effectiveMapData?.markers.filter(m => m.type === 'killzone') || [];
+  }, [effectiveMapData]);
 
   const physics = useMemo((): PhysicsContext | null => {
     if (!physicsRef.current || !playerColliderRef.current || !physicsReady) return null;
@@ -1281,9 +1465,90 @@ export function MultiplayerCanvas({
 
     async function init() {
       try {
+        // 릴레이 레이스인 경우 relayMapData가 올 때까지 대기
+        const storeState = useMultiplayerGameStore.getState();
+        const isRelay = storeState.isRelayRace;
+        const relayData = storeState.relayMapData;
+
         // 맵 데이터 로드
         let loadedMapData: MapData | null = null;
-        if (currentRoom?.mapId && currentRoom.mapId !== 'default') {
+
+        if (isRelay && relayData) {
+          // 릴레이 레이스: relayMapData에서 병합된 맵 데이터 생성
+          const mergedObjects: MapObject[] = [];
+          const mergedMarkers: MapMarker[] = [];
+
+          // 모든 세그먼트의 오브젝트와 추가 마커 병합
+          for (const segment of relayData.segments) {
+            mergedObjects.push(...segment.objects);
+            // 각 세그먼트의 추가 마커 (checkpoint, killzone) 추가
+            if (segment.markers) {
+              for (const marker of segment.markers) {
+                mergedMarkers.push({
+                  ...marker,
+                  id: `${segment.playerId}-${marker.id}`,
+                });
+              }
+            }
+          }
+
+          // 첫 번째 세그먼트의 spawn
+          const firstSeg = relayData.segments[0];
+          if (firstSeg) {
+            mergedMarkers.push({
+              id: 'relay-spawn',
+              type: 'spawn',
+              position: firstSeg.spawnPosition,
+              rotation: [0, 0, 0],
+            });
+          }
+
+          // 두 번째 이후 세그먼트의 spawnPosition -> checkpoint
+          for (let i = 1; i < relayData.segments.length; i++) {
+            const seg = relayData.segments[i];
+            mergedMarkers.push({
+              id: `relay-spawn-checkpoint-${i}`,
+              type: 'checkpoint',
+              position: seg.spawnPosition,
+              rotation: [0, 0, 0],
+            });
+          }
+
+          // 중간 체크포인트들 (finishPosition)
+          for (let i = 0; i < relayData.segments.length - 1; i++) {
+            const seg = relayData.segments[i];
+            mergedMarkers.push({
+              id: `relay-checkpoint-${i}`,
+              type: 'checkpoint',
+              position: seg.finishPosition,
+              rotation: [0, 0, 0],
+            });
+          }
+
+          // 마지막 finish
+          const lastSeg = relayData.segments[relayData.segments.length - 1];
+          if (lastSeg) {
+            mergedMarkers.push({
+              id: 'relay-finish',
+              type: 'finish',
+              position: lastSeg.finishPosition,
+              rotation: [0, 0, 0],
+            });
+          }
+
+          const now = Date.now();
+          loadedMapData = {
+            id: 'relay-merged',
+            name: 'Relay Race Map',
+            mode: 'race',
+            objects: mergedObjects,
+            markers: mergedMarkers,
+            createdAt: now,
+            updatedAt: now,
+          };
+          if (mounted) setMapData(loadedMapData);
+        } else if (currentRoom?.mapId && currentRoom.mapId !== 'default') {
+          // 일반 맵 로드
           try {
             const { mapService } = await import('../../lib/mapService');
             const mapRecord = await mapService.getMap(currentRoom.mapId);
@@ -1347,15 +1612,26 @@ export function MultiplayerCanvas({
       setPhysicsReady(false);
       playerColliderRef.current = null;
       if (physicsRef.current) {
-        physicsRef.current.world.free();
+        try {
+          physicsRef.current.world.free();
+        } catch { /* 이미 해제됨 */ }
         physicsRef.current = null;
       }
     };
-  }, [initGame, cleanupGame]);
+  }, [initGame, cleanupGame, isRelayRace, relayMapData]);
 
   useEffect(() => {
     useGameStore.getState().reset();
   }, []);
+
+  // 릴레이 레이스 영역 세그먼트 정보
+  const relaySegments = useMemo(() => {
+    if (!isRelayRace || !relayMapData) return null;
+    return relayMapData.segments.map(seg => ({
+      playerId: seg.playerId,
+      order: seg.order,
+    }));
+  }, [isRelayRace, relayMapData]);
 
   if (loading) return <LoadingScreen />;
 
@@ -1365,10 +1641,11 @@ export function MultiplayerCanvas({
         <SceneContent
           startPosition={startPosition}
           physics={physics}
-          mapData={mapData}
+          mapData={effectiveMapData}
           finishPosition={finishPosition}
           checkpoints={checkpoints}
           killzones={killzones}
+          relaySegments={relaySegments}
         />
       </Canvas>
       <MultiplayerUI onExit={onExit} onReturnToWaitingRoom={onReturnToWaitingRoom} totalCheckpoints={checkpoints.length} finishPosition={finishPosition} />

@@ -1,6 +1,7 @@
 import { Server, Socket } from 'socket.io';
 import { roomManager } from '../game/RoomManager.js';
-import { startGame, getGameLoop, stopGame } from '../game/GameLoop.js';
+import { startGame, startGameFromBuilding, getGameLoop, stopGame } from '../game/GameLoop.js';
+import type { MapObject, MapMarker } from '../game/BuildingPhase.js';
 
 export function registerRoomHandlers(io: Server, socket: Socket): void {
   // Get room list
@@ -158,11 +159,229 @@ export function registerRoomHandlers(io: Server, socket: Socket): void {
       return;
     }
 
-    // Start the game loop
+    // create_map 모드면 빌딩 페이즈 시작
+    if (room.roomType === 'create_map') {
+      room.startBuildingPhase(io, (relayMapData) => {
+        // 빌딩 완료 후 자동으로 릴레이 레이스 시작
+        console.log(`빌딩 완료! 릴레이 레이스 자동 시작: 방 ${room.id}`);
+        startGameFromBuilding(io, room, relayMapData);
+      });
+
+      // 방 상태 업데이트 브로드캐스트
+      io.to(room.id).emit('room:statusUpdated', {
+        status: room.status,
+      });
+
+      // Broadcast updated room list (room no longer joinable)
+      io.emit('room:listUpdated', roomManager.getRoomList());
+
+      callback?.({ success: true, buildingStarted: true });
+      return;
+    }
+
+    // load_map 모드면 바로 게임 시작
     startGame(io, room);
 
     // Broadcast updated room list (room no longer joinable)
     io.emit('room:listUpdated', roomManager.getRoomList());
+
+    callback?.({ success: true });
+  });
+
+  // ===== 빌딩 페이즈 이벤트 핸들러 =====
+
+  // 현재 빌딩 상태 요청 (페이지 로드 후 상태 동기화용)
+  socket.on('build:requestState', (callback) => {
+    const room = roomManager.getPlayerRoom(socket.id);
+    if (!room?.buildingPhase) {
+      callback?.({ success: false, error: '빌딩 페이즈가 아닙니다' });
+      return;
+    }
+
+    const segment = room.buildingPhase.getSegment(socket.id);
+    if (!segment) {
+      callback?.({ success: false, error: '세그먼트를 찾을 수 없습니다' });
+      return;
+    }
+
+    // 현재 빌딩 상태 전송
+    callback?.({
+      success: true,
+      region: segment.region,
+      timeLimit: room.buildingPhase.getTimeRemaining(),
+      objects: segment.objects,
+      markers: segment.markers,
+      isVerified: segment.isVerified,
+      isTesting: segment.isTesting,
+      allPlayersStatus: room.buildingPhase.getAllPlayersStatus(),
+    });
+  });
+
+  // 오브젝트 배치
+  socket.on('build:placeObject', (data: {
+    type: MapObject['type'];
+    position: [number, number, number];
+    rotation: [number, number, number];
+    scale: [number, number, number];
+    color: string;
+    name: string;
+  }, callback) => {
+    const room = roomManager.getPlayerRoom(socket.id);
+    if (!room?.buildingPhase) {
+      callback?.({ success: false, error: '빌딩 페이즈가 아닙니다' });
+      return;
+    }
+
+    const object = room.buildingPhase.placeObject(socket.id, data);
+    if (object) {
+      socket.emit('build:objectPlaced', { object });
+      callback?.({ success: true, object });
+    } else {
+      callback?.({ success: false, error: '오브젝트를 배치할 수 없습니다' });
+    }
+  });
+
+  // 오브젝트 삭제
+  socket.on('build:removeObject', (data: { objectId: string }, callback) => {
+    const room = roomManager.getPlayerRoom(socket.id);
+    if (!room?.buildingPhase) {
+      callback?.({ success: false, error: '빌딩 페이즈가 아닙니다' });
+      return;
+    }
+
+    const success = room.buildingPhase.removeObject(socket.id, data.objectId);
+    if (success) {
+      socket.emit('build:objectRemoved', { objectId: data.objectId });
+      callback?.({ success: true });
+    } else {
+      callback?.({ success: false, error: '오브젝트를 삭제할 수 없습니다' });
+    }
+  });
+
+  // 오브젝트 수정
+  socket.on('build:updateObject', (data: { objectId: string; updates: Partial<MapObject> }, callback) => {
+    const room = roomManager.getPlayerRoom(socket.id);
+    if (!room?.buildingPhase) {
+      callback?.({ success: false, error: '빌딩 페이즈가 아닙니다' });
+      return;
+    }
+
+    const object = room.buildingPhase.updateObject(socket.id, data.objectId, data.updates);
+    if (object) {
+      socket.emit('build:objectUpdated', { object });
+      callback?.({ success: true, object });
+    } else {
+      callback?.({ success: false, error: '오브젝트를 수정할 수 없습니다' });
+    }
+  });
+
+  // 마커 배치
+  socket.on('build:placeMarker', (data: {
+    type: MapMarker['type'];
+    position: [number, number, number];
+    rotation: [number, number, number];
+  }, callback) => {
+    const room = roomManager.getPlayerRoom(socket.id);
+    if (!room?.buildingPhase) {
+      callback?.({ success: false, error: '빌딩 페이즈가 아닙니다' });
+      return;
+    }
+
+    const marker = room.buildingPhase.placeMarker(socket.id, data);
+    if (marker) {
+      socket.emit('build:markerPlaced', { marker });
+      callback?.({ success: true, marker });
+    } else {
+      callback?.({ success: false, error: '마커를 배치할 수 없습니다' });
+    }
+  });
+
+  // 마커 삭제
+  socket.on('build:removeMarker', (data: { markerId: string }, callback) => {
+    const room = roomManager.getPlayerRoom(socket.id);
+    if (!room?.buildingPhase) {
+      callback?.({ success: false, error: '빌딩 페이즈가 아닙니다' });
+      return;
+    }
+
+    const success = room.buildingPhase.removeMarker(socket.id, data.markerId);
+    if (success) {
+      socket.emit('build:markerRemoved', { markerId: data.markerId });
+      callback?.({ success: true });
+    } else {
+      callback?.({ success: false, error: '마커를 삭제할 수 없습니다' });
+    }
+  });
+
+  // 테스트 플레이 시작
+  socket.on('build:startTest', (callback) => {
+    const room = roomManager.getPlayerRoom(socket.id);
+    if (!room?.buildingPhase) {
+      callback?.({ success: false, error: '빌딩 페이즈가 아닙니다' });
+      return;
+    }
+
+    const result = room.buildingPhase.startTest(socket.id);
+    if (result.success) {
+      const segment = room.buildingPhase.getSegment(socket.id);
+      callback?.({
+        success: true,
+        segment: segment ? {
+          objects: segment.objects,
+          markers: segment.markers,
+          region: segment.region,
+        } : null,
+      });
+    } else {
+      callback?.({ success: false, error: result.error });
+    }
+  });
+
+  // 테스트 플레이 종료
+  socket.on('build:finishTest', (data: { success: boolean }, callback) => {
+    const room = roomManager.getPlayerRoom(socket.id);
+    if (!room?.buildingPhase) {
+      callback?.({ success: false, error: '빌딩 페이즈가 아닙니다' });
+      return;
+    }
+
+    room.buildingPhase.finishTest(socket.id, data.success);
+    callback?.({ success: true });
+  });
+
+  // 강퇴 투표
+  socket.on('build:voteKick', (data: { targetPlayerId: string }, callback) => {
+    const room = roomManager.getPlayerRoom(socket.id);
+    if (!room?.buildingPhase) {
+      callback?.({ success: false, error: '빌딩 페이즈가 아닙니다' });
+      return;
+    }
+
+    const result = room.buildingPhase.voteKick(socket.id, data.targetPlayerId);
+    callback?.(result);
+  });
+
+  // 빌딩 완료 후 레이스 시작 처리 (build:completed 이벤트 후 자동 호출됨)
+  socket.on('build:startRace', (callback) => {
+    const room = roomManager.getPlayerRoom(socket.id);
+    if (!room) {
+      callback?.({ success: false, error: '방을 찾을 수 없습니다' });
+      return;
+    }
+
+    // 호스트만 레이스 시작 가능
+    if (room.hostId !== socket.id) {
+      callback?.({ success: false, error: '방장만 레이스를 시작할 수 있습니다' });
+      return;
+    }
+
+    if (!room.relayMapData) {
+      callback?.({ success: false, error: '릴레이 맵 데이터가 없습니다' });
+      return;
+    }
+
+    // 릴레이 레이스 시작
+    startGameFromBuilding(io, room, room.relayMapData);
 
     callback?.({ success: true });
   });
@@ -184,8 +403,8 @@ export function registerRoomHandlers(io: Server, socket: Socket): void {
     const room = roomManager.getPlayerRoom(socket.id);
     const gameLoop = getGameLoop(room?.id || '');
     if (gameLoop) {
-      const success = gameLoop.playerReachedCheckpoint(socket.id, data.checkpointIndex);
-      callback?.({ success });
+      const result = gameLoop.playerReachedCheckpoint(socket.id, data.checkpointIndex);
+      callback?.({ success: result.success, teleportTo: result.teleportTo });
     } else {
       callback?.({ success: false });
     }

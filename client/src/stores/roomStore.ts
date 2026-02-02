@@ -16,7 +16,7 @@ export interface RoomInfo {
   name: string;
   playerCount: number;
   maxPlayers: number;
-  status: 'waiting' | 'countdown' | 'playing' | 'finished';
+  status: 'waiting' | 'building' | 'countdown' | 'playing' | 'finished';
   mapId: string;
   mapName?: string;
   mapThumbnailUrl?: string;
@@ -31,7 +31,7 @@ export interface RoomDetail {
   hostId: string;
   players: Player[];
   maxPlayers: number;
-  status: 'waiting' | 'countdown' | 'playing' | 'finished';
+  status: 'waiting' | 'building' | 'countdown' | 'playing' | 'finished';
   mapId: string;
   mapName?: string;
   mapThumbnailUrl?: string;

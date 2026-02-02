@@ -1,9 +1,10 @@
 import { Server } from 'socket.io';
 import { Room, Player } from './Room.js';
+import type { RelayMapData } from './BuildingPhase.js';
 
 interface GameState {
   roomId: string;
-  status: 'waiting' | 'countdown' | 'playing' | 'finished';
+  status: 'waiting' | 'building' | 'countdown' | 'playing' | 'finished';
   startTime?: number;
   countdown: number;
   players: PlayerState[];
@@ -43,9 +44,17 @@ export class GameLoop {
   private firstFinisherId: string | undefined;
   private GRACE_PERIOD_DURATION: number = 10; // 10초 유예 시간
 
-  constructor(io: Server, room: Room) {
+  // 릴레이 레이스 관련
+  private relayMapData: RelayMapData | null = null;
+  private isRelayRace: boolean = false;
+
+  constructor(io: Server, room: Room, relayMapData?: RelayMapData) {
     this.io = io;
     this.room = room;
+    if (relayMapData) {
+      this.relayMapData = relayMapData;
+      this.isRelayRace = true;
+    }
   }
 
   start(): void {
@@ -53,7 +62,11 @@ export class GameLoop {
     this.countdown = 3;
 
     // Notify clients game is starting
-    this.io.to(this.room.id).emit('game:starting', { countdown: this.countdown });
+    this.io.to(this.room.id).emit('game:starting', {
+      countdown: this.countdown,
+      isRelayRace: this.isRelayRace,
+      relayMapData: this.relayMapData,
+    });
 
     // Countdown phase
     const countdownInterval = setInterval(() => {
@@ -85,6 +98,8 @@ export class GameLoop {
 
     this.io.to(this.room.id).emit('game:start', {
       startTime: this.gameStartTime,
+      isRelayRace: this.isRelayRace,
+      relayMapData: this.relayMapData,
     });
 
     // Start game loop at 20Hz
@@ -186,32 +201,44 @@ export class GameLoop {
     this.room.updatePlayerPosition(playerId, clampedPosition, clampedVelocity, animation);
   }
 
-  playerReachedCheckpoint(playerId: string, checkpointIndex: number): boolean {
+  playerReachedCheckpoint(playerId: string, checkpointIndex: number): { success: boolean; teleportTo?: [number, number, number] } {
     const player = this.room.getPlayer(playerId);
-    if (!player) return false;
+    if (!player) return { success: false };
 
     // 체크포인트 인덱스 유효성 검사
-    if (typeof checkpointIndex !== 'number' || checkpointIndex < 0) return false;
+    if (typeof checkpointIndex !== 'number' || checkpointIndex < 0) return { success: false };
 
     // 체크포인트 순서 검증 (네트워크 지연을 고려해 이미 지나간 체크포인트도 허용)
     if (checkpointIndex === player.checkpoint + 1) {
       player.checkpoint = checkpointIndex;
 
+      let teleportTo: [number, number, number] | undefined;
+
+      // 릴레이 레이스에서는 체크포인트 통과 시 다음 구간으로 텔레포트
+      if (this.isRelayRace && this.relayMapData) {
+        const nextSegmentIndex = checkpointIndex;  // checkpointIndex는 1부터 시작, 세그먼트는 0부터 시작이므로 다음 세그먼트 인덱스
+        if (nextSegmentIndex < this.relayMapData.segments.length) {
+          const nextSegment = this.relayMapData.segments[nextSegmentIndex];
+          teleportTo = nextSegment.spawnPosition;
+        }
+      }
+
       this.io.to(this.room.id).emit('game:checkpoint', {
         playerId,
         nickname: player.nickname,
         checkpoint: checkpointIndex,
+        teleportTo,
       });
 
-      return true;
+      return { success: true, teleportTo };
     }
 
     // 이미 지나간 체크포인트면 무시 (성공으로 처리)
     if (checkpointIndex <= player.checkpoint) {
-      return true;
+      return { success: true };
     }
 
-    return false;
+    return { success: false };
   }
 
   playerFinished(playerId: string): boolean {
@@ -326,6 +353,26 @@ export function startGame(io: Server, room: Room): GameLoop {
   }
 
   const gameLoop = new GameLoop(io, room);
+  activeGames.set(room.id, gameLoop);
+  gameLoop.start();
+
+  return gameLoop;
+}
+
+export function startGameFromBuilding(io: Server, room: Room, relayMapData: RelayMapData): GameLoop {
+  // Stop existing game if any
+  const existing = activeGames.get(room.id);
+  if (existing) {
+    existing.stop();
+  }
+
+  // 빌딩 페이즈 정리
+  if (room.buildingPhase) {
+    room.buildingPhase.stop();
+    room.buildingPhase = null;
+  }
+
+  const gameLoop = new GameLoop(io, room, relayMapData);
   activeGames.set(room.id, gameLoop);
   gameLoop.start();
 

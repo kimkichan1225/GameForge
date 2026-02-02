@@ -1,0 +1,524 @@
+import { useState, useEffect, useCallback, memo } from 'react'
+import { useMultiplayerGameStore, type PlayerBuildingStatus } from '../../stores/multiplayerGameStore'
+import type { PlaceableType } from '../../stores/editorStore'
+
+// 시간 포맷
+function formatTime(seconds: number): string {
+  if (seconds < 0) return '∞'
+  const mins = Math.floor(seconds / 60)
+  const secs = seconds % 60
+  return `${mins}:${secs.toString().padStart(2, '0')}`
+}
+
+// 플레이어 상태 아이콘
+function PlayerStatusIcon({ status }: { status: PlayerBuildingStatus }) {
+  if (status.isVerified) {
+    return <span className="text-green-400">✓</span>
+  }
+  if (status.isTesting) {
+    return <span className="text-yellow-400">🎮</span>
+  }
+  return <span className="text-white/50">⏳</span>
+}
+
+// 플레이어 상태 패널
+const PlayerStatusPanel = memo(function PlayerStatusPanel({
+  players,
+  onVoteKick,
+  canVoteKick,
+}: {
+  players: PlayerBuildingStatus[]
+  onVoteKick: (playerId: string) => void
+  canVoteKick: boolean
+}) {
+  return (
+    <div className="bg-slate-800/80 backdrop-blur-sm rounded-lg p-3 border border-white/10">
+      <div className="text-white/70 text-sm font-medium mb-2">플레이어 상태</div>
+      <div className="space-y-1">
+        {players.map(player => (
+          <div key={player.playerId} className="flex items-center justify-between text-sm">
+            <div className="flex items-center gap-2">
+              <PlayerStatusIcon status={player} />
+              <span className={player.isVerified ? 'text-green-300' : 'text-white/80'}>
+                {player.nickname}
+              </span>
+            </div>
+            {canVoteKick && !player.isVerified && (
+              <button
+                onClick={() => onVoteKick(player.playerId)}
+                className="text-xs text-red-400 hover:text-red-300"
+              >
+                강퇴
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
+      <div className="mt-2 pt-2 border-t border-white/10 text-xs text-white/50">
+        <div>✓ 검증됨</div>
+        <div>🎮 테스트 중</div>
+        <div>⏳ 대기</div>
+      </div>
+    </div>
+  )
+})
+
+// 마커 타입 정의
+type MarkerType = 'spawn' | 'finish' | 'checkpoint' | 'killzone'
+
+// 핫바 (오브젝트/마커 선택)
+const Hotbar = memo(function Hotbar({
+  currentPlaceable,
+  currentMarker,
+  onSelectPlaceable,
+  onSelectMarker,
+  hasSpawn,
+  hasFinish,
+  isVerified,
+}: {
+  currentPlaceable: PlaceableType
+  currentMarker: MarkerType | null
+  onSelectPlaceable: (type: PlaceableType) => void
+  onSelectMarker: (type: MarkerType | null) => void
+  hasSpawn: boolean
+  hasFinish: boolean
+  isVerified: boolean
+}) {
+  const placeables: { type: PlaceableType; label: string; key: string }[] = [
+    { type: 'box', label: 'Box', key: '1' },
+    { type: 'cylinder', label: 'Cyl', key: '2' },
+    { type: 'sphere', label: 'Sphere', key: '3' },
+    { type: 'plane', label: 'Plane', key: '4' },
+    { type: 'ramp', label: 'Ramp', key: '5' },
+  ]
+
+  const markers: { type: MarkerType; label: string; key: string; placed?: boolean; color: string }[] = [
+    { type: 'spawn', label: 'Start', key: '6', placed: hasSpawn, color: 'bg-green-500' },
+    { type: 'finish', label: 'Finish', key: '7', placed: hasFinish, color: 'bg-red-500' },
+    { type: 'checkpoint', label: 'Check', key: '8', color: 'bg-yellow-500' },
+    { type: 'killzone', label: 'Kill', key: '9', color: 'bg-purple-500' },
+  ]
+
+  // 키보드 단축키
+  useEffect(() => {
+    if (isVerified) return
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement) return
+
+      const key = e.key
+      if (key >= '1' && key <= '5') {
+        onSelectMarker(null)
+        onSelectPlaceable(placeables[parseInt(key) - 1].type)
+      }
+      if (key === '6') {
+        onSelectPlaceable('box')
+        onSelectMarker('spawn')
+      }
+      if (key === '7') {
+        onSelectPlaceable('box')
+        onSelectMarker('finish')
+      }
+      if (key === '8') {
+        onSelectPlaceable('box')
+        onSelectMarker('checkpoint')
+      }
+      if (key === '9') {
+        onSelectPlaceable('box')
+        onSelectMarker('killzone')
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [isVerified, onSelectPlaceable, onSelectMarker])
+
+  if (isVerified) {
+    return (
+      <div className="bg-slate-800/80 backdrop-blur-sm rounded-lg px-4 py-2 text-center text-white/70">
+        검증 완료 - 읽기 전용
+      </div>
+    )
+  }
+
+  return (
+    <div className="bg-slate-800/80 backdrop-blur-sm rounded-lg p-2 border border-white/10">
+      <div className="flex items-center gap-1">
+        {/* 오브젝트 */}
+        {placeables.map(item => (
+          <button
+            key={item.type}
+            onClick={() => { onSelectMarker(null); onSelectPlaceable(item.type) }}
+            className={`px-3 py-1.5 rounded text-sm ${
+              currentMarker === null && currentPlaceable === item.type
+                ? 'bg-violet-500 text-white'
+                : 'bg-slate-700 text-white/70 hover:bg-slate-600'
+            }`}
+          >
+            [{item.key}]{item.label}
+          </button>
+        ))}
+
+        <div className="w-px h-6 bg-white/20 mx-1" />
+
+        {/* 마커 */}
+        {markers.map(item => (
+          <button
+            key={item.type}
+            onClick={() => onSelectMarker(currentMarker === item.type ? null : item.type)}
+            className={`px-3 py-1.5 rounded text-sm ${
+              currentMarker === item.type
+                ? `${item.color} text-white`
+                : item.placed
+                  ? 'bg-slate-600 text-white/50'
+                  : 'bg-slate-700 text-white/70 hover:bg-slate-600'
+            }`}
+          >
+            [{item.key}]{item.label}
+            {item.placed && <span className="ml-1">✓</span>}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+})
+
+// 테스트 시작 확인 모달
+const TestConfirmModal = memo(function TestConfirmModal({
+  onConfirm,
+  onCancel,
+}: {
+  onConfirm: () => void
+  onCancel: () => void
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+      <div className="bg-slate-800 rounded-xl p-6 max-w-md border border-white/20">
+        <div className="text-xl font-bold text-yellow-400 mb-4">⚠️ 테스트 플레이 시작</div>
+        <p className="text-white/80 mb-2">
+          테스트에서 Start부터 Finish까지 완주하면 검증이 완료됩니다.
+        </p>
+        <p className="text-red-400 mb-6">
+          ⚠️ 검증 완료 후에는 맵을 수정할 수 없습니다!
+        </p>
+        <div className="flex gap-4">
+          <button
+            onClick={onCancel}
+            className="flex-1 px-4 py-2 bg-slate-600 hover:bg-slate-500 text-white rounded-lg"
+          >
+            취소
+          </button>
+          <button
+            onClick={onConfirm}
+            className="flex-1 px-4 py-2 bg-green-500 hover:bg-green-400 text-white rounded-lg font-medium"
+          >
+            시작하기
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+})
+
+// 시간 연장 알림 모달
+const TimeExtendedModal = memo(function TimeExtendedModal({
+  unverifiedPlayers,
+  onClose,
+}: {
+  unverifiedPlayers: Array<{ playerId: string; nickname: string }>
+  onClose: () => void
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
+      <div className="bg-slate-800 rounded-xl p-6 max-w-md border border-white/20" onClick={e => e.stopPropagation()}>
+        <div className="text-xl font-bold text-yellow-400 mb-4">⏰ 시간 종료 - 30초 연장</div>
+        <p className="text-white/80 mb-4">
+          아직 검증을 완료하지 않은 플레이어:
+        </p>
+        <ul className="mb-6 space-y-1">
+          {unverifiedPlayers.map(p => (
+            <li key={p.playerId} className="text-red-400">
+              • {p.nickname} - 검증 필요
+            </li>
+          ))}
+        </ul>
+        <button
+          onClick={onClose}
+          className="w-full px-4 py-2 bg-slate-600 hover:bg-slate-500 text-white rounded-lg"
+        >
+          확인
+        </button>
+      </div>
+    </div>
+  )
+})
+
+// 모두 검증 완료 모달
+const AllVerifiedModal = memo(function AllVerifiedModal({
+  countdown,
+  shuffledOrder,
+}: {
+  countdown: number
+  shuffledOrder: Array<{ playerId: string; nickname: string }>
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+      <div className="bg-slate-800 rounded-xl p-6 max-w-md border border-white/20 text-center">
+        <div className="text-4xl mb-2">🎉</div>
+        <div className="text-xl font-bold text-green-400 mb-4">모든 플레이어 검증 완료!</div>
+        <p className="text-white/80 mb-4">
+          {countdown}초 후 레이스가 시작됩니다...
+        </p>
+        {shuffledOrder.length > 0 && (
+          <div className="text-white/60 text-sm">
+            <div className="mb-2">릴레이 순서:</div>
+            <div className="flex flex-wrap justify-center gap-2">
+              {shuffledOrder.map((p, i) => (
+                <span key={p.playerId}>
+                  {i + 1}. {p.nickname}
+                  {i < shuffledOrder.length - 1 && ' →'}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+})
+
+// 마커 상태 표시
+const MarkerStatus = memo(function MarkerStatus({
+  hasSpawn,
+  hasFinish,
+}: {
+  hasSpawn: boolean
+  hasFinish: boolean
+}) {
+  return (
+    <div className="bg-slate-800/80 backdrop-blur-sm rounded-lg px-4 py-2 flex items-center gap-4 text-sm">
+      <div className={hasSpawn ? 'text-green-400' : 'text-white/50'}>
+        {hasSpawn ? '✓' : '✗'} Start 배치됨
+      </div>
+      <div className="w-px h-4 bg-white/20" />
+      <div className={hasFinish ? 'text-green-400' : 'text-white/50'}>
+        {hasFinish ? '✓' : '✗'} Finish 배치됨
+      </div>
+    </div>
+  )
+})
+
+// 메인 UI 컴포넌트
+interface BuildingUIProps {
+  currentPlaceable: PlaceableType
+  currentMarker: MarkerType | null
+  onSelectPlaceable: (type: PlaceableType) => void
+  onSelectMarker: (type: MarkerType | null) => void
+  onStartTest: () => void
+}
+
+export function BuildingUI({
+  currentPlaceable,
+  currentMarker,
+  onSelectPlaceable,
+  onSelectMarker,
+  onStartTest,
+}: BuildingUIProps) {
+  const region = useMultiplayerGameStore(state => state.myRegion)
+  const timeRemaining = useMultiplayerGameStore(state => state.buildingTimeRemaining)
+  const myVerified = useMultiplayerGameStore(state => state.myVerified)
+  const myTesting = useMultiplayerGameStore(state => state.myTesting)
+  const myMarkers = useMultiplayerGameStore(state => state.myMarkers)
+  const allPlayersStatus = useMultiplayerGameStore(state => state.allPlayersStatus)
+  const voteKick = useMultiplayerGameStore(state => state.voteKick)
+
+  const [showTestConfirm, setShowTestConfirm] = useState(false)
+  const [showTimeExtended, setShowTimeExtended] = useState(false)
+  const [unverifiedPlayers, setUnverifiedPlayers] = useState<Array<{ playerId: string; nickname: string }>>([])
+  const [allVerifiedCountdown, setAllVerifiedCountdown] = useState<number | null>(null)
+  const [shuffledOrder, setShuffledOrder] = useState<Array<{ playerId: string; nickname: string }>>([])
+
+  const hasSpawn = myMarkers.some(m => m.type === 'spawn')
+  const hasFinish = myMarkers.some(m => m.type === 'finish')
+  const canTest = hasSpawn && hasFinish && !myVerified && !myTesting
+
+  // 강퇴 투표 가능 여부 (시간 연장 상태이고 내가 검증 완료됨)
+  const canVoteKick = myVerified && timeRemaining <= 30 && timeRemaining > 0
+
+  // 소켓 이벤트 리스너
+  useEffect(() => {
+    const socket = (window as unknown as { socketManager?: { getSocket: () => unknown } }).socketManager?.getSocket?.()
+    if (!socket) return
+
+    const handleTimeExtended = (data: { newRemaining: number; unverifiedPlayers: Array<{ playerId: string; nickname: string }> }) => {
+      setUnverifiedPlayers(data.unverifiedPlayers)
+      setShowTimeExtended(true)
+    }
+
+    const handleAllVerified = () => {
+      // 카운트다운 시작
+      setAllVerifiedCountdown(3)
+    }
+
+    const handleEarlyStartCountdown = (data: { countdown: number }) => {
+      setAllVerifiedCountdown(data.countdown)
+    }
+
+    const handleCompleted = (data: { shuffledOrder: Array<{ playerId: string; nickname: string }> }) => {
+      setShuffledOrder(data.shuffledOrder)
+    }
+
+    // @ts-expect-error socket.io types
+    socket.on('build:timeExtended', handleTimeExtended)
+    // @ts-expect-error socket.io types
+    socket.on('build:allVerified', handleAllVerified)
+    // @ts-expect-error socket.io types
+    socket.on('build:earlyStartCountdown', handleEarlyStartCountdown)
+    // @ts-expect-error socket.io types
+    socket.on('build:completed', handleCompleted)
+
+    return () => {
+      // @ts-expect-error socket.io types
+      socket.off('build:timeExtended', handleTimeExtended)
+      // @ts-expect-error socket.io types
+      socket.off('build:allVerified', handleAllVerified)
+      // @ts-expect-error socket.io types
+      socket.off('build:earlyStartCountdown', handleEarlyStartCountdown)
+      // @ts-expect-error socket.io types
+      socket.off('build:completed', handleCompleted)
+    }
+  }, [])
+
+  const handleTestClick = useCallback(() => {
+    if (!canTest) return
+    setShowTestConfirm(true)
+  }, [canTest])
+
+  const handleTestConfirm = useCallback(() => {
+    setShowTestConfirm(false)
+    onStartTest()
+  }, [onStartTest])
+
+  const handleVoteKick = useCallback(async (targetPlayerId: string) => {
+    await voteKick(targetPlayerId)
+  }, [voteKick])
+
+  // 테스트 중이면 UI 숨김
+  if (myTesting) {
+    return null
+  }
+
+  return (
+    <>
+      {/* 상단 바 */}
+      <div className="absolute top-4 left-0 right-0 z-10 flex justify-center gap-4">
+        {/* 타이머 */}
+        <div className="bg-slate-800/80 backdrop-blur-sm rounded-lg px-6 py-2 flex items-center gap-4">
+          <div className="text-2xl font-mono text-white font-bold">
+            ⏱️ {formatTime(timeRemaining)}
+          </div>
+          {myVerified && (
+            <div className="text-green-400 font-medium">✅ 검증 완료!</div>
+          )}
+        </div>
+
+        {/* 영역 정보 */}
+        {region && (
+          <div className="bg-slate-800/80 backdrop-blur-sm rounded-lg px-4 py-2 text-white/70">
+            구간: {region.startX}m ~ {region.endX}m
+          </div>
+        )}
+      </div>
+
+      {/* 좌측 플레이어 상태 패널 */}
+      <div className="absolute top-20 left-4 z-10">
+        <PlayerStatusPanel
+          players={allPlayersStatus}
+          onVoteKick={handleVoteKick}
+          canVoteKick={canVoteKick}
+        />
+      </div>
+
+      {/* 우측 테스트 버튼 */}
+      {!myVerified && (
+        <div className="absolute top-20 right-4 z-10">
+          <button
+            onClick={handleTestClick}
+            disabled={!canTest}
+            className={`px-6 py-3 rounded-lg font-medium text-lg ${
+              canTest
+                ? 'bg-green-500 hover:bg-green-400 text-white'
+                : 'bg-slate-600 text-white/50 cursor-not-allowed'
+            }`}
+          >
+            테스트 ▶️
+          </button>
+          {!canTest && !hasSpawn && (
+            <div className="text-yellow-400 text-sm mt-2 text-right">Start 마커 필요</div>
+          )}
+          {!canTest && hasSpawn && !hasFinish && (
+            <div className="text-yellow-400 text-sm mt-2 text-right">Finish 마커 필요</div>
+          )}
+        </div>
+      )}
+
+      {/* 검증 완료 대기 화면 */}
+      {myVerified && (
+        <div className="absolute inset-0 z-5 flex items-center justify-center pointer-events-none">
+          <div className="bg-slate-800/60 backdrop-blur-sm rounded-xl p-8 text-center">
+            <div className="text-green-400 text-xl font-bold mb-2">✅ 검증 완료!</div>
+            <div className="text-white/70">다른 플레이어를 기다리는 중...</div>
+          </div>
+        </div>
+      )}
+
+      {/* 하단 핫바 */}
+      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 flex flex-col items-center gap-2">
+        <Hotbar
+          currentPlaceable={currentPlaceable}
+          currentMarker={currentMarker}
+          onSelectPlaceable={onSelectPlaceable}
+          onSelectMarker={onSelectMarker}
+          hasSpawn={hasSpawn}
+          hasFinish={hasFinish}
+          isVerified={myVerified}
+        />
+        <MarkerStatus hasSpawn={hasSpawn} hasFinish={hasFinish} />
+      </div>
+
+      {/* 조작 설명 */}
+      <div className="absolute bottom-6 left-4 z-10 bg-slate-800/70 backdrop-blur-sm rounded-xl p-3 border border-white/10 text-white/60 text-xs">
+        <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+          <span>클릭</span><span>마우스 잠금</span>
+          <span>WASD</span><span>카메라 이동</span>
+          <span>Space/Shift</span><span>상승/하강</span>
+          <span>좌클릭</span><span>배치</span>
+          <span>1-5</span><span>오브젝트 선택</span>
+          <span>6-7</span><span>마커 선택</span>
+        </div>
+      </div>
+
+      {/* 모달들 */}
+      {showTestConfirm && (
+        <TestConfirmModal
+          onConfirm={handleTestConfirm}
+          onCancel={() => setShowTestConfirm(false)}
+        />
+      )}
+
+      {showTimeExtended && (
+        <TimeExtendedModal
+          unverifiedPlayers={unverifiedPlayers}
+          onClose={() => setShowTimeExtended(false)}
+        />
+      )}
+
+      {allVerifiedCountdown !== null && (
+        <AllVerifiedModal
+          countdown={allVerifiedCountdown}
+          shuffledOrder={shuffledOrder}
+        />
+      )}
+    </>
+  )
+}

@@ -1,3 +1,5 @@
+import { BuildingPhase, RelayMapData } from './BuildingPhase.js';
+
 export type RoomType = 'create_map' | 'load_map';
 export type GameMode = 'race' | 'shooter';
 
@@ -19,7 +21,7 @@ export interface RoomState {
   hostId: string;
   players: Map<string, Player>;
   maxPlayers: number;
-  status: 'waiting' | 'countdown' | 'playing' | 'finished';
+  status: 'waiting' | 'building' | 'countdown' | 'playing' | 'finished';
   mapId: string;
   gameMode: GameMode;
   roomType: RoomType;
@@ -58,6 +60,10 @@ export class Room {
   public createdAt: number;
   public raceStartTime?: number;
 
+  // 빌딩 페이즈 관련
+  public buildingPhase: BuildingPhase | null = null;
+  public relayMapData: RelayMapData | null = null;
+
   constructor(id: string, options: RoomOptions) {
     this.id = id;
     this.name = options.name;
@@ -71,6 +77,33 @@ export class Room {
     this.isPrivate = options.isPrivate ?? false;
     this.buildTimeLimit = options.buildTimeLimit;
     this.createdAt = Date.now();
+  }
+
+  // 빌딩 페이즈 시작
+  startBuildingPhase(io: import('socket.io').Server, onComplete?: (relayMapData: RelayMapData) => void): BuildingPhase {
+    this.status = 'building';
+    this.buildingPhase = new BuildingPhase(io, this, this.buildTimeLimit);
+
+    // 빌딩 완료 시 콜백 등록
+    if (onComplete) {
+      this.buildingPhase.onComplete((relayMapData) => {
+        this.relayMapData = relayMapData;
+        this.buildingPhase = null;
+        onComplete(relayMapData);
+      });
+    }
+
+    this.buildingPhase.start();
+    return this.buildingPhase;
+  }
+
+  // 빌딩 페이즈 종료 및 릴레이 맵 저장
+  completeBuildingPhase(): RelayMapData | null {
+    if (!this.buildingPhase) return null;
+
+    this.relayMapData = this.buildingPhase.complete();
+    this.buildingPhase = null;
+    return this.relayMapData;
   }
 
   addPlayer(playerId: string, nickname: string): Player | null {
@@ -116,6 +149,11 @@ export class Room {
         newHost.isHost = true;
         this.hostId = newHost.id;
       }
+    }
+
+    // 빌딩 페이즈 중에 나가면 해당 플레이어 처리
+    if (this.buildingPhase) {
+      this.buildingPhase.handlePlayerLeave(playerId);
     }
 
     return true;
@@ -170,6 +208,12 @@ export class Room {
       player.velocity = undefined;
       player.animation = undefined;
     }
+    // 빌딩/릴레이 관련 상태 초기화
+    if (this.buildingPhase) {
+      this.buildingPhase.stop();
+      this.buildingPhase = null;
+    }
+    this.relayMapData = null;
   }
 
   // 모든 플레이어가 게임을 종료했는지 확인
