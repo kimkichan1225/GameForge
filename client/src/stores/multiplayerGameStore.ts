@@ -471,6 +471,19 @@ export const useMultiplayerGameStore = create<MultiplayerGameStore>((set, get) =
       }));
     });
 
+    // 마커 수정 확인
+    socket.on('build:markerUpdated', (data: { marker: MapMarker }) => {
+      set(state => {
+        const index = state.myMarkers.findIndex(m => m.id === data.marker.id);
+        if (index >= 0) {
+          const newMarkers = [...state.myMarkers];
+          newMarkers[index] = data.marker;
+          return { myMarkers: newMarkers };
+        }
+        return {};
+      });
+    });
+
     // 테스트 시작
     socket.on('build:testStarted', (data: { playerId: string; nickname: string }) => {
       const myId = socket.id;
@@ -566,6 +579,7 @@ export const useMultiplayerGameStore = create<MultiplayerGameStore>((set, get) =
       socket.off('build:objectUpdated');
       socket.off('build:markerPlaced');
       socket.off('build:markerRemoved');
+      socket.off('build:markerUpdated');
       socket.off('build:testStarted');
       socket.off('build:playerVerified');
       socket.off('build:statusUpdate');
