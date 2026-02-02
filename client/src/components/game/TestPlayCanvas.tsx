@@ -466,6 +466,9 @@ const Player = memo(function Player({
       const distSq = dx * dx + dy * dy + dz * dz
       if (distSq < FINISH_RADIUS * FINISH_RADIUS) {
         finishRace()
+        // editorStore에 완주 상태 저장 (테스트 플레이에서 완주 시)
+        const finishTime = Date.now() - (store.raceStartTime || Date.now())
+        useEditorStore.getState().setMapCompleted(true, finishTime)
       }
     }
 
@@ -886,6 +889,30 @@ const TestPlayUI = memo(function TestPlayUI({
     return () => clearInterval(interval)
   }, [raceStatus, raceStartTime])
 
+  // 시작 시 자동 포인터 락
+  useEffect(() => {
+    const canvas = document.querySelector('canvas') as HTMLCanvasElement | null
+    if (canvas) {
+      // 약간의 지연 후 포인터 락 요청
+      const timer = setTimeout(async () => {
+        try {
+          await canvas.requestPointerLock()
+        } catch (e) {
+          // 포인터 락 요청이 취소된 경우 무시
+          console.log('포인터 락 요청 취소됨')
+        }
+      }, 200)
+      return () => clearTimeout(timer)
+    }
+  }, [])
+
+  // 완주 시 포인터 락 해제
+  useEffect(() => {
+    if (raceStatus === 'finished') {
+      document.exitPointerLock()
+    }
+  }, [raceStatus])
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') { document.exitPointerLock(); onExit() }
@@ -911,9 +938,20 @@ const TestPlayUI = memo(function TestPlayUI({
             )}
             <div className="flex gap-4 justify-center">
               <button
-                onClick={() => {
+                onClick={async () => {
                   useGameStore.getState().reset()
                   useGameStore.getState().requestRestart()
+                  // 다시 시도 시 포인터 락
+                  const canvas = document.querySelector('canvas') as HTMLCanvasElement | null
+                  if (canvas) {
+                    setTimeout(async () => {
+                      try {
+                        await canvas.requestPointerLock()
+                      } catch (e) {
+                        // 무시
+                      }
+                    }, 200)
+                  }
                 }}
                 className="px-6 py-2 bg-green-500 hover:bg-green-400 text-white rounded-lg font-medium"
               >
@@ -1043,16 +1081,31 @@ export function TestPlayCanvas({ onExit }: { onExit: () => void }) {
 
   useEffect(() => {
     let mounted = true
+    let localWorld: RAPIER.World | null = null
 
     async function init() {
       try {
+        // 이전 물리 월드가 있으면 먼저 정리
+        if (physicsRef.current) {
+          physicsRef.current.world.free()
+          physicsRef.current = null
+        }
+        playerColliderRef.current = null
+        setPhysicsReady(false)
+
         await initRapier()
         if (!mounted) return
 
         const world = createWorld()
+        localWorld = world
         createGround(world)
         loadMapObjects(world, objects)
         const { rigidBody, collider } = createPlayer(world, startPosition)
+
+        if (!mounted) {
+          world.free()
+          return
+        }
 
         physicsRef.current = { world, playerBody: rigidBody }
         playerColliderRef.current = collider
@@ -1072,6 +1125,9 @@ export function TestPlayCanvas({ onExit }: { onExit: () => void }) {
       if (physicsRef.current) {
         physicsRef.current.world.free()
         physicsRef.current = null
+      } else if (localWorld) {
+        // init이 완료되기 전에 cleanup이 호출된 경우
+        localWorld.free()
       }
     }
   }, [objects, startPosition])
@@ -1084,7 +1140,21 @@ export function TestPlayCanvas({ onExit }: { onExit: () => void }) {
 
   return (
     <div className="w-full h-full relative">
-      <Canvas camera={{ fov: 60, near: 0.1, far: 1000 }} shadows>
+      <Canvas
+        camera={{ fov: 60, near: 0.1, far: 1000 }}
+        shadows
+        gl={{ preserveDrawingBuffer: true, powerPreference: 'high-performance' }}
+        onCreated={({ gl }) => {
+          // WebGL 컨텍스트 손실 이벤트 처리
+          gl.domElement.addEventListener('webglcontextlost', (e) => {
+            e.preventDefault()
+            console.warn('WebGL context lost')
+          })
+          gl.domElement.addEventListener('webglcontextrestored', () => {
+            console.log('WebGL context restored')
+          })
+        }}
+      >
         <SceneContent
           startPosition={startPosition}
           finishPosition={finishPosition}

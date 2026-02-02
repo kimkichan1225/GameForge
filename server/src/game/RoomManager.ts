@@ -1,4 +1,16 @@
-import { Room, Player } from './Room.js';
+import { Room, Player, type RoomOptions, type GameMode, type RoomType } from './Room.js';
+
+export interface CreateRoomParams {
+  hostId: string;
+  hostNickname: string;
+  roomName: string;
+  mapId?: string;
+  maxPlayers?: number;
+  gameMode?: GameMode;
+  roomType?: RoomType;
+  isPrivate?: boolean;
+  buildTimeLimit?: number;
+}
 
 export class RoomManager {
   private rooms: Map<string, Room> = new Map();
@@ -8,14 +20,26 @@ export class RoomManager {
     return Math.random().toString(36).substring(2, 8).toUpperCase();
   }
 
-  createRoom(hostId: string, hostNickname: string, roomName: string, mapId: string = 'default', maxPlayers: number = 4): Room | null {
+  createRoom(params: CreateRoomParams): Room | null {
+    const { hostId, hostNickname, roomName, mapId, maxPlayers, gameMode, roomType, isPrivate, buildTimeLimit } = params;
+
     // Check if player is already in a room
     if (this.playerRooms.has(hostId)) {
       return null;
     }
 
     const roomId = this.generateRoomId();
-    const room = new Room(roomId, roomName, hostId, mapId, maxPlayers);
+    const roomOptions: RoomOptions = {
+      name: roomName,
+      hostId,
+      mapId,
+      maxPlayers,
+      gameMode,
+      roomType,
+      isPrivate,
+      buildTimeLimit,
+    };
+    const room = new Room(roomId, roomOptions);
 
     const player = room.addPlayer(hostId, hostNickname);
     if (!player) {
@@ -25,7 +49,7 @@ export class RoomManager {
     this.rooms.set(roomId, room);
     this.playerRooms.set(hostId, roomId);
 
-    console.log(`방 생성됨: ${roomId} (${roomName}) by ${hostNickname}`);
+    console.log(`방 생성됨: ${roomId} (${roomName}) by ${hostNickname} [${gameMode}/${roomType}${isPrivate ? '/비공개' : ''}]`);
     return room;
   }
 
@@ -84,9 +108,17 @@ export class RoomManager {
     return this.rooms.get(roomId);
   }
 
-  getRoomList(): object[] {
+  getRoomList(includePrivate: boolean = false): object[] {
     const list: object[] = [];
     for (const room of this.rooms.values()) {
+      // 비공개 방은 기본적으로 제외 (includePrivate가 true면 포함)
+      if (!includePrivate && room.isPrivate) {
+        continue;
+      }
+      // waiting 상태인 방만 목록에 표시 (playing, finished 상태는 참가 불가)
+      if (room.status !== 'waiting') {
+        continue;
+      }
       list.push(room.toListItem());
     }
     return list;

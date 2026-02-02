@@ -70,6 +70,14 @@ interface EditorState {
   // 테스트 플레이
   isTestPlaying: boolean
 
+  // 맵 완주 검증 (Race 모드)
+  mapCompleted: boolean
+  completionTime: number | null  // 완주 시간 (ms)
+
+  // 썸네일 캡처
+  isThumbnailCaptureMode: boolean
+  capturedThumbnail: Blob | null
+
   // 액션
   setMapName: (name: string) => void
   setMapMode: (mode: MapMode) => void
@@ -92,6 +100,14 @@ interface EditorState {
   setCameraTarget: (target: [number, number, number]) => void
 
   setTestPlaying: (playing: boolean) => void
+
+  // 맵 완주 검증
+  setMapCompleted: (completed: boolean, time?: number) => void
+  resetMapCompletion: () => void
+
+  // 썸네일 캡처
+  setThumbnailCaptureMode: (enabled: boolean) => void
+  setCapturedThumbnail: (blob: Blob | null) => void
 
   // 설치 가능한 오브젝트/마커
   currentPlaceable: PlaceableType
@@ -139,15 +155,21 @@ const initialState = {
   currentPlaceable: 'box' as PlaceableType,
   // 설치할 마커 타입 (6-9 키), null이면 오브젝트 모드
   currentMarker: null as MarkerType | null,
+  // 맵 완주 검증 (Race 모드)
+  mapCompleted: false,
+  completionTime: null as number | null,
+  // 썸네일 캡처
+  isThumbnailCaptureMode: false,
+  capturedThumbnail: null as Blob | null,
 }
 
 export const useEditorStore = create<EditorState>((set, get) => ({
   ...initialState,
 
   setMapName: (name) => set({ mapName: name }),
-  // 모드 변경 시 마커 초기화
-  setMapMode: (mode) => set({ mapMode: mode, markers: [], selectedId: null, currentMarker: null }),
-  setShooterSubMode: (subMode) => set({ shooterSubMode: subMode, markers: [], selectedId: null, currentMarker: null }),
+  // 모드 변경 시 마커 초기화 및 완주 상태 리셋
+  setMapMode: (mode) => set({ mapMode: mode, markers: [], selectedId: null, currentMarker: null, mapCompleted: false, completionTime: null }),
+  setShooterSubMode: (subMode) => set({ shooterSubMode: subMode, markers: [], selectedId: null, currentMarker: null, mapCompleted: false, completionTime: null }),
 
   addObject: (type) => {
     const id = generateId()
@@ -192,6 +214,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     set(state => ({
       markers: [...state.markers, newMarker],
       selectedId: `marker_${id}`,
+      mapCompleted: false,
+      completionTime: null,
     }))
   },
 
@@ -200,6 +224,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       markers: state.markers.map(marker =>
         marker.id === id ? { ...marker, ...updates } : marker
       ),
+      mapCompleted: false,
+      completionTime: null,
     }))
   },
 
@@ -207,6 +233,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     set(state => ({
       markers: state.markers.filter(marker => marker.id !== id),
       selectedId: state.selectedId === `marker_${id}` ? null : state.selectedId,
+      mapCompleted: false,
+      completionTime: null,
     }))
   },
 
@@ -219,6 +247,19 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   setCameraTarget: (target) => set({ cameraTarget: target }),
 
   setTestPlaying: (playing) => set({ isTestPlaying: playing }),
+
+  setMapCompleted: (completed, time) => set({
+    mapCompleted: completed,
+    completionTime: time ?? null,
+  }),
+
+  resetMapCompletion: () => set({
+    mapCompleted: false,
+    completionTime: null,
+  }),
+
+  setThumbnailCaptureMode: (enabled) => set({ isThumbnailCaptureMode: enabled }),
+  setCapturedThumbnail: (blob) => set({ capturedThumbnail: blob }),
 
   setCurrentPlaceable: (type) => set({ currentPlaceable: type, currentMarker: null }),
 
@@ -358,6 +399,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       objects: data.objects,
       markers: data.markers,
       selectedId: null,
+      mapCompleted: false,
+      completionTime: null,
     })
   },
 

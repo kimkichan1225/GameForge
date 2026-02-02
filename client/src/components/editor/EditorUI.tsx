@@ -1,4 +1,4 @@
-import { useMemo, useCallback, memo } from 'react'
+import { useState, useMemo, useCallback, memo, useRef, useEffect } from 'react'
 import { useEditorStore } from '../../stores/editorStore'
 import type { MarkerType, PlaceableType } from '../../stores/editorStore'
 
@@ -107,8 +107,17 @@ const Hotbar = memo(function Hotbar() {
   )
 })
 
+// 타이머 포맷 유틸
+function formatTime(ms: number): string {
+  const totalSeconds = Math.floor(ms / 1000)
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = totalSeconds % 60
+  const milliseconds = Math.floor((ms % 1000) / 10)
+  return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}.${milliseconds.toString().padStart(2, '0')}`
+}
+
 // 상단 툴바 (최적화된 셀렉터)
-const Toolbar = memo(function Toolbar({ onExit }: { onExit: () => void }) {
+const Toolbar = memo(function Toolbar({ onExit, onUpload }: { onExit: () => void; onUpload: () => void }) {
   const newMap = useEditorStore(state => state.newMap)
   const exportMap = useEditorStore(state => state.exportMap)
   const loadMap = useEditorStore(state => state.loadMap)
@@ -121,6 +130,8 @@ const Toolbar = memo(function Toolbar({ onExit }: { onExit: () => void }) {
   const setMapMode = useEditorStore(state => state.setMapMode)
   const shooterSubMode = useEditorStore(state => state.shooterSubMode)
   const setShooterSubMode = useEditorStore(state => state.setShooterSubMode)
+  const mapCompleted = useEditorStore(state => state.mapCompleted)
+  const completionTime = useEditorStore(state => state.completionTime)
 
   // 테스트 플레이 가능 여부 (스폰 마커 필요)
   const canPlay = useMemo(() => {
@@ -265,6 +276,31 @@ const Toolbar = memo(function Toolbar({ onExit }: { onExit: () => void }) {
       </button>
 
       <div className="w-px h-6 bg-white/20" />
+
+      {/* Race 모드: Verified 배지 및 Upload 버튼 */}
+      {mapMode === 'race' && (
+        <>
+          {mapCompleted && completionTime && (
+            <div className="flex items-center gap-2 px-3 py-1.5 bg-green-500/20 rounded-lg border border-green-500/30">
+              <span className="text-green-400 text-sm font-medium">Verified</span>
+              <span className="text-green-300 text-xs font-mono">{formatTime(completionTime)}</span>
+            </div>
+          )}
+          <button
+            onClick={onUpload}
+            disabled={!mapCompleted}
+            className={`px-3 py-1.5 font-medium rounded-lg transition-colors text-sm ${
+              mapCompleted
+                ? 'bg-violet-500 hover:bg-violet-400 text-white'
+                : 'bg-white/5 text-white/30 cursor-not-allowed'
+            }`}
+            title={mapCompleted ? '맵 업로드' : '테스트 플레이에서 완주해야 업로드 가능'}
+          >
+            Upload
+          </button>
+          <div className="w-px h-6 bg-white/20" />
+        </>
+      )}
 
       <button
         onClick={onExit}
@@ -527,13 +563,315 @@ const HelpOverlay = memo(function HelpOverlay() {
   )
 })
 
-export function EditorUI({ onExit }: { onExit: () => void }) {
+interface EditorUIProps {
+  onExit: () => void
+}
+
+export function EditorUI({ onExit }: EditorUIProps) {
+  const [showUploadModal, setShowUploadModal] = useState(false)
+  const isThumbnailCaptureMode = useEditorStore(state => state.isThumbnailCaptureMode)
+  const capturedThumbnail = useEditorStore(state => state.capturedThumbnail)
+
+  // 캡처 완료 후 모달 다시 열기
+  useEffect(() => {
+    if (!isThumbnailCaptureMode && capturedThumbnail) {
+      setShowUploadModal(true)
+    }
+  }, [isThumbnailCaptureMode, capturedThumbnail])
+
+  // 캡처 모드일 때는 에디터 UI 숨기기
+  if (isThumbnailCaptureMode) {
+    return null
+  }
+
   return (
     <>
-      <Toolbar onExit={onExit} />
+      <Toolbar onExit={onExit} onUpload={() => setShowUploadModal(true)} />
       <Hotbar />
       <PropertiesPanel />
       <HelpOverlay />
+      {showUploadModal && <UploadModal onClose={() => setShowUploadModal(false)} />}
     </>
   )
 }
+
+// 업로드 모달
+const UploadModal = memo(function UploadModal({ onClose }: { onClose: () => void }) {
+  const mapName = useEditorStore(state => state.mapName)
+  const completionTime = useEditorStore(state => state.completionTime)
+  const exportMap = useEditorStore(state => state.exportMap)
+  const capturedThumbnail = useEditorStore(state => state.capturedThumbnail)
+  const setThumbnailCaptureMode = useEditorStore(state => state.setThumbnailCaptureMode)
+  const setCapturedThumbnail = useEditorStore(state => state.setCapturedThumbnail)
+
+  const [name, setName] = useState(mapName)
+  const [isPublic, setIsPublic] = useState(true)
+  const [uploading, setUploading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [success, setSuccess] = useState(false)
+  const [thumbnailPreview, setThumbnailPreview] = useState<string | null>(null)
+  const [thumbnailBlob, setThumbnailBlob] = useState<Blob | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const thumbnailUrlRef = useRef<string | null>(null)
+
+  // capturedThumbnail이 변경되면 미리보기 업데이트
+  useEffect(() => {
+    if (capturedThumbnail) {
+      // 이전 URL 정리
+      if (thumbnailUrlRef.current) {
+        URL.revokeObjectURL(thumbnailUrlRef.current)
+      }
+      const url = URL.createObjectURL(capturedThumbnail)
+      thumbnailUrlRef.current = url
+      setThumbnailPreview(url)
+      setThumbnailBlob(capturedThumbnail)
+      setCapturedThumbnail(null) // 사용 후 초기화
+    }
+  }, [capturedThumbnail, setCapturedThumbnail])
+
+  // 컴포넌트 언마운트 시 URL 정리
+  useEffect(() => {
+    return () => {
+      if (thumbnailUrlRef.current) {
+        URL.revokeObjectURL(thumbnailUrlRef.current)
+      }
+    }
+  }, [])
+
+  const handleCaptureClick = useCallback(() => {
+    onClose() // 모달 닫기
+    // 약간의 지연 후 캡처 모드 활성화 (모달이 완전히 닫힌 후)
+    setTimeout(() => {
+      setThumbnailCaptureMode(true)
+    }, 100)
+  }, [setThumbnailCaptureMode, onClose])
+
+  const handleFileUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) {
+      if (!file.type.startsWith('image/')) {
+        setError('이미지 파일만 업로드 가능합니다')
+        return
+      }
+      // 이전 URL 정리
+      if (thumbnailUrlRef.current) {
+        URL.revokeObjectURL(thumbnailUrlRef.current)
+      }
+      const url = URL.createObjectURL(file)
+      thumbnailUrlRef.current = url
+      setThumbnailPreview(url)
+      setThumbnailBlob(file)
+    }
+  }, [])
+
+  const handleClearThumbnail = useCallback(() => {
+    if (thumbnailUrlRef.current) {
+      URL.revokeObjectURL(thumbnailUrlRef.current)
+      thumbnailUrlRef.current = null
+    }
+    setThumbnailPreview(null)
+    setThumbnailBlob(null)
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ''
+    }
+  }, [])
+
+  const handleUpload = useCallback(async () => {
+    if (!name.trim()) {
+      setError('맵 이름을 입력해주세요')
+      return
+    }
+
+    setUploading(true)
+    setError(null)
+
+    try {
+      const { mapService } = await import('../../lib/mapService')
+      const mapData = exportMap()
+
+      await mapService.uploadMap({
+        name: name.trim(),
+        data: mapData,
+        thumbnailBlob: thumbnailBlob || undefined,
+        isPublic,
+      })
+
+      setSuccess(true)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '업로드 실패')
+    } finally {
+      setUploading(false)
+    }
+  }, [name, isPublic, exportMap, thumbnailBlob])
+
+  if (success) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose}></div>
+        <div className="relative w-full max-w-md bg-slate-900 rounded-2xl border border-white/10 shadow-2xl p-6 text-center">
+          <div className="text-5xl mb-4">🎉</div>
+          <h2 className="text-xl font-bold text-white mb-2">업로드 완료!</h2>
+          <p className="text-white/60 mb-6">맵이 성공적으로 업로드되었습니다.</p>
+          <button
+            onClick={onClose}
+            className="w-full py-3 bg-gradient-to-r from-sky-400 to-violet-500 text-white font-bold rounded-xl hover:shadow-lg transition-all"
+          >
+            확인
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose}></div>
+      <div className="relative w-full max-w-md bg-slate-900 rounded-2xl border border-white/10 shadow-2xl p-6">
+        <h2 className="text-xl font-bold text-white mb-4">맵 업로드</h2>
+
+        <div className="space-y-4">
+          <div>
+            <label className="block text-white/70 text-sm font-medium mb-2">맵 이름</label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder-white/30 focus:outline-none focus:border-sky-400 transition-colors"
+              placeholder="맵 이름을 입력하세요"
+              maxLength={100}
+              disabled={uploading}
+            />
+          </div>
+
+          {completionTime && (
+            <div className="flex items-center gap-2 p-3 bg-green-500/10 rounded-xl border border-green-500/20">
+              <span className="text-green-400 text-sm">완주 기록:</span>
+              <span className="text-green-300 font-mono">{formatTime(completionTime)}</span>
+            </div>
+          )}
+
+          {/* 썸네일 설정 */}
+          <div>
+            <label className="block text-white/70 text-sm font-medium mb-2">썸네일</label>
+            {thumbnailPreview ? (
+              <div className="relative">
+                <img
+                  src={thumbnailPreview}
+                  alt="썸네일 미리보기"
+                  className="w-full aspect-video object-cover rounded-xl border border-white/10"
+                />
+                <button
+                  onClick={handleClearThumbnail}
+                  disabled={uploading}
+                  className="absolute top-2 right-2 p-1.5 bg-red-500/80 hover:bg-red-500 text-white rounded-lg transition-colors"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            ) : (
+              <div className="flex gap-2">
+                <button
+                  onClick={handleCaptureClick}
+                  disabled={uploading}
+                  className="flex-1 py-3 bg-violet-500/20 hover:bg-violet-500/30 text-violet-300 rounded-xl transition-colors flex items-center justify-center gap-2"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                  </svg>
+                  화면 캡처
+                </button>
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploading}
+                  className="flex-1 py-3 bg-white/5 hover:bg-white/10 text-white/70 rounded-xl transition-colors flex items-center justify-center gap-2"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  </svg>
+                  이미지 업로드
+                </button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={handleFileUpload}
+                  className="hidden"
+                />
+              </div>
+            )}
+            <p className="text-white/40 text-xs mt-1">
+              {thumbnailPreview ? '다른 이미지를 사용하려면 X를 클릭하세요' : '썸네일 없이 업로드할 수도 있습니다'}
+            </p>
+          </div>
+
+          <div>
+            <label className="block text-white/70 text-sm font-medium mb-2">공개 설정</label>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setIsPublic(true)}
+                disabled={uploading}
+                className={`flex-1 py-2 rounded-lg transition-colors ${
+                  isPublic
+                    ? 'bg-sky-500 text-white'
+                    : 'bg-white/5 text-white/70 hover:bg-white/10'
+                }`}
+              >
+                공개
+              </button>
+              <button
+                onClick={() => setIsPublic(false)}
+                disabled={uploading}
+                className={`flex-1 py-2 rounded-lg transition-colors ${
+                  !isPublic
+                    ? 'bg-sky-500 text-white'
+                    : 'bg-white/5 text-white/70 hover:bg-white/10'
+                }`}
+              >
+                비공개
+              </button>
+            </div>
+            <p className="text-white/40 text-xs mt-1">
+              {isPublic ? '다른 플레이어가 이 맵을 볼 수 있습니다' : '나만 볼 수 있습니다'}
+            </p>
+          </div>
+
+          {error && (
+            <div className="p-3 bg-red-500/20 border border-red-500/30 rounded-xl text-red-400 text-sm">
+              {error}
+            </div>
+          )}
+        </div>
+
+        <div className="flex gap-3 mt-6">
+          <button
+            onClick={onClose}
+            disabled={uploading}
+            className="flex-1 py-3 bg-white/10 text-white font-medium rounded-xl hover:bg-white/20 transition-colors disabled:opacity-50"
+          >
+            취소
+          </button>
+          <button
+            onClick={handleUpload}
+            disabled={uploading || !name.trim()}
+            className="flex-1 py-3 bg-gradient-to-r from-violet-500 to-purple-600 text-white font-bold rounded-xl hover:shadow-lg hover:shadow-violet-500/25 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+          >
+            {uploading ? (
+              <>
+                <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                </svg>
+                업로드 중...
+              </>
+            ) : (
+              '업로드'
+            )}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+})

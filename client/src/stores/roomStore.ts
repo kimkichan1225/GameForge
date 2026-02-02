@@ -8,6 +8,9 @@ export interface Player {
   isReady: boolean;
 }
 
+export type RoomType = 'create_map' | 'load_map';
+export type GameMode = 'race' | 'shooter';
+
 export interface RoomInfo {
   id: string;
   name: string;
@@ -15,6 +18,9 @@ export interface RoomInfo {
   maxPlayers: number;
   status: 'waiting' | 'countdown' | 'playing' | 'finished';
   mapId: string;
+  gameMode: GameMode;
+  roomType: RoomType;
+  isPrivate: boolean;
 }
 
 export interface RoomDetail {
@@ -25,6 +31,10 @@ export interface RoomDetail {
   maxPlayers: number;
   status: 'waiting' | 'countdown' | 'playing' | 'finished';
   mapId: string;
+  gameMode: GameMode;
+  roomType: RoomType;
+  isPrivate: boolean;
+  buildTimeLimit?: number;  // 맵 제작 시간 제한 (초, roomType='create_map'일 때)
 }
 
 interface RoomState {
@@ -42,12 +52,32 @@ interface RoomState {
   connect: () => void;
   disconnect: () => void;
   fetchRooms: () => Promise<void>;
-  createRoom: (nickname: string, roomName: string, mapId?: string, maxPlayers?: number) => Promise<boolean>;
+  createRoom: (params: {
+    nickname: string;
+    roomName: string;
+    mapId?: string;
+    maxPlayers?: number;
+    gameMode?: GameMode;
+    roomType?: RoomType;
+    isPrivate?: boolean;
+    buildTimeLimit?: number;
+  }) => Promise<boolean>;
   joinRoom: (nickname: string, roomId: string) => Promise<boolean>;
   leaveRoom: () => void;
   setReady: (ready: boolean) => void;
   startGame: () => Promise<boolean>;
+  returnToWaitingRoom: () => Promise<boolean>;
+  updateRoomSettings: (settings: {
+    name?: string;
+    maxPlayers?: number;
+    isPrivate?: boolean;
+    buildTimeLimit?: number;
+    mapId?: string;
+  }) => Promise<boolean>;
 }
+
+// 리스너 등록 여부 추적 (HMR 및 중복 호출 방지)
+let listenersRegistered = false;
 
 export const useRoomStore = create<RoomState>((set, get) => ({
   isConnected: false,
@@ -57,6 +87,16 @@ export const useRoomStore = create<RoomState>((set, get) => ({
 
   connect: () => {
     const socket = socketManager.connect();
+
+    // 이미 리스너가 등록되어 있으면 스킵
+    if (listenersRegistered) {
+      // 이미 연결된 상태면 상태 업데이트
+      if (socket.connected) {
+        set({ isConnected: true });
+      }
+      return;
+    }
+    listenersRegistered = true;
 
     socket.on('connect', () => {
       set({ isConnected: true });
@@ -118,10 +158,28 @@ export const useRoomStore = create<RoomState>((set, get) => ({
         });
       }
     });
+
+    // Room status updated (after game ends and players return to waiting room)
+    socket.on('room:statusUpdated', (data: { status: RoomDetail['status'] }) => {
+      const room = get().currentRoom;
+      if (room) {
+        set({
+          currentRoom: { ...room, status: data.status },
+        });
+      }
+    });
+
+    // Room settings updated by host
+    socket.on('room:settingsUpdated', (data: RoomDetail) => {
+      set({
+        currentRoom: data,
+      });
+    });
   },
 
   disconnect: () => {
     socketManager.disconnect();
+    listenersRegistered = false;
     set({ isConnected: false, currentRoom: null, rooms: [] });
   },
 
@@ -142,7 +200,18 @@ export const useRoomStore = create<RoomState>((set, get) => ({
     });
   },
 
-  createRoom: (nickname, roomName, mapId = 'default', maxPlayers = 4) => {
+  createRoom: (params) => {
+    const {
+      nickname,
+      roomName,
+      mapId = 'default',
+      maxPlayers = 4,
+      gameMode = 'race',
+      roomType = 'create_map',
+      isPrivate = false,
+      buildTimeLimit,
+    } = params;
+
     return new Promise((resolve) => {
       const socket = socketManager.getSocket();
 
@@ -153,7 +222,7 @@ export const useRoomStore = create<RoomState>((set, get) => ({
 
       socket.emit(
         'room:create',
-        { nickname, roomName, mapId, maxPlayers },
+        { nickname, roomName, mapId, maxPlayers, gameMode, roomType, isPrivate, buildTimeLimit },
         (response: { success: boolean; room?: RoomDetail; error?: string }) => {
           if (response.success && response.room) {
             set({ currentRoom: response.room, canStart: false });
@@ -221,6 +290,46 @@ export const useRoomStore = create<RoomState>((set, get) => ({
           console.error('게임 시작 실패:', response.error);
         }
         resolve(response.success);
+      });
+    });
+  },
+
+  returnToWaitingRoom: () => {
+    return new Promise((resolve) => {
+      const socket = socketManager.getSocket();
+      if (!socket) {
+        resolve(false);
+        return;
+      }
+
+      socket.emit('room:returnToWaitingRoom', (response: { success: boolean; room?: RoomDetail; error?: string }) => {
+        if (response.success && response.room) {
+          set({ currentRoom: response.room, canStart: false });
+          resolve(true);
+        } else {
+          console.error('대기방 복귀 실패:', response.error);
+          resolve(false);
+        }
+      });
+    });
+  },
+
+  updateRoomSettings: (settings) => {
+    return new Promise((resolve) => {
+      const socket = socketManager.getSocket();
+      if (!socket) {
+        resolve(false);
+        return;
+      }
+
+      socket.emit('room:updateSettings', settings, (response: { success: boolean; room?: RoomDetail; error?: string }) => {
+        if (response.success && response.room) {
+          set({ currentRoom: response.room });
+          resolve(true);
+        } else {
+          console.error('방 설정 변경 실패:', response.error);
+          resolve(false);
+        }
       });
     });
   },

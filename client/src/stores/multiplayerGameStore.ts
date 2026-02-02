@@ -17,6 +17,7 @@ interface RankingEntry {
   nickname: string;
   time: number;
   rank: number;
+  dnf?: boolean;
 }
 
 interface GameState {
@@ -29,6 +30,9 @@ interface GameState {
   localCheckpoint: number;
   localFinished: boolean;
   localFinishTime: number | null;
+  gracePeriod: number; // 유예 시간 남은 초
+  firstFinisherId: string | null;
+  lastCheckpointPos: [number, number, number] | null;
 }
 
 interface MultiplayerGameStore extends GameState {
@@ -36,10 +40,11 @@ interface MultiplayerGameStore extends GameState {
   initGame: () => void;
   cleanupGame: () => void;
   sendPosition: (position: { x: number; y: number; z: number }, velocity: { x: number; y: number; z: number }, animation: string) => void;
-  reachCheckpoint: (checkpointIndex: number) => Promise<boolean>;
+  reachCheckpoint: (checkpointIndex: number, position?: [number, number, number]) => Promise<boolean>;
   finish: () => Promise<boolean>;
   notifyDeath: () => void;
   getOtherPlayers: () => PlayerState[];
+  setLastCheckpointPos: (pos: [number, number, number]) => void;
 }
 
 export const useMultiplayerGameStore = create<MultiplayerGameStore>((set, get) => ({
@@ -52,6 +57,9 @@ export const useMultiplayerGameStore = create<MultiplayerGameStore>((set, get) =
   localCheckpoint: 0,
   localFinished: false,
   localFinishTime: null,
+  gracePeriod: 0,
+  firstFinisherId: null,
+  lastCheckpointPos: null,
 
   initGame: () => {
     const socket = socketManager.getSocket();
@@ -79,12 +87,16 @@ export const useMultiplayerGameStore = create<MultiplayerGameStore>((set, get) =
       status: 'countdown' | 'playing' | 'finished';
       players: PlayerState[];
       rankings: RankingEntry[];
+      gracePeriod: number;
+      firstFinisherId?: string;
     }) => {
       set({
         roomId: data.roomId,
         status: data.status,
         players: data.players,
         rankings: data.rankings,
+        gracePeriod: data.gracePeriod,
+        firstFinisherId: data.firstFinisherId || null,
       });
     });
 
@@ -93,8 +105,27 @@ export const useMultiplayerGameStore = create<MultiplayerGameStore>((set, get) =
       console.log(`${data.nickname}이(가) 체크포인트 ${data.checkpoint} 통과`);
     });
 
+    // Grace period started (first player finished)
+    socket.on('game:gracePeriodStart', (data: {
+      firstFinisherId: string;
+      nickname: string;
+      time: number;
+      duration: number;
+    }) => {
+      console.log(`${data.nickname}이(가) 1등으로 완주! ${data.duration}초 카운트다운 시작`);
+      set({
+        firstFinisherId: data.firstFinisherId,
+        gracePeriod: data.duration,
+      });
+    });
+
     // Player finished
-    socket.on('game:playerFinished', (data: { playerId: string; nickname: string; time: number }) => {
+    socket.on('game:playerFinished', (data: {
+      playerId: string;
+      nickname: string;
+      time: number;
+      isFirstFinisher: boolean;
+    }) => {
       console.log(`${data.nickname}이(가) ${(data.time / 1000).toFixed(2)}초로 완주!`);
     });
 
@@ -122,6 +153,7 @@ export const useMultiplayerGameStore = create<MultiplayerGameStore>((set, get) =
       socket.off('game:playerFinished');
       socket.off('game:playerDied');
       socket.off('game:finished');
+      socket.off('game:gracePeriodStart');
     }
 
     set({
@@ -134,6 +166,9 @@ export const useMultiplayerGameStore = create<MultiplayerGameStore>((set, get) =
       localCheckpoint: 0,
       localFinished: false,
       localFinishTime: null,
+      gracePeriod: 0,
+      firstFinisherId: null,
+      lastCheckpointPos: null,
     });
   },
 
@@ -144,7 +179,7 @@ export const useMultiplayerGameStore = create<MultiplayerGameStore>((set, get) =
     }
   },
 
-  reachCheckpoint: (checkpointIndex) => {
+  reachCheckpoint: (checkpointIndex, position) => {
     return new Promise((resolve) => {
       const socket = socketManager.getSocket();
       if (!socket) {
@@ -154,7 +189,10 @@ export const useMultiplayerGameStore = create<MultiplayerGameStore>((set, get) =
 
       socket.emit('game:checkpoint', { checkpointIndex }, (response: { success: boolean }) => {
         if (response.success) {
-          set({ localCheckpoint: checkpointIndex });
+          set({
+            localCheckpoint: checkpointIndex,
+            lastCheckpointPos: position || null,
+          });
         }
         resolve(response.success);
       });
@@ -188,5 +226,9 @@ export const useMultiplayerGameStore = create<MultiplayerGameStore>((set, get) =
   getOtherPlayers: () => {
     const myId = socketManager.getSocket()?.id;
     return get().players.filter((p) => p.id !== myId);
+  },
+
+  setLastCheckpointPos: (pos) => {
+    set({ lastCheckpointPos: pos });
   },
 }));

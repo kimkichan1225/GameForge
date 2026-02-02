@@ -8,6 +8,8 @@ interface GameState {
   countdown: number;
   players: PlayerState[];
   rankings: RankingEntry[];
+  gracePeriod: number; // 첫 완주자 후 남은 유예 시간 (초)
+  firstFinisherId?: string;
 }
 
 interface PlayerState {
@@ -26,6 +28,7 @@ interface RankingEntry {
   nickname: string;
   time: number;
   rank: number;
+  dnf?: boolean; // Did Not Finish
 }
 
 export class GameLoop {
@@ -35,6 +38,10 @@ export class GameLoop {
   private countdown: number = 3;
   private gameStartTime: number = 0;
   private tickRate: number = 20; // 20Hz = 50ms per tick
+  private gracePeriod: number = 0; // 유예 시간 (초)
+  private gracePeriodStartTime: number = 0;
+  private firstFinisherId: string | undefined;
+  private GRACE_PERIOD_DURATION: number = 10; // 10초 유예 시간
 
   constructor(io: Server, room: Room) {
     this.io = io;
@@ -71,6 +78,11 @@ export class GameLoop {
       player.finishTime = undefined;
     }
 
+    // Reset grace period state
+    this.gracePeriod = 0;
+    this.gracePeriodStartTime = 0;
+    this.firstFinisherId = undefined;
+
     this.io.to(this.room.id).emit('game:start', {
       startTime: this.gameStartTime,
     });
@@ -83,6 +95,18 @@ export class GameLoop {
     if (this.room.status !== 'playing') {
       this.stop();
       return;
+    }
+
+    // 유예 시간 카운트다운 처리
+    if (this.gracePeriodStartTime > 0) {
+      const elapsed = (Date.now() - this.gracePeriodStartTime) / 1000;
+      this.gracePeriod = Math.max(0, this.GRACE_PERIOD_DURATION - elapsed);
+
+      // 유예 시간 종료 시 게임 종료
+      if (this.gracePeriod <= 0) {
+        this.endRace();
+        return;
+      }
     }
 
     const gameState = this.buildGameState();
@@ -128,6 +152,8 @@ export class GameLoop {
       countdown: this.countdown,
       players,
       rankings,
+      gracePeriod: this.gracePeriod,
+      firstFinisherId: this.firstFinisherId,
     };
   }
 
@@ -166,10 +192,26 @@ export class GameLoop {
     player.finishTime = Date.now();
     const raceTime = player.finishTime - this.gameStartTime;
 
+    // 첫 번째 완주자인 경우 유예 시간 시작
+    const isFirstFinisher = !this.firstFinisherId;
+    if (isFirstFinisher) {
+      this.firstFinisherId = playerId;
+      this.gracePeriodStartTime = Date.now();
+      this.gracePeriod = this.GRACE_PERIOD_DURATION;
+
+      this.io.to(this.room.id).emit('game:gracePeriodStart', {
+        firstFinisherId: playerId,
+        nickname: player.nickname,
+        time: raceTime,
+        duration: this.GRACE_PERIOD_DURATION,
+      });
+    }
+
     this.io.to(this.room.id).emit('game:playerFinished', {
       playerId,
       nickname: player.nickname,
       time: raceTime,
+      isFirstFinisher,
     });
 
     // Check if all players finished
@@ -198,9 +240,41 @@ export class GameLoop {
     this.room.status = 'finished';
     this.stop();
 
-    const finalState = this.buildGameState();
+    // 최종 랭킹 계산 (DNF 포함)
+    const rankings: RankingEntry[] = [];
+
+    // 완주한 플레이어들
+    const finishedPlayers = Array.from(this.room.players.values())
+      .filter((p) => p.finishTime !== undefined)
+      .map((p) => ({
+        playerId: p.id,
+        nickname: p.nickname,
+        time: p.finishTime! - this.gameStartTime,
+        rank: 0,
+        dnf: false,
+      }));
+
+    // 시간순으로 정렬
+    finishedPlayers.sort((a, b) => a.time - b.time);
+    finishedPlayers.forEach((entry, index) => {
+      entry.rank = index + 1;
+    });
+    rankings.push(...finishedPlayers);
+
+    // DNF 플레이어들
+    const dnfPlayers = Array.from(this.room.players.values())
+      .filter((p) => p.finishTime === undefined)
+      .map((p) => ({
+        playerId: p.id,
+        nickname: p.nickname,
+        time: 0,
+        rank: finishedPlayers.length + 1,
+        dnf: true,
+      }));
+    rankings.push(...dnfPlayers);
+
     this.io.to(this.room.id).emit('game:finished', {
-      rankings: finalState.rankings,
+      rankings,
     });
   }
 

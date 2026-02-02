@@ -297,6 +297,8 @@ function RaycastPlacer() {
   useEffect(() => {
     const handleMouseDown = (e: MouseEvent) => {
       if (document.pointerLockElement === null) return
+      // 캡처 모드일 때는 배치 비활성화
+      if (useEditorStore.getState().isThumbnailCaptureMode) return
 
       // 화면 중앙에서 레이캐스트
       raycaster.current.setFromCamera(screenCenter.current, camera)
@@ -411,7 +413,9 @@ function PlacementPreview() {
   }, [markers, mapMode, shooterSubMode])
 
   useFrame(() => {
-    if (document.pointerLockElement === null) {
+    // 캡처 모드이거나 포인터 잠금이 해제된 경우 미리보기 숨기기
+    const isCaptureMode = useEditorStore.getState().isThumbnailCaptureMode
+    if (document.pointerLockElement === null || isCaptureMode) {
       if (meshRef.current) meshRef.current.visible = false
       if (markerRef.current) markerRef.current.visible = false
       return
@@ -832,14 +836,106 @@ const Crosshair = memo(function Crosshair() {
   )
 })
 
+// 썸네일 캡처 모드 UI
+const ThumbnailCaptureOverlay = memo(function ThumbnailCaptureOverlay() {
+  const isThumbnailCaptureMode = useEditorStore(state => state.isThumbnailCaptureMode)
+  const setThumbnailCaptureMode = useEditorStore(state => state.setThumbnailCaptureMode)
+  const setCapturedThumbnail = useEditorStore(state => state.setCapturedThumbnail)
+
+  const handleCapture = useCallback(() => {
+    // 캡처 전 포인터 락 해제
+    document.exitPointerLock()
+
+    const canvas = document.querySelector('canvas') as HTMLCanvasElement | null
+    if (canvas) {
+      canvas.toBlob((blob) => {
+        if (blob) {
+          setCapturedThumbnail(blob)
+          setThumbnailCaptureMode(false)
+        }
+      }, 'image/png', 0.9)
+    }
+  }, [setCapturedThumbnail, setThumbnailCaptureMode])
+
+  const handleCancel = useCallback(() => {
+    document.exitPointerLock()
+    setThumbnailCaptureMode(false)
+  }, [setThumbnailCaptureMode])
+
+  useEffect(() => {
+    if (!isThumbnailCaptureMode) return
+
+    const canvas = document.querySelector('canvas') as HTMLCanvasElement | null
+
+    const handleClick = (e: MouseEvent) => {
+      if (e.button === 0) { // 좌클릭
+        e.preventDefault()
+        e.stopPropagation()
+        handleCapture()
+      }
+    }
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        handleCancel()
+      }
+    }
+
+    // 약간의 지연 후 포인터 락 요청 및 이벤트 등록 (모달 닫힌 후)
+    const timer = setTimeout(async () => {
+      // 자동 포인터 락
+      if (canvas) {
+        try {
+          await canvas.requestPointerLock()
+        } catch (e) {
+          // 포인터 락 요청 취소됨
+          console.log('포인터 락 요청 취소됨')
+        }
+      }
+      window.addEventListener('click', handleClick, true)
+      window.addEventListener('keydown', handleKeyDown)
+    }, 200)
+
+    return () => {
+      clearTimeout(timer)
+      window.removeEventListener('click', handleClick, true)
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [isThumbnailCaptureMode, handleCapture, handleCancel])
+
+  if (!isThumbnailCaptureMode) return null
+
+  return (
+    <div className="absolute inset-0 z-50 pointer-events-none">
+      {/* 캡처 프레임 */}
+      <div className="absolute inset-4 border-4 border-dashed border-violet-400 rounded-2xl" />
+
+      {/* 안내 메시지 */}
+      <div className="absolute top-8 left-1/2 -translate-x-1/2 bg-slate-900/90 backdrop-blur-sm rounded-xl px-6 py-3 border border-violet-400/50">
+        <div className="text-violet-300 font-medium text-center">
+          카메라를 원하는 위치로 이동한 후 좌클릭하여 캡처
+        </div>
+        <div className="text-white/50 text-sm text-center mt-1">
+          WASD로 이동 / ESC로 취소
+        </div>
+      </div>
+    </div>
+  )
+})
+
 export function EditorCanvas() {
   return (
     <div className="w-full h-full relative">
-      <Canvas camera={{ fov: 60, near: 0.1, far: 1000 }} shadows>
+      <Canvas
+        camera={{ fov: 60, near: 0.1, far: 1000 }}
+        shadows
+        gl={{ preserveDrawingBuffer: true }}
+      >
         <SceneContent />
       </Canvas>
       <Crosshair />
       <KeyboardShortcuts />
+      <ThumbnailCaptureOverlay />
     </div>
   )
 }
