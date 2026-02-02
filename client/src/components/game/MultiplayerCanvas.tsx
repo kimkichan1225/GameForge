@@ -167,11 +167,6 @@ const LocalPlayer = memo(function LocalPlayer({
     const isGrounded = checkGrounded(world, playerBody, playerColliderRef.current, posture);
     grounded.current = isGrounded;
 
-    // Reset dashing when landing
-    if (isGrounded && vel.y <= 0) {
-      dashing.current = false;
-    }
-
     // Posture toggle
     if (keys.c && !prev.current.c && isGrounded && !dashing.current) {
       store.setPosture(posture === 'sitting' ? 'standing' : 'sitting');
@@ -191,8 +186,10 @@ const LocalPlayer = memo(function LocalPlayer({
     // Land detection
     if (jumping.current && isGrounded && vel.y <= 0 && !shouldJump) {
       jumping.current = false;
-      const moving = keys.forward || keys.backward || keys.left || keys.right;
-      playAnim(getAnim(moving, keys.shift && posture === 'standing', posture));
+      if (!dashing.current) {
+        const moving = keys.forward || keys.backward || keys.left || keys.right;
+        playAnim(getAnim(moving, keys.shift && posture === 'standing', posture));
+      }
     }
 
     // Dash/Roll
