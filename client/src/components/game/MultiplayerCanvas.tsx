@@ -844,12 +844,20 @@ const MultiplayerUI = memo(function MultiplayerUI({
     return () => document.removeEventListener('pointerlockchange', handlePointerLockChange);
   }, [status]);
 
-  // ESC 키 처리 - 메뉴가 열려있을 때 닫기
+  // ESC 키 처리 - 메뉴가 열려있을 때 닫고 포인터락 재요청
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
+    const handleKeyDown = async (e: KeyboardEvent) => {
       if (e.key === 'Escape' && showPauseMenu) {
-        // 메뉴가 열려있으면 닫기
+        // 메뉴가 열려있으면 닫고 포인터락 재요청
         setShowPauseMenu(false);
+        try {
+          const canvas = document.querySelector('canvas');
+          if (canvas) {
+            await canvas.requestPointerLock();
+          }
+        } catch {
+          // 무시
+        }
       }
     };
     window.addEventListener('keydown', handleKeyDown);
