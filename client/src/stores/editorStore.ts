@@ -78,6 +78,9 @@ interface EditorState {
   isThumbnailCaptureMode: boolean
   capturedThumbnail: Blob | null
 
+  // 설치 오류 메시지
+  placementError: string | null
+
   // 액션
   setMapName: (name: string) => void
   setMapMode: (mode: MapMode) => void
@@ -108,6 +111,9 @@ interface EditorState {
   // 썸네일 캡처
   setThumbnailCaptureMode: (enabled: boolean) => void
   setCapturedThumbnail: (blob: Blob | null) => void
+
+  // 설치 오류
+  setPlacementError: (error: string | null) => void
 
   // 설치 가능한 오브젝트/마커
   currentPlaceable: PlaceableType
@@ -161,6 +167,8 @@ const initialState = {
   // 썸네일 캡처
   isThumbnailCaptureMode: false,
   capturedThumbnail: null as Blob | null,
+  // 설치 오류
+  placementError: null as string | null,
 }
 
 export const useEditorStore = create<EditorState>((set, get) => ({
@@ -261,6 +269,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   setThumbnailCaptureMode: (enabled) => set({ isThumbnailCaptureMode: enabled }),
   setCapturedThumbnail: (blob) => set({ capturedThumbnail: blob }),
 
+  setPlacementError: (error) => set({ placementError: error }),
+
   setCurrentPlaceable: (type) => set({ currentPlaceable: type, currentMarker: null }),
 
   setCurrentMarker: (type) => set({ currentMarker: type }),
@@ -268,6 +278,34 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   placeMarkerAt: (position, yaw = 0) => {
     const state = get()
     if (!state.currentMarker) return
+
+    // 킬존을 spawn/finish 근처에 설치 금지 (최소 거리: 5 유닛)
+    const KILLZONE_MIN_DISTANCE = 5
+    if (state.currentMarker === 'killzone') {
+      const protectedMarkers = state.markers.filter(m =>
+        m.type === 'spawn' || m.type === 'finish' || m.type === 'spawn_a' || m.type === 'spawn_b'
+      )
+
+      for (const marker of protectedMarkers) {
+        const dx = position[0] - marker.position[0]
+        const dy = position[1] - marker.position[1]
+        const dz = position[2] - marker.position[2]
+        const distance = Math.sqrt(dx * dx + dy * dy + dz * dz)
+
+        if (distance < KILLZONE_MIN_DISTANCE) {
+          const markerName = marker.type === 'spawn' ? '스폰' :
+                            marker.type === 'finish' ? '피니시' :
+                            marker.type === 'spawn_a' ? '팀A 스폰' : '팀B 스폰'
+          set({ placementError: `킬존은 ${markerName} 근처에 설치할 수 없습니다` })
+          // 3초 후 에러 메시지 자동 제거
+          setTimeout(() => set({ placementError: null }), 3000)
+          return
+        }
+      }
+    }
+
+    // 기존 에러 메시지 제거
+    set({ placementError: null })
 
     // 1개만 설치 가능한 마커 타입 결정 (모드에 따라 다름)
     const getSingletonMarkers = (): MarkerType[] => {

@@ -567,6 +567,26 @@ interface EditorUIProps {
   onExit: () => void
 }
 
+// 설치 오류 메시지 컴포넌트
+const PlacementErrorToast = memo(function PlacementErrorToast() {
+  const placementError = useEditorStore(state => state.placementError)
+
+  if (!placementError) return null
+
+  return (
+    <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 animate-fade-in">
+      <div className="bg-red-500/90 backdrop-blur-sm text-white px-6 py-3 rounded-xl shadow-lg border border-red-400/50">
+        <div className="flex items-center gap-2">
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+          </svg>
+          <span className="font-medium">{placementError}</span>
+        </div>
+      </div>
+    </div>
+  )
+})
+
 export function EditorUI({ onExit }: EditorUIProps) {
   const [showUploadModal, setShowUploadModal] = useState(false)
   const isThumbnailCaptureMode = useEditorStore(state => state.isThumbnailCaptureMode)
@@ -590,6 +610,7 @@ export function EditorUI({ onExit }: EditorUIProps) {
       <Hotbar />
       <PropertiesPanel />
       <HelpOverlay />
+      <PlacementErrorToast />
       {showUploadModal && <UploadModal onClose={() => setShowUploadModal(false)} />}
     </>
   )
