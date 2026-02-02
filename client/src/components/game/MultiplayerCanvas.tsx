@@ -830,21 +830,31 @@ const MultiplayerUI = memo(function MultiplayerUI({
 
   const myId = socketManager.getSocket()?.id;
 
-  // ESC 키 처리 - 일시정지 메뉴 토글
+  // 포인터락 해제 시 일시정지 메뉴 표시
+  useEffect(() => {
+    const handlePointerLockChange = () => {
+      const isLocked = document.pointerLockElement !== null;
+      // 포인터락이 해제되었고 게임 중이면 메뉴 표시
+      if (!isLocked && (status === 'playing' || status === 'countdown')) {
+        setShowPauseMenu(true);
+      }
+    };
+
+    document.addEventListener('pointerlockchange', handlePointerLockChange);
+    return () => document.removeEventListener('pointerlockchange', handlePointerLockChange);
+  }, [status]);
+
+  // ESC 키 처리 - 메뉴가 열려있을 때 닫기
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        if (status === 'playing' || status === 'countdown') {
-          setShowPauseMenu((prev) => !prev);
-          if (!showPauseMenu) {
-            document.exitPointerLock();
-          }
-        }
+      if (e.key === 'Escape' && showPauseMenu) {
+        // 메뉴가 열려있으면 닫기
+        setShowPauseMenu(false);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [status, showPauseMenu]);
+  }, [showPauseMenu]);
 
   // 게임 종료 시 포인터락 해제
   useEffect(() => {
@@ -905,8 +915,17 @@ const MultiplayerUI = memo(function MultiplayerUI({
     return finishedPlayers.length + racingPlayers.findIndex(p => p.id === myId) + 1;
   }, [players, myId]);
 
-  const handleResume = () => {
+  const handleResume = async () => {
     setShowPauseMenu(false);
+    // 캔버스에 포인터락 다시 요청
+    try {
+      const canvas = document.querySelector('canvas');
+      if (canvas) {
+        await canvas.requestPointerLock();
+      }
+    } catch {
+      // 포인터락 요청 실패 시 무시 (사용자가 캔버스 클릭하면 됨)
+    }
   };
 
   const handleLeaveRoom = () => {
