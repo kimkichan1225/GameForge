@@ -832,28 +832,41 @@ const MultiplayerUI = memo(function MultiplayerUI({
 
   const myId = socketManager.getSocket()?.id;
 
+  // Refs for event listeners (avoid re-registration)
+  const statusRef = useRef(status);
+  const showPauseMenuRef = useRef(showPauseMenu);
+  const timerIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    statusRef.current = status;
+  }, [status]);
+
+  useEffect(() => {
+    showPauseMenuRef.current = showPauseMenu;
+  }, [showPauseMenu]);
+
   // 포인터락 해제 시 일시정지 메뉴 표시
   useEffect(() => {
     const handlePointerLockChange = () => {
       const isLocked = document.pointerLockElement !== null;
       // 포인터락이 해제되었고 게임 중이면 메뉴 표시
-      if (!isLocked && (status === 'playing' || status === 'countdown')) {
+      if (!isLocked && (statusRef.current === 'playing' || statusRef.current === 'countdown')) {
         setShowPauseMenu(true);
       }
     };
 
     document.addEventListener('pointerlockchange', handlePointerLockChange);
     return () => document.removeEventListener('pointerlockchange', handlePointerLockChange);
-  }, [status]);
+  }, []);
 
   // ESC 키 처리 - 메뉴가 열려있을 때 닫고 포인터락 재요청
   useEffect(() => {
     const handleKeyDown = async (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && showPauseMenu) {
+      if (e.key === 'Escape' && showPauseMenuRef.current) {
         // 메뉴가 열려있으면 닫고 포인터락 재요청
         setShowPauseMenu(false);
         try {
-          const canvas = document.querySelector('canvas');
+          const canvas = document.querySelector('#game-canvas canvas') as HTMLCanvasElement;
           if (canvas) {
             await canvas.requestPointerLock();
           }
@@ -864,7 +877,7 @@ const MultiplayerUI = memo(function MultiplayerUI({
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [showPauseMenu]);
+  }, []);
 
   // 게임 종료 시 포인터락 해제
   useEffect(() => {
@@ -876,15 +889,26 @@ const MultiplayerUI = memo(function MultiplayerUI({
 
   // 실시간 타이머 업데이트
   useEffect(() => {
+    // 기존 인터벌 정리
+    if (timerIntervalRef.current) {
+      clearInterval(timerIntervalRef.current);
+      timerIntervalRef.current = null;
+    }
+
     if (status !== 'playing' || !startTime || localFinished) {
       return;
     }
 
-    const interval = setInterval(() => {
+    timerIntervalRef.current = setInterval(() => {
       setElapsedTime(Date.now() - startTime);
     }, 10);
 
-    return () => clearInterval(interval);
+    return () => {
+      if (timerIntervalRef.current) {
+        clearInterval(timerIntervalRef.current);
+        timerIntervalRef.current = null;
+      }
+    };
   }, [status, startTime, localFinished]);
 
   // 게임 시작 시 타이머 리셋
@@ -950,7 +974,7 @@ const MultiplayerUI = memo(function MultiplayerUI({
     setShowPauseMenu(false);
     // 캔버스에 포인터락 다시 요청
     try {
-      const canvas = document.querySelector('canvas');
+      const canvas = document.querySelector('#game-canvas canvas') as HTMLCanvasElement;
       if (canvas) {
         await canvas.requestPointerLock();
       }
@@ -1336,7 +1360,7 @@ export function MultiplayerCanvas({
   if (loading) return <LoadingScreen />;
 
   return (
-    <div className="w-full h-full relative">
+    <div id="game-canvas" className="w-full h-full relative">
       <Canvas camera={{ fov: 60, near: 0.1, far: 1000 }} shadows>
         <SceneContent
           startPosition={startPosition}
