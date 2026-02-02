@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom';
-import { useEffect, useCallback, useState } from 'react';
+import { useEffect, useCallback, useState, useRef } from 'react';
 import { MultiplayerCanvas } from '../components/game/MultiplayerCanvas';
 import { BuildingCanvas } from '../components/game/BuildingCanvas';
 import { BuildingUI } from '../components/game/BuildingUI';
@@ -13,6 +13,7 @@ export default function MultiplayerGame() {
   const currentRoom = useRoomStore((state) => state.currentRoom);
   const leaveRoom = useRoomStore((state) => state.leaveRoom);
   const returnToWaitingRoom = useRoomStore((state) => state.returnToWaitingRoom);
+  const initGame = useMultiplayerGameStore((state) => state.initGame);
   const cleanupGame = useMultiplayerGameStore((state) => state.cleanupGame);
   const cleanupBuilding = useMultiplayerGameStore((state) => state.cleanupBuilding);
   const initBuilding = useMultiplayerGameStore((state) => state.initBuilding);
@@ -27,7 +28,10 @@ export default function MultiplayerGame() {
 
   // 빌딩 UI 상태
   const [currentPlaceable, setCurrentPlaceable] = useState<PlaceableType>('box');
-  const [currentMarker, setCurrentMarker] = useState<'spawn' | 'finish' | null>(null);
+  const [currentMarker, setCurrentMarker] = useState<'spawn' | 'finish' | 'checkpoint' | 'killzone' | null>(null);
+
+  // 게임 이벤트 리스너 초기화 여부 추적
+  const gameInitializedRef = useRef(false);
 
   // Redirect to lobby if no room
   useEffect(() => {
@@ -35,6 +39,22 @@ export default function MultiplayerGame() {
       navigate('/home');
     }
   }, [currentRoom, navigate]);
+
+  // 게임 이벤트 리스너 조기 초기화 (빌딩 모드에서도 game:starting, game:start 이벤트 수신 가능하도록)
+  // 빌딩 페이즈가 완료되면 서버에서 바로 game:starting 이벤트가 오기 때문에 미리 등록해야 함
+  useEffect(() => {
+    if (currentRoom?.roomType === 'create_map' && !gameInitializedRef.current) {
+      console.log('[MultiplayerGame] 게임 이벤트 리스너 조기 초기화');
+      initGame();
+      gameInitializedRef.current = true;
+    }
+    return () => {
+      if (gameInitializedRef.current) {
+        cleanupGame();
+        gameInitializedRef.current = false;
+      }
+    };
+  }, [currentRoom?.roomType, initGame, cleanupGame]);
 
   // 빌딩 페이즈 이벤트 리스너 초기화 (roomStore의 status 기준으로 먼저 리스너 등록)
   useEffect(() => {

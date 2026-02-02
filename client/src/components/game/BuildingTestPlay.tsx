@@ -29,6 +29,9 @@ const DASH_SPEED = 12
 const DASH_DURATION = 0.5
 const DASH_COOLDOWN = 1.0
 const FINISH_RADIUS = 1.5
+const CHECKPOINT_RADIUS = 2.0  // 체크포인트 통과 판정 반경
+const KILLZONE_RADIUS = 2.0   // 킬존 마커 XZ 판정 반경
+const KILLZONE_HEIGHT = 0.5   // 킬존 마커 Y 판정 높이 (위아래 각각)
 const FALL_THRESHOLD = -10
 const DEAD_DURATION = 2.5
 
@@ -116,6 +119,13 @@ function getMarkerRingGeometry() {
   return cachedRingGeometry
 }
 
+// 킬존용 큰 링 지오메트리 (반경 2.0)
+let cachedKillzoneRingGeometry: THREE.RingGeometry | null = null
+function getKillzoneRingGeometry() {
+  if (!cachedKillzoneRingGeometry) cachedKillzoneRingGeometry = new THREE.RingGeometry(1.8, 2.0, 32)
+  return cachedKillzoneRingGeometry
+}
+
 function getMarkerCylinderGeometry() {
   if (!cachedMarkerCylinderGeometry) cachedMarkerCylinderGeometry = new THREE.CylinderGeometry(0.1, 0.1, 3, 8)
   return cachedMarkerCylinderGeometry
@@ -142,10 +152,26 @@ function getGroundMaterial() {
   return cachedGroundMaterial
 }
 
+// 경계 벽 재질
+let cachedBoundaryMaterial: THREE.MeshStandardMaterial | null = null
+function getBoundaryMaterial() {
+  if (!cachedBoundaryMaterial) {
+    cachedBoundaryMaterial = new THREE.MeshStandardMaterial({
+      color: '#ff4444',
+      transparent: true,
+      opacity: 0.3,
+      side: THREE.DoubleSide,
+    })
+  }
+  return cachedBoundaryMaterial
+}
+
 // 마커 색상
 const MARKER_COLORS: Record<string, string> = {
   spawn: '#00ff00',
   finish: '#ff0000',
+  checkpoint: '#ffff00',
+  killzone: '#ff00ff',
 }
 
 // ============ 타입 ============
@@ -161,11 +187,15 @@ const Player = memo(function Player({
   startPosition,
   physics,
   finishPosition,
+  checkpoints,
+  killzones,
   onFinish,
 }: {
   startPosition: [number, number, number]
   physics: PhysicsContext
   finishPosition: [number, number, number] | null
+  checkpoints: MapMarker[]
+  killzones: MapMarker[]
   onFinish: () => void
 }) {
   const group = useRef<THREE.Group>(null!)
@@ -185,6 +215,8 @@ const Player = memo(function Player({
   const dying = useRef(false)
   const dyingTimer = useRef(0)
   const hasFinishedRef = useRef(false)
+  const passedCheckpoints = useRef<Set<string>>(new Set())
+  const lastCheckpointPos = useRef<[number, number, number] | null>(null)
 
   const input = useInput()
 
@@ -273,13 +305,15 @@ const Player = memo(function Player({
 
       if (dyingTimer.current <= 0) {
         dying.current = false
+        // 마지막 체크포인트가 있으면 그곳으로, 없으면 시작 위치로 리스폰
+        const respawnPos = lastCheckpointPos.current || startPosition
         playerBody.setTranslation(
-          { x: startPosition[0], y: startPosition[1] + centerY + 1, z: startPosition[2] },
+          { x: respawnPos[0], y: respawnPos[1] + centerY + 1, z: respawnPos[2] },
           true
         )
         playerBody.setLinvel({ x: 0, y: 0, z: 0 }, true)
-        group.current.position.set(startPosition[0], startPosition[1], startPosition[2])
-        store.setPlayerPos([startPosition[0], startPosition[1], startPosition[2]])
+        group.current.position.set(respawnPos[0], respawnPos[1], respawnPos[2])
+        store.setPlayerPos([respawnPos[0], respawnPos[1], respawnPos[2]])
         playAnim('Idle')
       }
       return
@@ -380,10 +414,23 @@ const Player = memo(function Player({
       playAnim(getAnim(_move.lengthSq() > 0, keys.shift && posture === 'standing', posture))
     }
 
+    // 체크포인트 통과 체크
+    for (const cp of checkpoints) {
+      if (passedCheckpoints.current.has(cp.id)) continue
+      const dx = pos.x - cp.position[0]
+      const dy = playerFootY - cp.position[1]
+      const dz = pos.z - cp.position[2]
+      const distSq = dx * dx + dy * dy + dz * dz
+      if (distSq < CHECKPOINT_RADIUS * CHECKPOINT_RADIUS) {
+        passedCheckpoints.current.add(cp.id)
+        lastCheckpointPos.current = [cp.position[0], cp.position[1], cp.position[2]]
+      }
+    }
+
     // 피니시 도달 체크
     if (finishPosition && !hasFinishedRef.current) {
       const dx = pos.x - finishPosition[0]
-      const dy = (pos.y - centerY) - finishPosition[1]
+      const dy = playerFootY - finishPosition[1]
       const dz = pos.z - finishPosition[2]
       const distSq = dx * dx + dy * dy + dz * dz
       if (distSq < FINISH_RADIUS * FINISH_RADIUS) {
@@ -392,8 +439,31 @@ const Player = memo(function Player({
       }
     }
 
+    // 킬존 체크 (원판 형태: XZ 반경 + Y 높이 제한)
+    let hitKillzone = false
+    for (const kz of killzones) {
+      const dx = pos.x - kz.position[0]
+      const dy = playerFootY - kz.position[1]
+      const dz = pos.z - kz.position[2]
+      const distXZ = dx * dx + dz * dz
+      const inRadius = distXZ < KILLZONE_RADIUS * KILLZONE_RADIUS
+      const inHeight = Math.abs(dy) < KILLZONE_HEIGHT
+      if (inRadius && inHeight) {
+        hitKillzone = true
+        break
+      }
+    }
+
+    // 킬존 진입 시 사망 애니메이션 시작
+    if (hitKillzone && !dying.current) {
+      dying.current = true
+      dyingTimer.current = DEAD_DURATION
+      playAnim('Dead')
+      return
+    }
+
     // 낙사 체크
-    if (pos.y - centerY < FALL_THRESHOLD) {
+    if (playerFootY < FALL_THRESHOLD && !dying.current) {
       dying.current = true
       dyingTimer.current = DEAD_DURATION
       playAnim('Dead')
@@ -561,6 +631,7 @@ const MARKER_CONE_POSITION: [number, number, number] = [0, 3.2, 0]
 
 const MarkerMesh = memo(function MarkerMesh({ marker }: { marker: MapMarker }) {
   const color = MARKER_COLORS[marker.type] || '#ffffff'
+  const isKillzone = marker.type === 'killzone'
 
   const ringMaterial = useMemo(() => getMarkerBasicMaterial(color, 0.5), [color])
   const cylinderMaterial = useMemo(() => getMarkerBasicMaterial(color, 0.3), [color])
@@ -568,9 +639,43 @@ const MarkerMesh = memo(function MarkerMesh({ marker }: { marker: MapMarker }) {
 
   return (
     <group position={marker.position} rotation={marker.rotation}>
-      <mesh rotation={MARKER_RING_ROTATION} position={MARKER_RING_POSITION} geometry={getMarkerRingGeometry()} material={ringMaterial} />
-      <mesh position={MARKER_CYLINDER_POSITION} geometry={getMarkerCylinderGeometry()} material={cylinderMaterial} />
-      <mesh position={MARKER_CONE_POSITION} geometry={getMarkerConeGeometry()} material={coneMaterial} />
+      {isKillzone ? (
+        /* 킬존: 원형 링만 표시 (반경 2.0) */
+        <mesh rotation={MARKER_RING_ROTATION} position={MARKER_RING_POSITION} geometry={getKillzoneRingGeometry()} material={ringMaterial} />
+      ) : (
+        /* 기타 마커: 링 + 실린더 + 콘 형태 */
+        <>
+          <mesh rotation={MARKER_RING_ROTATION} position={MARKER_RING_POSITION} geometry={getMarkerRingGeometry()} material={ringMaterial} />
+          <mesh position={MARKER_CYLINDER_POSITION} geometry={getMarkerCylinderGeometry()} material={cylinderMaterial} />
+          <mesh position={MARKER_CONE_POSITION} geometry={getMarkerConeGeometry()} material={coneMaterial} />
+        </>
+      )}
+    </group>
+  )
+})
+
+// ============ 영역 경계 ============
+const RegionBoundary = memo(function RegionBoundary({ region }: { region: BuildingRegion }) {
+  const material = useMemo(() => getBoundaryMaterial(), [])
+  const wallHeight = 20
+  const depth = 100
+  const regionWidth = region.endX - region.startX
+  const regionCenterX = (region.startX + region.endX) / 2
+
+  return (
+    <group>
+      <mesh position={[region.startX, wallHeight / 2, 0]} material={material}>
+        <boxGeometry args={[0.2, wallHeight, depth]} />
+      </mesh>
+      <mesh position={[region.endX, wallHeight / 2, 0]} material={material}>
+        <boxGeometry args={[0.2, wallHeight, depth]} />
+      </mesh>
+      <mesh position={[regionCenterX, wallHeight / 2, -depth / 2]} material={material}>
+        <boxGeometry args={[regionWidth, wallHeight, 0.2]} />
+      </mesh>
+      <mesh position={[regionCenterX, wallHeight / 2, depth / 2]} material={material}>
+        <boxGeometry args={[regionWidth, wallHeight, 0.2]} />
+      </mesh>
     </group>
   )
 })
@@ -583,6 +688,7 @@ const SceneContent = memo(function SceneContent({
   markers,
   physics,
   onFinish,
+  region,
 }: {
   startPosition: [number, number, number]
   finishPosition: [number, number, number] | null
@@ -590,7 +696,12 @@ const SceneContent = memo(function SceneContent({
   markers: MapMarker[]
   physics: PhysicsContext | null
   onFinish: () => void
+  region: BuildingRegion
 }) {
+  // 마커를 체크포인트와 킬존으로 분리
+  const checkpoints = useMemo(() => markers.filter(m => m.type === 'checkpoint'), [markers])
+  const killzones = useMemo(() => markers.filter(m => m.type === 'killzone'), [markers])
+
   if (!physics) return null
 
   return (
@@ -624,7 +735,16 @@ const SceneContent = memo(function SceneContent({
         <MarkerMesh key={marker.id} marker={marker} />
       ))}
 
-      <Player startPosition={startPosition} finishPosition={finishPosition} physics={physics} onFinish={onFinish} />
+      <RegionBoundary region={region} />
+
+      <Player
+        startPosition={startPosition}
+        finishPosition={finishPosition}
+        checkpoints={checkpoints}
+        killzones={killzones}
+        physics={physics}
+        onFinish={onFinish}
+      />
       <FollowCamera />
     </>
   )
@@ -830,6 +950,7 @@ export function BuildingTestPlay({ objects, markers, region, onExit }: BuildingT
           markers={markers}
           physics={physics}
           onFinish={handleFinish}
+          region={region}
         />
       </Canvas>
       <TestPlayUI onExit={handleExit} />

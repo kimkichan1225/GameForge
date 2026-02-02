@@ -255,8 +255,9 @@ export class BuildingPhase {
     if (!segment) return null;
     if (segment.isVerified || segment.isTesting) return null;
 
-    // 빌딩 모드에서는 spawn, finish만 허용
-    if (markerData.type !== 'spawn' && markerData.type !== 'finish') {
+    // 허용된 마커 타입 확인 (spawn, finish, checkpoint, killzone)
+    const allowedTypes = ['spawn', 'finish', 'checkpoint', 'killzone'];
+    if (!allowedTypes.includes(markerData.type)) {
       return null;
     }
 

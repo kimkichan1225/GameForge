@@ -1,4 +1,4 @@
-import { useRef, useEffect, useMemo, useCallback, memo } from 'react'
+import { useRef, useEffect, useMemo, useCallback, memo, useState } from 'react'
 import { Canvas, useThree, useFrame } from '@react-three/fiber'
 import { Grid } from '@react-three/drei'
 import * as THREE from 'three'
@@ -46,6 +46,13 @@ function getSmallConeGeometry() {
 function getRingGeometry() {
   if (!cachedRingGeometry) cachedRingGeometry = new THREE.RingGeometry(1.2, 1.5, 32)
   return cachedRingGeometry
+}
+
+// 킬존용 큰 링 지오메트리 (반경 2.0)
+let cachedKillzoneRingGeometry: THREE.RingGeometry | null = null
+function getKillzoneRingGeometry() {
+  if (!cachedKillzoneRingGeometry) cachedKillzoneRingGeometry = new THREE.RingGeometry(1.8, 2.0, 32)
+  return cachedKillzoneRingGeometry
 }
 function getGroundGeometry() {
   if (!cachedGroundGeometry) cachedGroundGeometry = new THREE.PlaneGeometry(200, 200)
@@ -123,7 +130,7 @@ const MARKER_COLORS: Record<string, string> = {
 }
 
 // 마커 타입 정의
-type MarkerType = MarkerType | 'checkpoint' | 'killzone'
+type MarkerType = 'spawn' | 'finish' | 'checkpoint' | 'killzone'
 
 // 마커 위치/회전 상수
 const MARKER_RING_ROTATION: [number, number, number] = [-Math.PI / 2, 0, 0]
@@ -336,6 +343,7 @@ function RaycastPlacer({
   currentMarker,
   onPlaceObject,
   onPlaceMarker,
+  onSelect,
 }: {
   region: BuildingRegion | null
   isVerified: boolean
@@ -343,6 +351,7 @@ function RaycastPlacer({
   currentMarker: MarkerType | null
   onPlaceObject: (data: Omit<MapObject, 'id'>) => void
   onPlaceMarker: (data: { type: MarkerType; position: [number, number, number]; rotation: [number, number, number] }) => void
+  onSelect: (id: string | null) => void
 }) {
   const { camera, scene } = useThree()
   const raycaster = useRef(new THREE.Raycaster())
@@ -378,11 +387,28 @@ function RaycastPlacer({
   useEffect(() => {
     const handleMouseDown = (e: MouseEvent) => {
       if (document.pointerLockElement === null) return
-      if (isVerified) return // 검증 완료 후 배치 불가
       if (!region) return
 
       raycaster.current.setFromCamera(screenCenter.current, camera)
       const intersects = raycaster.current.intersectObjects(scene.children, true)
+
+      // 우클릭 - 오브젝트/마커 선택
+      if (e.button === 2) {
+        for (const hit of intersects) {
+          if (hit.object.userData.isEditorObject) {
+            const id = hit.object.userData.objectId
+            if (id) {
+              // marker_로 시작하면 마커, 아니면 오브젝트
+              onSelect(id)
+              return
+            }
+          }
+        }
+        onSelect(null)
+        return
+      }
+
+      if (isVerified) return // 검증 완료 후 배치 불가
 
       if (e.button === 0) {
         const yaw = getCameraYaw()
@@ -467,7 +493,7 @@ function RaycastPlacer({
 
     window.addEventListener('mousedown', handleMouseDown)
     return () => window.removeEventListener('mousedown', handleMouseDown)
-  }, [camera, scene, region, isVerified, currentPlaceable, currentMarker, getCameraYaw, getRandomColor, checkOverlap, onPlaceObject, onPlaceMarker])
+  }, [camera, scene, region, isVerified, currentPlaceable, currentMarker, getCameraYaw, getRandomColor, checkOverlap, onPlaceObject, onPlaceMarker, onSelect])
 
   return null
 }
@@ -514,6 +540,10 @@ function PlacementPreview({
   }, [objects])
 
   const canPlaceMarker = useCallback((type: MarkerType) => {
+    // spawn, finish는 1개만 허용, checkpoint와 killzone은 여러 개 허용
+    if (type === 'checkpoint' || type === 'killzone') {
+      return true
+    }
     return !markers.some(m => m.type === type)
   }, [markers])
 
@@ -622,30 +652,47 @@ function PlacementPreview({
   const previewMaterial = useMemo(() => getPreviewMaterial(), [])
   const coneGeometry = useMemo(() => getConeGeometry(), [])
   const smallConeGeometry = useMemo(() => getSmallConeGeometry(), [])
+  const killzoneRingGeometry = useMemo(() => getKillzoneRingGeometry(), [])
 
   const markerPreviewMaterial = useMemo(() =>
     getTransparentMaterial(currentMarker ? MARKER_COLORS[currentMarker] || '#ffffff' : '#ffffff'),
     [currentMarker]
   )
 
+  const isKillzoneMarker = currentMarker === 'killzone'
+
   return (
     <>
       <mesh ref={meshRef} visible={false} raycast={noRaycast} geometry={previewGeometry} material={previewMaterial} />
       <group ref={markerRef} visible={false} raycast={noRaycast}>
-        <mesh raycast={noRaycast} geometry={coneGeometry} material={markerPreviewMaterial} />
-        <mesh
-          position={MARKER_ARROW_POSITION}
-          raycast={noRaycast}
-          geometry={smallConeGeometry}
-          material={markerPreviewMaterial}
-        />
+        {isKillzoneMarker ? (
+          /* 킬존: 원형 링 표시 */
+          <mesh
+            rotation={MARKER_RING_ROTATION}
+            position={MARKER_RING_POSITION}
+            raycast={noRaycast}
+            geometry={killzoneRingGeometry}
+            material={markerPreviewMaterial}
+          />
+        ) : (
+          /* 기타 마커: 콘 형태 */
+          <>
+            <mesh raycast={noRaycast} geometry={coneGeometry} material={markerPreviewMaterial} />
+            <mesh
+              position={MARKER_ARROW_POSITION}
+              raycast={noRaycast}
+              geometry={smallConeGeometry}
+              material={markerPreviewMaterial}
+            />
+          </>
+        )}
       </group>
     </>
   )
 }
 
 // 오브젝트 렌더링
-const BuildingObject = memo(function BuildingObject({ obj }: { obj: MapObject }) {
+const BuildingObject = memo(function BuildingObject({ obj, selected }: { obj: MapObject; selected: boolean }) {
   const geometry = useMemo(() => {
     switch (obj.type) {
       case 'box': return getBoxGeometry()
@@ -657,7 +704,14 @@ const BuildingObject = memo(function BuildingObject({ obj }: { obj: MapObject })
     }
   }, [obj.type])
 
-  const material = useMemo(() => getMaterial(obj.color), [obj.color])
+  const material = useMemo(() =>
+    getMaterial(
+      selected ? '#ffffff' : obj.color,
+      selected ? obj.color : '#000000',
+      selected ? 0.3 : 0
+    ),
+    [selected, obj.color]
+  )
 
   return (
     <mesh
@@ -672,30 +726,63 @@ const BuildingObject = memo(function BuildingObject({ obj }: { obj: MapObject })
 })
 
 // 마커 렌더링
-const BuildingMarker = memo(function BuildingMarker({ marker }: { marker: MapMarker }) {
+const BuildingMarker = memo(function BuildingMarker({ marker, selected }: { marker: MapMarker; selected: boolean }) {
   const color = MARKER_COLORS[marker.type] || '#ffffff'
+  const isKillzone = marker.type === 'killzone'
 
-  const ringGeometry = useMemo(() => getRingGeometry(), [])
+  const ringGeometry = useMemo(() => isKillzone ? getKillzoneRingGeometry() : getRingGeometry(), [isKillzone])
   const coneGeometry = useMemo(() => getConeGeometry(), [])
   const smallConeGeometry = useMemo(() => getSmallConeGeometry(), [])
 
-  const mainMaterial = useMemo(() => getMaterial(color, '#000000', 0), [color])
+  const mainMaterial = useMemo(() =>
+    getMaterial(color, selected ? color : '#000000', selected ? 0.5 : 0),
+    [color, selected]
+  )
+  const killzoneMaterial = useMemo(() => {
+    const mat = new THREE.MeshStandardMaterial({
+      color,
+      emissive: selected ? color : '#000000',
+      emissiveIntensity: selected ? 0.5 : 0,
+      side: THREE.DoubleSide,
+    })
+    return mat
+  }, [color, selected])
 
   return (
     <group position={marker.position} rotation={marker.rotation}>
-      <mesh
-        rotation={MARKER_RING_ROTATION}
-        position={MARKER_RING_POSITION}
-        geometry={ringGeometry}
-        material={mainMaterial}
-      />
-      <mesh geometry={coneGeometry} material={mainMaterial} />
-      <mesh
-        position={MARKER_ARROW_POSITION}
-        rotation={MARKER_ARROW_ROTATION}
-        geometry={smallConeGeometry}
-        material={mainMaterial}
-      />
+      {isKillzone ? (
+        /* 킬존: 원형 링만 표시 (반경 2.0) */
+        <mesh
+          rotation={MARKER_RING_ROTATION}
+          position={MARKER_RING_POSITION}
+          userData={{ isEditorObject: true, objectId: `marker_${marker.id}` }}
+          geometry={ringGeometry}
+          material={killzoneMaterial}
+        />
+      ) : (
+        /* 기타 마커: 콘 형태 */
+        <>
+          <mesh
+            rotation={MARKER_RING_ROTATION}
+            position={MARKER_RING_POSITION}
+            userData={{ isEditorObject: true, objectId: `marker_${marker.id}` }}
+            geometry={ringGeometry}
+            material={mainMaterial}
+          />
+          <mesh
+            userData={{ isEditorObject: true, objectId: `marker_${marker.id}` }}
+            geometry={coneGeometry}
+            material={mainMaterial}
+          />
+          <mesh
+            position={MARKER_ARROW_POSITION}
+            rotation={MARKER_ARROW_ROTATION}
+            userData={{ isEditorObject: true, objectId: `marker_${marker.id}` }}
+            geometry={smallConeGeometry}
+            material={mainMaterial}
+          />
+        </>
+      )}
     </group>
   )
 })
@@ -706,15 +793,19 @@ const SceneContent = memo(function SceneContent({
   isVerified,
   currentPlaceable,
   currentMarker,
+  selectedId,
   onPlaceObject,
   onPlaceMarker,
+  onSelect,
 }: {
   region: BuildingRegion | null
   isVerified: boolean
   currentPlaceable: PlaceableType
   currentMarker: MarkerType | null
+  selectedId: string | null
   onPlaceObject: (data: Omit<MapObject, 'id'>) => void
   onPlaceMarker: (data: { type: MarkerType; position: [number, number, number]; rotation: [number, number, number] }) => void
+  onSelect: (id: string | null) => void
 }) {
   const objects = useMultiplayerGameStore(state => state.myObjects)
   const markers = useMultiplayerGameStore(state => state.myMarkers)
@@ -751,28 +842,27 @@ const SceneContent = memo(function SceneContent({
 
       {/* 오브젝트 */}
       {objects.map(obj => (
-        <BuildingObject key={obj.id} obj={obj} />
+        <BuildingObject key={obj.id} obj={obj} selected={selectedId === obj.id} />
       ))}
 
       {/* 마커 */}
       {markers.map(marker => (
-        <BuildingMarker key={marker.id} marker={marker} />
+        <BuildingMarker key={marker.id} marker={marker} selected={selectedId === `marker_${marker.id}`} />
       ))}
 
       {/* FPS 카메라 */}
       <FPSCamera region={region} />
 
-      {/* 레이캐스트 배치 */}
-      {!isVerified && (
-        <RaycastPlacer
-          region={region}
-          isVerified={isVerified}
-          currentPlaceable={currentPlaceable}
-          currentMarker={currentMarker}
-          onPlaceObject={onPlaceObject}
-          onPlaceMarker={onPlaceMarker}
-        />
-      )}
+      {/* 레이캐스트 배치 및 선택 */}
+      <RaycastPlacer
+        region={region}
+        isVerified={isVerified}
+        currentPlaceable={currentPlaceable}
+        currentMarker={currentMarker}
+        onPlaceObject={onPlaceObject}
+        onPlaceMarker={onPlaceMarker}
+        onSelect={onSelect}
+      />
 
       {/* 설치 미리보기 */}
       {!isVerified && (
@@ -800,6 +890,36 @@ const Crosshair = memo(function Crosshair() {
   )
 })
 
+// 키보드 단축키 (삭제)
+function KeyboardShortcuts({
+  selectedId,
+  onDelete,
+  isVerified,
+}: {
+  selectedId: string | null
+  onDelete: (id: string) => void
+  isVerified: boolean
+}) {
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // 검증 완료 후 삭제 불가
+      if (isVerified) return
+      // 입력 필드에서는 단축키 무시
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
+
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedId) {
+        e.preventDefault()
+        onDelete(selectedId)
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [selectedId, onDelete, isVerified])
+
+  return null
+}
+
 // 메인 컴포넌트
 interface BuildingCanvasProps {
   currentPlaceable: PlaceableType
@@ -811,6 +931,10 @@ export function BuildingCanvas({ currentPlaceable, currentMarker }: BuildingCanv
   const isVerified = useMultiplayerGameStore(state => state.myVerified)
   const placeObject = useMultiplayerGameStore(state => state.placeObject)
   const placeMarker = useMultiplayerGameStore(state => state.placeMarker)
+  const removeObject = useMultiplayerGameStore(state => state.removeObject)
+  const removeMarker = useMultiplayerGameStore(state => state.removeMarker)
+
+  const [selectedId, setSelectedId] = useState<string | null>(null)
 
   const handlePlaceObject = useCallback(async (data: Omit<MapObject, 'id'>) => {
     await placeObject(data)
@@ -819,6 +943,27 @@ export function BuildingCanvas({ currentPlaceable, currentMarker }: BuildingCanv
   const handlePlaceMarker = useCallback(async (data: { type: MarkerType; position: [number, number, number]; rotation: [number, number, number] }) => {
     await placeMarker(data)
   }, [placeMarker])
+
+  const handleSelect = useCallback((id: string | null) => {
+    setSelectedId(id)
+  }, [])
+
+  const handleDelete = useCallback(async (id: string) => {
+    if (id.startsWith('marker_')) {
+      // 마커 삭제
+      const markerId = id.replace('marker_', '')
+      const success = await removeMarker(markerId)
+      if (success) {
+        setSelectedId(null)
+      }
+    } else {
+      // 오브젝트 삭제
+      const success = await removeObject(id)
+      if (success) {
+        setSelectedId(null)
+      }
+    }
+  }, [removeObject, removeMarker])
 
   return (
     <div className="w-full h-full relative">
@@ -832,11 +977,20 @@ export function BuildingCanvas({ currentPlaceable, currentMarker }: BuildingCanv
           isVerified={isVerified}
           currentPlaceable={currentPlaceable}
           currentMarker={currentMarker}
+          selectedId={selectedId}
           onPlaceObject={handlePlaceObject}
           onPlaceMarker={handlePlaceMarker}
+          onSelect={handleSelect}
         />
       </Canvas>
       {!isVerified && <Crosshair />}
+      <KeyboardShortcuts selectedId={selectedId} onDelete={handleDelete} isVerified={isVerified} />
+      {/* 선택된 오브젝트 안내 */}
+      {selectedId && !isVerified && (
+        <div className="absolute bottom-4 right-4 z-10 bg-slate-800/80 backdrop-blur-sm rounded-lg px-4 py-2 text-white text-sm">
+          <span className="text-yellow-400">선택됨</span> - Delete 또는 Backspace로 삭제
+        </div>
+      )}
     </div>
   )
 }

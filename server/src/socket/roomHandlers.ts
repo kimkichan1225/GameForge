@@ -399,11 +399,11 @@ export function registerRoomHandlers(io: Server, socket: Socket): void {
   });
 
   // Player reached checkpoint
-  socket.on('game:checkpoint', (data: { checkpointIndex: number }, callback) => {
+  socket.on('game:checkpoint', (data: { checkpointIndex: number; isRelayCheckpoint?: boolean }, callback) => {
     const room = roomManager.getPlayerRoom(socket.id);
     const gameLoop = getGameLoop(room?.id || '');
     if (gameLoop) {
-      const result = gameLoop.playerReachedCheckpoint(socket.id, data.checkpointIndex);
+      const result = gameLoop.playerReachedCheckpoint(socket.id, data.checkpointIndex, data.isRelayCheckpoint ?? false);
       callback?.({ success: result.success, teleportTo: result.teleportTo });
     } else {
       callback?.({ success: false });

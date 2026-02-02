@@ -493,8 +493,10 @@ export function BuildingUI({
           <span>WASD</span><span>카메라 이동</span>
           <span>Space/Shift</span><span>상승/하강</span>
           <span>좌클릭</span><span>배치</span>
+          <span>우클릭</span><span>선택</span>
+          <span>Delete</span><span>삭제</span>
           <span>1-5</span><span>오브젝트 선택</span>
-          <span>6-7</span><span>마커 선택</span>
+          <span>6-9</span><span>마커 선택</span>
         </div>
       </div>
 

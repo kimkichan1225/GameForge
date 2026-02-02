@@ -156,15 +156,27 @@ const LocalPlayer = memo(function LocalPlayer({
     const localFinished = useMultiplayerGameStore.getState().localFinished;
     const pendingTeleport = useMultiplayerGameStore.getState().pendingTeleport;
 
+    // 물리 객체 유효성 검사
+    if (!physics?.playerBody || !physics?.playerColliderRef?.current) {
+      prevGameStatus.current = gameStatus;
+      return;
+    }
+
     // 게임 시작 시 (countdown → playing 전환) 플레이어 위치 초기화
     if (gameStatus === 'playing' && prevGameStatus.current !== 'playing' && !initializedPosition.current) {
       const store = useGameStore.getState();
       const centerY = COLLIDER_CONFIG[store.posture].centerY;
-      physics.playerBody.setTranslation(
-        { x: startPosition[0], y: startPosition[1] + centerY + 0.5, z: startPosition[2] },
-        true
-      );
-      physics.playerBody.setLinvel({ x: 0, y: 0, z: 0 }, true);
+      try {
+        physics.playerBody.setTranslation(
+          { x: startPosition[0], y: startPosition[1] + centerY + 0.5, z: startPosition[2] },
+          true
+        );
+        physics.playerBody.setLinvel({ x: 0, y: 0, z: 0 }, true);
+      } catch {
+        // 물리 객체가 이미 해제됨
+        prevGameStatus.current = gameStatus;
+        return;
+      }
       if (group.current) {
         group.current.position.set(startPosition[0], startPosition[1], startPosition[2]);
       }
@@ -380,8 +392,15 @@ const LocalPlayer = memo(function LocalPlayer({
       const distSq = dx * dx + dy * dy + dz * dz;
       if (distSq < CHECKPOINT_RADIUS * CHECKPOINT_RADIUS) {
         passedCheckpoints.current.add(cp.id);
-        const checkpointIndex = passedCheckpoints.current.size;
-        reachCheckpoint(checkpointIndex, [cp.position[0], cp.position[1], cp.position[2]]);
+
+        // 모든 체크포인트를 서버에 알림 (서버에서 player.checkpoint 증가 → 모든 클라이언트에 동기화)
+        // 릴레이 체크포인트(relay-checkpoint-*)는 텔레포트 트리거, 나머지는 카운트만 증가
+        const isRelayCheckpoint = cp.id.startsWith('relay-checkpoint-');
+        // relay-checkpoint-N: N번째 세그먼트의 끝 → 서버에서 N+1 세그먼트로 텔레포트
+        const checkpointIndex = isRelayCheckpoint
+          ? parseInt(cp.id.replace('relay-checkpoint-', ''), 10)
+          : 0;  // 일반 체크포인트는 인덱스 무관 (카운트 증가만)
+        reachCheckpoint(checkpointIndex, [cp.position[0], cp.position[1], cp.position[2]], isRelayCheckpoint);
       }
     }
 
@@ -463,6 +482,8 @@ const FollowCamera = memo(function FollowCamera({ startPosition }: { startPositi
   const isLocked = useRef(false);
   const skipNextMove = useRef(false);
   const cinematicAngle = useRef(0); // 시네마틱 카메라용 각도
+  const prevGameStatus = useRef<string>('');
+  const playingFrameCount = useRef(0); // playing 상태 진입 후 프레임 수
 
   const _targetPos = useRef(new THREE.Vector3());
   const _offset = useRef(new THREE.Vector3());
@@ -550,18 +571,27 @@ const FollowCamera = memo(function FollowCamera({ startPosition }: { startPositi
     const gameStatus = useMultiplayerGameStore.getState().status;
     const localFinished = useMultiplayerGameStore.getState().localFinished;
 
-    // 카운트다운 중에는 startPosition 사용, 플레이 중에는 playerPos 사용
-    // 단, playerPos가 (0,0,0) 근처면 아직 초기화 안된 것이므로 startPosition 사용
-    if (gameStatus === 'countdown') {
+    // 상태 전환 감지 및 프레임 카운트
+    if (gameStatus === 'playing' && prevGameStatus.current !== 'playing') {
+      playingFrameCount.current = 0;
+    }
+    if (gameStatus === 'playing') {
+      playingFrameCount.current++;
+    } else {
+      playingFrameCount.current = 0;
+    }
+    prevGameStatus.current = gameStatus;
+
+    // 카운트다운 중이거나 playing 전환 직후(10프레임 이내)는 startPosition 사용
+    if (gameStatus === 'countdown' || (gameStatus === 'playing' && playingFrameCount.current < 10)) {
       _targetPos.current.set(startPosition[0], startPosition[1], startPosition[2]);
     } else {
       const playerPos = useGameStore.getState().playerPos;
-      // playerPos가 startPosition과 너무 다르면 (초기화 전) startPosition 사용
+      // playerPos가 (0,0,0)이고 startPosition이 다른 곳이면 startPosition 사용
       const distFromStart = Math.sqrt(
         (playerPos[0] - startPosition[0]) ** 2 +
         (playerPos[2] - startPosition[2]) ** 2
       );
-      // 플레이 시작 직후 playerPos가 (0,0,0)이고 startPosition이 다른 곳이면 startPosition 사용
       if (playerPos[0] === 0 && playerPos[1] === 0 && playerPos[2] === 0 && distFromStart > 5) {
         _targetPos.current.set(startPosition[0], startPosition[1], startPosition[2]);
       } else {
@@ -1244,7 +1274,9 @@ const MultiplayerUI = memo(function MultiplayerUI({
                 {p.finished ? (
                   <span className="text-green-400 text-xs">완주</span>
                 ) : totalCheckpoints > 0 ? (
-                  <span className="text-white/40 text-xs">{p.checkpoint}/{totalCheckpoints}</span>
+                  <span className="text-white/40 text-xs">
+                    {p.checkpoint}/{totalCheckpoints}
+                  </span>
                 ) : null}
               </div>
             ))}
@@ -1444,6 +1476,11 @@ export function MultiplayerCanvas({
     return effectiveMapData?.markers.filter(m => m.type === 'checkpoint') || [];
   }, [effectiveMapData]);
 
+  // 카운트 가능한 체크포인트 수 (모든 체크포인트 포함)
+  const countableCheckpoints = useMemo(() => {
+    return checkpoints.length;
+  }, [checkpoints]);
+
   // 킬존 목록
   const killzones = useMemo(() => {
     return effectiveMapData?.markers.filter(m => m.type === 'killzone') || [];
@@ -1459,7 +1496,12 @@ export function MultiplayerCanvas({
   }, [physicsReady]);
 
   useEffect(() => {
-    initGame();
+    // 릴레이 레이스인 경우 MultiplayerGame.tsx에서 이미 initGame()을 호출했으므로 여기서 다시 호출하지 않음
+    // load_map 모드인 경우에만 여기서 initGame() 호출
+    const shouldInitGame = currentRoom?.roomType !== 'create_map';
+    if (shouldInitGame) {
+      initGame();
+    }
 
     let mounted = true;
 
@@ -1607,7 +1649,10 @@ export function MultiplayerCanvas({
 
     return () => {
       mounted = false;
-      cleanupGame();
+      // 릴레이 레이스인 경우 MultiplayerGame.tsx에서 cleanupGame()을 처리하므로 여기서 호출하지 않음
+      if (currentRoom?.roomType !== 'create_map') {
+        cleanupGame();
+      }
       cleanupGeometryCache();
       setPhysicsReady(false);
       playerColliderRef.current = null;
@@ -1618,7 +1663,8 @@ export function MultiplayerCanvas({
         physicsRef.current = null;
       }
     };
-  }, [initGame, cleanupGame, isRelayRace, relayMapData]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentRoom?.roomType]);
 
   useEffect(() => {
     useGameStore.getState().reset();
@@ -1648,7 +1694,7 @@ export function MultiplayerCanvas({
           relaySegments={relaySegments}
         />
       </Canvas>
-      <MultiplayerUI onExit={onExit} onReturnToWaitingRoom={onReturnToWaitingRoom} totalCheckpoints={checkpoints.length} finishPosition={finishPosition} />
+      <MultiplayerUI onExit={onExit} onReturnToWaitingRoom={onReturnToWaitingRoom} totalCheckpoints={countableCheckpoints} finishPosition={finishPosition} />
     </div>
   );
 }

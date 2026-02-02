@@ -201,44 +201,34 @@ export class GameLoop {
     this.room.updatePlayerPosition(playerId, clampedPosition, clampedVelocity, animation);
   }
 
-  playerReachedCheckpoint(playerId: string, checkpointIndex: number): { success: boolean; teleportTo?: [number, number, number] } {
+  playerReachedCheckpoint(playerId: string, checkpointIndex: number, isRelayCheckpoint: boolean = false): { success: boolean; teleportTo?: [number, number, number] } {
     const player = this.room.getPlayer(playerId);
     if (!player) return { success: false };
 
-    // 체크포인트 인덱스 유효성 검사
-    if (typeof checkpointIndex !== 'number' || checkpointIndex < 0) return { success: false };
+    // 체크포인트 카운트 증가
+    player.checkpoint = player.checkpoint + 1;
 
-    // 체크포인트 순서 검증 (네트워크 지연을 고려해 이미 지나간 체크포인트도 허용)
-    if (checkpointIndex === player.checkpoint + 1) {
-      player.checkpoint = checkpointIndex;
+    let teleportTo: [number, number, number] | undefined;
 
-      let teleportTo: [number, number, number] | undefined;
-
-      // 릴레이 레이스에서는 체크포인트 통과 시 다음 구간으로 텔레포트
-      if (this.isRelayRace && this.relayMapData) {
-        const nextSegmentIndex = checkpointIndex;  // checkpointIndex는 1부터 시작, 세그먼트는 0부터 시작이므로 다음 세그먼트 인덱스
-        if (nextSegmentIndex < this.relayMapData.segments.length) {
-          const nextSegment = this.relayMapData.segments[nextSegmentIndex];
-          teleportTo = nextSegment.spawnPosition;
-        }
+    // 릴레이 레이스에서 릴레이 체크포인트(세그먼트 끝)인 경우에만 텔레포트
+    if (isRelayCheckpoint && this.isRelayRace && this.relayMapData) {
+      // checkpointIndex는 relay-checkpoint 인덱스 (0부터 시작)
+      // 다음 세그먼트 인덱스 = checkpointIndex + 1
+      const nextSegmentIndex = checkpointIndex + 1;
+      if (nextSegmentIndex < this.relayMapData.segments.length) {
+        const nextSegment = this.relayMapData.segments[nextSegmentIndex];
+        teleportTo = nextSegment.spawnPosition;
       }
-
-      this.io.to(this.room.id).emit('game:checkpoint', {
-        playerId,
-        nickname: player.nickname,
-        checkpoint: checkpointIndex,
-        teleportTo,
-      });
-
-      return { success: true, teleportTo };
     }
 
-    // 이미 지나간 체크포인트면 무시 (성공으로 처리)
-    if (checkpointIndex <= player.checkpoint) {
-      return { success: true };
-    }
+    this.io.to(this.room.id).emit('game:checkpoint', {
+      playerId,
+      nickname: player.nickname,
+      checkpoint: player.checkpoint,
+      teleportTo,
+    });
 
-    return { success: false };
+    return { success: true, teleportTo };
   }
 
   playerFinished(playerId: string): boolean {
@@ -375,6 +365,11 @@ export function startGameFromBuilding(io: Server, room: Room, relayMapData: Rela
   const gameLoop = new GameLoop(io, room, relayMapData);
   activeGames.set(room.id, gameLoop);
   gameLoop.start();
+
+  // 방 상태 업데이트 브로드캐스트 (countdown 상태로 변경됨)
+  io.to(room.id).emit('room:statusUpdated', {
+    status: room.status,
+  });
 
   return gameLoop;
 }

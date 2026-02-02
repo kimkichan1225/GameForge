@@ -84,11 +84,12 @@ interface MultiplayerGameStore extends GameState {
   initGame: () => void;
   cleanupGame: () => void;
   sendPosition: (position: { x: number; y: number; z: number }, velocity: { x: number; y: number; z: number }, animation: string) => void;
-  reachCheckpoint: (checkpointIndex: number, position?: [number, number, number]) => Promise<{ success: boolean; teleportTo?: [number, number, number] }>;
+  reachCheckpoint: (checkpointIndex: number, position?: [number, number, number], isRelayCheckpoint?: boolean) => Promise<{ success: boolean; teleportTo?: [number, number, number] }>;
   finish: () => Promise<boolean>;
   notifyDeath: () => void;
   getOtherPlayers: () => PlayerState[];
   setLastCheckpointPos: (pos: [number, number, number]) => void;
+  incrementLocalCheckpoint: (pos: [number, number, number]) => void;  // 일반 체크포인트용 (UI 카운트만 증가)
 
   // 빌딩 페이즈 액션
   initBuilding: () => void;
@@ -149,6 +150,7 @@ export const useMultiplayerGameStore = create<MultiplayerGameStore>((set, get) =
       isRelayRace?: boolean;
       relayMapData?: RelayMapData;
     }) => {
+      console.log('[game:starting] 이벤트 수신:', data);
       set({
         countdown: data.countdown,
         status: 'countdown',
@@ -164,6 +166,7 @@ export const useMultiplayerGameStore = create<MultiplayerGameStore>((set, get) =
       isRelayRace?: boolean;
       relayMapData?: RelayMapData;
     }) => {
+      console.log('[game:start] 이벤트 수신:', data);
       if (typeof data?.startTime !== 'number') return;
       set({
         status: 'playing',
@@ -298,7 +301,7 @@ export const useMultiplayerGameStore = create<MultiplayerGameStore>((set, get) =
     }
   },
 
-  reachCheckpoint: (checkpointIndex, position) => {
+  reachCheckpoint: (checkpointIndex, position, isRelayCheckpoint = false) => {
     return new Promise((resolve) => {
       const socket = socketManager.getSocket();
       if (!socket) {
@@ -306,13 +309,13 @@ export const useMultiplayerGameStore = create<MultiplayerGameStore>((set, get) =
         return;
       }
 
-      socket.emit('game:checkpoint', { checkpointIndex }, (response: { success: boolean; teleportTo?: [number, number, number] }) => {
+      socket.emit('game:checkpoint', { checkpointIndex, isRelayCheckpoint }, (response: { success: boolean; teleportTo?: [number, number, number] }) => {
         if (response.success) {
-          set({
-            localCheckpoint: checkpointIndex,
+          set(state => ({
+            localCheckpoint: state.localCheckpoint + 1,  // 기존 값에서 +1 증가
             lastCheckpointPos: position || null,
             pendingTeleport: response.teleportTo || null,
-          });
+          }));
         }
         resolve({ success: response.success, teleportTo: response.teleportTo });
       });
@@ -350,6 +353,13 @@ export const useMultiplayerGameStore = create<MultiplayerGameStore>((set, get) =
 
   setLastCheckpointPos: (pos) => {
     set({ lastCheckpointPos: pos });
+  },
+
+  incrementLocalCheckpoint: (pos) => {
+    set(state => ({
+      localCheckpoint: state.localCheckpoint + 1,
+      lastCheckpointPos: pos,
+    }));
   },
 
   clearPendingTeleport: () => {
@@ -441,12 +451,23 @@ export const useMultiplayerGameStore = create<MultiplayerGameStore>((set, get) =
     // 마커 배치 확인
     socket.on('build:markerPlaced', (data: { marker: MapMarker }) => {
       set(state => {
-        // 같은 타입의 마커가 있으면 업데이트, 없으면 추가
-        const existingIndex = state.myMarkers.findIndex(m => m.type === data.marker.type);
-        if (existingIndex >= 0) {
-          const newMarkers = [...state.myMarkers];
-          newMarkers[existingIndex] = data.marker;
-          return { myMarkers: newMarkers };
+        // spawn, finish는 1개만 허용 (같은 타입이 있으면 업데이트)
+        // checkpoint, killzone은 여러 개 허용 (같은 ID가 있으면 업데이트, 없으면 추가)
+        if (data.marker.type === 'spawn' || data.marker.type === 'finish') {
+          const existingIndex = state.myMarkers.findIndex(m => m.type === data.marker.type);
+          if (existingIndex >= 0) {
+            const newMarkers = [...state.myMarkers];
+            newMarkers[existingIndex] = data.marker;
+            return { myMarkers: newMarkers };
+          }
+        } else {
+          // checkpoint, killzone: ID로 확인
+          const existingIndex = state.myMarkers.findIndex(m => m.id === data.marker.id);
+          if (existingIndex >= 0) {
+            const newMarkers = [...state.myMarkers];
+            newMarkers[existingIndex] = data.marker;
+            return { myMarkers: newMarkers };
+          }
         }
         return { myMarkers: [...state.myMarkers, data.marker] };
       });
@@ -544,7 +565,6 @@ export const useMultiplayerGameStore = create<MultiplayerGameStore>((set, get) =
         status: 'countdown',   // 상태를 countdown으로 변경하여 빌딩 화면에서 벗어남
       });
       console.log('빌딩 완료! 릴레이 순서:', data.shuffledOrder.map(p => p.nickname).join(' → '));
-      // 서버에서 자동으로 game:starting 이벤트가 발생함
     });
   },
 
