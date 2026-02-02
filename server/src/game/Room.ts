@@ -5,6 +5,7 @@ export interface Player {
   isReady: boolean;
   position?: { x: number; y: number; z: number };
   velocity?: { x: number; y: number; z: number };
+  animation?: string;
   checkpoint: number;
   finishTime?: number;
 }
@@ -108,13 +109,17 @@ export class Room {
   updatePlayerPosition(
     playerId: string,
     position: { x: number; y: number; z: number },
-    velocity?: { x: number; y: number; z: number }
+    velocity?: { x: number; y: number; z: number },
+    animation?: string
   ): void {
     const player = this.players.get(playerId);
     if (player) {
       player.position = position;
       if (velocity) {
         player.velocity = velocity;
+      }
+      if (animation) {
+        player.animation = animation;
       }
     }
   }

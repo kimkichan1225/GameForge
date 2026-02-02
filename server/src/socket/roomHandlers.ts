@@ -110,10 +110,11 @@ export function registerRoomHandlers(io: Server, socket: Socket): void {
   socket.on('game:position', (data: {
     position: { x: number; y: number; z: number };
     velocity: { x: number; y: number; z: number };
+    animation?: string;
   }) => {
     const gameLoop = getGameLoop(roomManager.getPlayerRoom(socket.id)?.id || '');
     if (gameLoop) {
-      gameLoop.updatePlayerPosition(socket.id, data.position, data.velocity);
+      gameLoop.updatePlayerPosition(socket.id, data.position, data.velocity, data.animation);
     }
   });
 

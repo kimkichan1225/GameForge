@@ -9,20 +9,20 @@ interface RemotePlayerProps {
   nickname: string;
   position: { x: number; y: number; z: number };
   velocity: { x: number; y: number; z: number };
+  animation: string;
   checkpoint: number;
   finished: boolean;
 }
 
 const _targetPos = new THREE.Vector3();
-const _currentVel = new THREE.Vector3();
 const _yAxis = new THREE.Vector3(0, 1, 0);
 const _targetQuat = new THREE.Quaternion();
 
 export const RemotePlayer = memo(function RemotePlayer({
-  id,
   nickname,
   position,
   velocity,
+  animation,
 }: RemotePlayerProps) {
   const group = useRef<THREE.Group>(null!);
   const { scene, animations } = useGLTF('/Runtest.glb');
@@ -38,27 +38,27 @@ export const RemotePlayer = memo(function RemotePlayer({
   const currentAnim = useRef('');
   const lerpedPos = useRef<THREE.Vector3 | null>(null);
 
-  // Initialize animation
-  useEffect(() => {
-    if (names.length > 0 && !currentAnim.current) {
-      playAnim('Idle');
-    }
-  }, [names]);
-
-  // Get animation name map
+  // Get animation name map - all animations
   const animMap = useMemo(() => {
     const map: Record<string, string> = {};
-    const targets = ['Idle', 'Walk', 'Run'];
+    const targets = ['Idle', 'Walk', 'Run', 'Jump', 'SitPose', 'SitWalk', 'CrawlPose', 'Crawl', 'Roll', 'Dead'];
 
     for (const target of targets) {
       const found = names.find((n) => {
         const parts = n.split('|');
         return parts[parts.length - 1].toLowerCase() === target.toLowerCase();
-      });
+      }) || names.find((n) => n.toLowerCase().includes(target.toLowerCase()));
       if (found) map[target] = found;
     }
 
     return map;
+  }, [names]);
+
+  // Initialize animation
+  useEffect(() => {
+    if (names.length > 0 && !currentAnim.current) {
+      playAnim('Idle');
+    }
   }, [names]);
 
   const playAnim = (name: string) => {
@@ -72,7 +72,15 @@ export const RemotePlayer = memo(function RemotePlayer({
     if (prevClip) actions[prevClip]?.fadeOut(0.2);
 
     action.reset().fadeIn(0.2).play();
-    action.setLoop(THREE.LoopRepeat, Infinity);
+
+    // One-shot animations
+    if (name === 'Jump' || name === 'Roll' || name === 'Dead') {
+      action.setLoop(THREE.LoopOnce, 1);
+      action.clampWhenFinished = true;
+      if (name === 'Roll') action.timeScale = 2.3;
+    } else {
+      action.setLoop(THREE.LoopRepeat, Infinity);
+    }
 
     currentAnim.current = name;
   };
@@ -90,20 +98,13 @@ export const RemotePlayer = memo(function RemotePlayer({
     lerpedPos.current.lerp(_targetPos, 0.15);
     group.current.position.copy(lerpedPos.current);
 
-    // Update velocity for animation and rotation
-    _currentVel.set(velocity.x, 0, velocity.z);
-    const speed = _currentVel.length();
-
-    // Update animation based on speed
-    if (speed < 0.5) {
-      playAnim('Idle');
-    } else if (speed < 5) {
-      playAnim('Walk');
-    } else {
-      playAnim('Run');
+    // Play animation received from server
+    if (animation) {
+      playAnim(animation);
     }
 
     // Rotate to face movement direction
+    const speed = Math.sqrt(velocity.x * velocity.x + velocity.z * velocity.z);
     if (speed > 0.5) {
       const angle = Math.atan2(velocity.x, velocity.z);
       _targetQuat.setFromAxisAngle(_yAxis, angle);

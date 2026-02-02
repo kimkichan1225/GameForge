@@ -6,6 +6,7 @@ interface PlayerState {
   nickname: string;
   position: { x: number; y: number; z: number };
   velocity: { x: number; y: number; z: number };
+  animation: string;
   checkpoint: number;
   finished: boolean;
   finishTime?: number;
@@ -34,7 +35,7 @@ interface MultiplayerGameStore extends GameState {
   // Actions
   initGame: () => void;
   cleanupGame: () => void;
-  sendPosition: (position: { x: number; y: number; z: number }, velocity: { x: number; y: number; z: number }) => void;
+  sendPosition: (position: { x: number; y: number; z: number }, velocity: { x: number; y: number; z: number }, animation: string) => void;
   reachCheckpoint: (checkpointIndex: number) => Promise<boolean>;
   finish: () => Promise<boolean>;
   notifyDeath: () => void;
@@ -135,10 +136,10 @@ export const useMultiplayerGameStore = create<MultiplayerGameStore>((set, get) =
     });
   },
 
-  sendPosition: (position, velocity) => {
+  sendPosition: (position, velocity, animation) => {
     const socket = socketManager.getSocket();
     if (socket && get().status === 'playing') {
-      socket.emit('game:position', { position, velocity });
+      socket.emit('game:position', { position, velocity, animation });
     }
   },
 

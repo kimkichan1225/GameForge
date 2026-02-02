@@ -15,6 +15,7 @@ interface PlayerState {
   nickname: string;
   position: { x: number; y: number; z: number };
   velocity: { x: number; y: number; z: number };
+  animation: string;
   checkpoint: number;
   finished: boolean;
   finishTime?: number;
@@ -98,6 +99,7 @@ export class GameLoop {
         nickname: player.nickname,
         position: player.position || { x: 0, y: 0, z: 0 },
         velocity: player.velocity || { x: 0, y: 0, z: 0 },
+        animation: player.animation || 'Idle',
         checkpoint: player.checkpoint,
         finished: player.finishTime !== undefined,
         finishTime: player.finishTime,
@@ -132,9 +134,10 @@ export class GameLoop {
   updatePlayerPosition(
     playerId: string,
     position: { x: number; y: number; z: number },
-    velocity: { x: number; y: number; z: number }
+    velocity: { x: number; y: number; z: number },
+    animation?: string
   ): void {
-    this.room.updatePlayerPosition(playerId, position, velocity);
+    this.room.updatePlayerPosition(playerId, position, velocity, animation);
   }
 
   playerReachedCheckpoint(playerId: string, checkpointIndex: number): boolean {

@@ -71,7 +71,7 @@ const LocalPlayer = memo(function LocalPlayer({
   // Build animation map
   useEffect(() => {
     const map: Record<string, string> = {};
-    const targets = ['Idle', 'Walk', 'Run', 'Jump', 'SitPose', 'SitWalk', 'CrawlPose', 'Crawl'];
+    const targets = ['Idle', 'Walk', 'Run', 'Jump', 'SitPose', 'SitWalk', 'CrawlPose', 'Crawl', 'Roll', 'Dead'];
 
     for (const target of targets) {
       const found = names.find((n) => {
@@ -99,9 +99,11 @@ const LocalPlayer = memo(function LocalPlayer({
 
       action.reset().fadeIn(0.2).play();
 
-      if (name === 'Jump') {
+      // One-shot animations
+      if (name === 'Jump' || name === 'Roll' || name === 'Dead') {
         action.setLoop(THREE.LoopOnce, 1);
         action.clampWhenFinished = true;
+        if (name === 'Roll') action.timeScale = 2.3;
       } else {
         action.setLoop(THREE.LoopRepeat, Infinity);
       }
@@ -223,7 +225,8 @@ const LocalPlayer = memo(function LocalPlayer({
       lastPositionSent.current = now;
       sendPosition(
         { x: pos.x, y: pos.y - centerY, z: pos.z },
-        { x: _move.x * speed, y: vel.y, z: _move.z * speed }
+        { x: _move.x * speed, y: vel.y, z: _move.z * speed },
+        currentAnim.current
       );
     }
   });
@@ -364,6 +367,7 @@ const RemotePlayers = memo(function RemotePlayers() {
           nickname={player.nickname}
           position={player.position}
           velocity={player.velocity}
+          animation={player.animation}
           checkpoint={player.checkpoint}
           finished={player.finished}
         />
