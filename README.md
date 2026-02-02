@@ -1,6 +1,6 @@
 # GameForge
 
-웹 기반 3D 게임 제작 및 플레이 플랫폼
+웹 기반 3D 게임 제작 및 멀티플레이어 플랫폼
 
 ## 프로젝트 소개
 
@@ -10,8 +10,9 @@ GameForge는 사용자가 3D 도형을 활용해 맵을 직접 제작하고, 기
 
 - **맵 에디터**: FPS 스타일의 직관적인 맵 제작 도구
 - **테스트 플레이**: 제작한 맵에서 바로 캐릭터로 테스트
-- **게임 모드**: Race (달리기), Shooter (팀전/점령전/개인전)
-- **멀티플레이어**: 실시간 협동 빌딩 및 게임 플레이 (개발 예정)
+- **맵 업로드/공유**: 완주 검증 후 맵 업로드, 썸네일 캡처 지원
+- **게임 모드**: Race (달리기), Shooter (개발 예정)
+- **멀티플레이어**: 실시간 레이스, 방 시스템, 맵 선택
 
 ## 기술 스택
 
@@ -24,10 +25,10 @@ GameForge는 사용자가 3D 도형을 활용해 맵을 직접 제작하고, 기
 - TailwindCSS v4
 - Supabase (인증)
 
-### Backend (개발 예정)
-- Node.js + Express
-- Socket.io
-- Supabase (Database, Storage)
+### Backend
+- Node.js + Express + TypeScript
+- Socket.io (실시간 멀티플레이어)
+- Supabase (Database, Storage, Auth)
 
 ## 시작하기
 
@@ -43,15 +44,16 @@ GameForge는 사용자가 3D 도형을 활용해 맵을 직접 제작하고, 기
 git clone https://github.com/your-username/GameForge.git
 cd GameForge
 
-# 클라이언트 의존성 설치
+# 클라이언트 설치 및 실행
 cd client
 npm install
-
-# 환경 변수 설정
 cp .env.example .env
 # .env 파일에 Supabase URL과 Key 입력
+npm run dev
 
-# 개발 서버 실행
+# 서버 설치 및 실행 (새 터미널)
+cd server
+npm install
 npm run dev
 ```
 
@@ -134,69 +136,92 @@ GameForge/
 │   │   └── Runtest.glb         # 플레이어 3D 모델
 │   └── src/
 │       ├── components/
-│       │   ├── editor/         # 맵 에디터 컴포넌트
+│       │   ├── editor/         # 맵 에디터
 │       │   │   ├── EditorCanvas.tsx
 │       │   │   └── EditorUI.tsx
-│       │   └── game/           # 게임 플레이 컴포넌트
-│       │       └── TestPlayCanvas.tsx
+│       │   ├── game/           # 게임 플레이
+│       │   │   ├── TestPlayCanvas.tsx
+│       │   │   └── MultiplayerCanvas.tsx
+│       │   └── map/            # 맵 브라우저
+│       │       ├── MapBrowser.tsx
+│       │       └── MapCard.tsx
 │       ├── stores/             # Zustand 스토어
 │       │   ├── authStore.ts
 │       │   ├── editorStore.ts
-│       │   └── gameStore.ts
-│       ├── hooks/              # 커스텀 훅
-│       │   └── useInput.ts
+│       │   ├── gameStore.ts
+│       │   └── roomStore.ts
 │       ├── lib/                # 유틸리티
 │       │   ├── supabase.ts
-│       │   └── physics.ts      # Rapier 물리 엔진
-│       └── pages/              # 페이지 컴포넌트
+│       │   ├── socket.ts
+│       │   ├── physics.ts
+│       │   └── mapService.ts
+│       └── pages/
 │           ├── Landing.tsx
-│           ├── Home.tsx
-│           └── MapEditor.tsx
-├── server/                     # Backend (개발 예정)
-├── Prompt.md                   # 상세 설계 문서
+│           ├── Home.tsx        # 로비/방 목록
+│           ├── MapEditor.tsx
+│           └── MultiplayerGame.tsx
+├── server/                     # Backend
+│   └── src/
+│       ├── game/
+│       │   ├── Room.ts
+│       │   ├── RoomManager.ts
+│       │   └── GameLoop.ts
+│       └── socket/
+│           └── roomHandlers.ts
+├── PROMPT.md                   # 상세 설계 문서
 └── README.md
 ```
 
 ## 개발 현황
 
-- [x] Phase 0: 인증 시스템
+- [x] Phase 0: 인증 시스템 (Supabase Auth)
 - [x] Phase 1: 맵 에디터 + 테스트 플레이
-  - [x] FPS 스타일 맵 에디터
-  - [x] 오브젝트/마커 배치
-  - [x] Rapier 물리 엔진 통합
-  - [x] 플레이어 캐릭터 (캡슐 콜라이더, 애니메이션)
-  - [x] 자세 시스템 (서기/앉기/엎드리기)
-  - [x] 점프/구르기 메카닉
-  - [x] 디버그 콜라이더 표시
 - [x] Phase 2: 달리기 모드 (싱글 플레이)
-  - [x] 타이머 시스템 (첫 이동 시 자동 시작)
-  - [x] 체크포인트 시스템 (통과 시 리스폰 지점 저장)
-  - [x] 완주 판정 및 결과 화면
-  - [x] 킬존 마커 (즉사 구역, 사망 애니메이션 + 리스폰)
-  - [x] 낙사 시스템 (Y < -10 낙사)
-  - [x] 게임 재시작 (페이지 리로드 없이)
-- [ ] Phase 3: 멀티플레이어
-- [ ] Phase 4: 총게임 모드
+- [x] Phase 3: 멀티플레이어 Race
+  - [x] Socket.io 서버 구축
+  - [x] 방 생성/참가/나가기
+  - [x] 실시간 위치/애니메이션 동기화
+  - [x] 멀티플레이어 레이스 (체크포인트, 킬존, 피니시)
+  - [x] 10초 유예기간 (첫 완주자 이후)
+  - [x] DNF 처리 및 랭킹 시스템
+  - [x] 사망 애니메이션 동기화
+- [x] 맵 업로드 시스템
+  - [x] 완주 검증 (테스트 플레이 완주 필수)
+  - [x] 썸네일 캡처/업로드
+  - [x] 맵 브라우저 (전체 맵/내 맵 필터)
+  - [x] 맵 삭제, 플레이 카운트
+- [x] 방 시스템
+  - [x] 맵 제작 & 플레이 / 기존 맵 불러오기 모드
+  - [x] 공개/비공개 방
+  - [x] 방 설정 변경 (방장)
+  - [x] 대기방에서 맵 변경
+  - [x] 카드형 방 목록 UI
+- [ ] Phase 4: 총게임 모드 (Shooter)
 
 ## 최근 업데이트
 
-### 2026-02-01 (Phase 2 완료)
-- **Race 모드 완성**
-  - 타이머 시스템 (첫 이동 시 자동 시작)
-  - 체크포인트 시스템 (통과 시 리스폰 지점 저장)
-  - 완주 판정 및 결과 화면
-  - 킬존 마커 (즉사 구역, 원판 형태)
-    - 사망 애니메이션 (2.5초) 후 리스폰
-    - 에디터/플레이 모드에서 링 형태로 표시
-  - 낙사 시스템 (Y < -10 낙사 시 마지막 체크포인트로 리스폰)
-  - 게임 재시작 (페이지 리로드 없이 플레이어 위치/상태 초기화)
-- **성능 최적화**
-  - React.memo 적용
-  - 지오메트리/머티리얼 캐싱
-  - useCallback/useMemo 최적화
-  - 조건부 스토어 업데이트 (변경 시에만)
-- 자세 변경 시 콜라이더 버그 수정
-- 물리 엔진 메모리 접근 에러 수정
+### 2026-02-02
+- **UI 개선**
+  - 방 목록 카드 그리드 레이아웃
+  - 대기방 좌우 분할 레이아웃 (정보 + 썸네일)
+  - 맵 썸네일/이름 표시
+- **대기방 기능**
+  - 방장 설정 변경
+  - 맵 변경 (썸네일 호버 시 버튼 표시)
+- **버그 수정**
+  - 게임 종료 후 방 상태 관리 수정
+  - Dead 애니메이션 동기화 수정
+
+### 2026-02-01
+- **멀티플레이어 Race 완성**
+  - 실시간 위치/애니메이션 동기화
+  - 체크포인트, 킬존, 피니시 로직
+  - 10초 유예기간, DNF 처리
+  - 랭킹 및 결과 화면
+- **맵 업로드 시스템**
+  - 완주 검증 후 업로드
+  - 맵 브라우저
+  - Supabase Storage 연동
 
 ## 라이선스
 

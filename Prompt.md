@@ -960,44 +960,64 @@ Timer.after(180, () => {
 
 ## 프로젝트 구조
 
-### 현재 구현된 구조 (Phase 1 완료)
+### 현재 구현된 구조 (Phase 3 완료)
 ```
 GameForge/
 ├── .env                        # 환경 변수 (Supabase)
 ├── .env.example                # 환경 변수 예시
 ├── .gitignore
-├── Prompt.md                   # 프로젝트 설계 문서
+├── PROMPT.md                   # 프로젝트 설계 문서
 ├── README.md                   # 프로젝트 소개
 │
-└── client/                     # Frontend (React + Vite)
-    ├── .env                    # 클라이언트 환경 변수
+├── client/                     # Frontend (React + Vite)
+│   ├── .env                    # 클라이언트 환경 변수
+│   ├── package.json
+│   ├── vite.config.ts
+│   ├── public/
+│   │   └── Runtest.glb         # 플레이어 캐릭터 3D 모델
+│   └── src/
+│       ├── App.tsx             # 라우팅 설정
+│       ├── main.tsx
+│       ├── index.css           # TailwindCSS 설정
+│       ├── lib/
+│       │   ├── supabase.ts     # Supabase 클라이언트
+│       │   ├── socket.ts       # Socket.io 클라이언트
+│       │   ├── physics.ts      # Rapier 물리 엔진 래퍼
+│       │   └── mapService.ts   # 맵 CRUD 서비스
+│       ├── hooks/
+│       │   └── useInput.ts     # 키보드 입력 훅
+│       ├── stores/
+│       │   ├── authStore.ts    # 인증 상태 관리
+│       │   ├── editorStore.ts  # 맵 에디터 상태 관리
+│       │   ├── gameStore.ts    # 게임 플레이 상태 관리
+│       │   └── roomStore.ts    # 방/로비 상태 관리
+│       ├── components/
+│       │   ├── editor/
+│       │   │   ├── EditorCanvas.tsx  # 3D 캔버스
+│       │   │   └── EditorUI.tsx      # 에디터 UI
+│       │   ├── game/
+│       │   │   ├── TestPlayCanvas.tsx    # 싱글 테스트 플레이
+│       │   │   └── MultiplayerCanvas.tsx # 멀티플레이어 게임
+│       │   └── map/
+│       │       ├── MapBrowser.tsx    # 맵 브라우저 모달
+│       │       └── MapCard.tsx       # 맵 카드 컴포넌트
+│       └── pages/
+│           ├── Landing.tsx         # 랜딩 페이지 (/)
+│           ├── Home.tsx            # 로비/방 목록 (/home)
+│           ├── MapEditor.tsx       # 맵 에디터 (/editor)
+│           └── MultiplayerGame.tsx # 멀티플레이어 게임 (/multiplayer-game)
+│
+└── server/                     # Backend (Node.js + Socket.io)
     ├── package.json
-    ├── vite.config.ts
-    ├── public/
-    │   └── Runtest.glb         # 플레이어 캐릭터 3D 모델 (애니메이션 포함)
+    ├── tsconfig.json
     └── src/
-        ├── App.tsx             # 라우팅 설정
-        ├── main.tsx
-        ├── index.css           # TailwindCSS 설정
-        ├── lib/
-        │   ├── supabase.ts     # Supabase 클라이언트
-        │   └── physics.ts      # Rapier 물리 엔진 래퍼
-        ├── hooks/
-        │   └── useInput.ts     # 키보드 입력 훅
-        ├── stores/
-        │   ├── authStore.ts    # 인증 상태 관리 (Zustand)
-        │   ├── editorStore.ts  # 맵 에디터 상태 관리 (Zustand)
-        │   └── gameStore.ts    # 게임 플레이 상태 관리 (Zustand)
-        ├── components/
-        │   ├── editor/
-        │   │   ├── EditorCanvas.tsx  # 3D 캔버스 (Three.js)
-        │   │   └── EditorUI.tsx      # 에디터 UI (툴바, 핫바, 속성패널)
-        │   └── game/
-        │       └── TestPlayCanvas.tsx # 테스트 플레이 모드 (물리, 캐릭터)
-        └── pages/
-            ├── Landing.tsx     # 랜딩 페이지 (/)
-            ├── Home.tsx        # 게임 메인/로비 (/home)
-            └── MapEditor.tsx   # 맵 에디터 (/editor)
+        ├── index.ts            # 서버 엔트리포인트
+        ├── game/
+        │   ├── Room.ts         # 방 클래스
+        │   ├── RoomManager.ts  # 방 관리자
+        │   └── GameLoop.ts     # 게임 루프 (레이스 로직)
+        └── socket/
+            └── roomHandlers.ts # Socket.io 이벤트 핸들러
 ```
 
 ### 최종 목표 구조
@@ -1219,7 +1239,7 @@ supabase
 
 ## 개발 현황
 
-### 완료된 기능 (Phase 1 완료)
+### 완료된 기능 (Phase 3 완료)
 
 #### 프론트엔드 기본 설정
 - [x] Vite + React + TypeScript 프로젝트 생성
@@ -1376,16 +1396,28 @@ supabase
 - [x] 낙사 시스템 (Y < -10)
 - [x] 게임 재시작 (페이지 리로드 없이)
 
-### Phase 3: 멀티플레이어 기반 (2-3주)
+### Phase 3: 멀티플레이어 기반 (2-3주) ✅ 완료
 **목표**: 실시간 멀티플레이어 인프라 구축
 
-- [ ] Socket.io 서버 설정
-- [ ] 방 생성/참가/나가기
-- [ ] 로비 UI
-- [ ] 실시간 위치 동기화
-- [ ] 클라이언트 예측 + 서버 보정
-- [ ] 멀티플레이어 달리기 모드
-- [ ] **협동 빌딩 모드**
+- [x] Socket.io 서버 설정
+- [x] 방 생성/참가/나가기
+- [x] 로비 UI (카드형 방 목록, 코드로 참가)
+- [x] 실시간 위치/애니메이션 동기화
+- [x] 멀티플레이어 달리기 모드
+  - [x] 체크포인트/킬존/피니시 로직
+  - [x] 10초 유예기간 (첫 완주자 이후)
+  - [x] DNF 처리 및 랭킹
+  - [x] 사망 애니메이션 동기화
+- [x] 맵 업로드 시스템
+  - [x] 완주 검증 (Verified 배지)
+  - [x] 썸네일 캡처/업로드
+  - [x] 맵 브라우저 (전체/내 맵)
+- [x] 방 시스템
+  - [x] 맵 제작 & 플레이 / 기존 맵 불러오기
+  - [x] 공개/비공개 방
+  - [x] 방 설정 변경 (방장)
+  - [x] 대기방 맵 변경
+- [ ] **협동 빌딩 모드** (추후 개발)
   - [ ] 실시간 맵 편집 동기화
   - [ ] 다른 참가자 커서 표시
   - [ ] 빌딩 → 플레이 전환

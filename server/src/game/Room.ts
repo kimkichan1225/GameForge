@@ -49,6 +49,8 @@ export class Room {
   public maxPlayers: number;
   public status: RoomState['status'] = 'waiting';
   public mapId: string;
+  public mapName?: string;
+  public mapThumbnailUrl?: string;
   public gameMode: GameMode;
   public roomType: RoomType;
   public isPrivate: boolean;
@@ -61,6 +63,8 @@ export class Room {
     this.name = options.name;
     this.hostId = options.hostId;
     this.mapId = options.mapId ?? 'default';
+    this.mapName = options.mapName;
+    this.mapThumbnailUrl = options.mapThumbnailUrl;
     this.maxPlayers = options.maxPlayers ?? 4;
     this.gameMode = options.gameMode ?? 'race';
     this.roomType = options.roomType ?? 'create_map';
@@ -141,12 +145,16 @@ export class Room {
     isPrivate?: boolean;
     buildTimeLimit?: number;
     mapId?: string;
+    mapName?: string;
+    mapThumbnailUrl?: string;
   }): void {
     if (settings.name !== undefined) this.name = settings.name;
     if (settings.maxPlayers !== undefined) this.maxPlayers = Math.max(1, Math.min(8, settings.maxPlayers));
     if (settings.isPrivate !== undefined) this.isPrivate = settings.isPrivate;
     if (settings.buildTimeLimit !== undefined) this.buildTimeLimit = settings.buildTimeLimit;
     if (settings.mapId !== undefined) this.mapId = settings.mapId;
+    if (settings.mapName !== undefined) this.mapName = settings.mapName;
+    if (settings.mapThumbnailUrl !== undefined) this.mapThumbnailUrl = settings.mapThumbnailUrl;
   }
 
   // 게임 종료 후 대기방으로 돌아갈 때 호출
@@ -195,6 +203,8 @@ export class Room {
       maxPlayers: this.maxPlayers,
       status: this.status,
       mapId: this.mapId,
+      mapName: this.mapName,
+      mapThumbnailUrl: this.mapThumbnailUrl,
       gameMode: this.gameMode,
       roomType: this.roomType,
       isPrivate: this.isPrivate,
@@ -211,6 +221,8 @@ export class Room {
       maxPlayers: this.maxPlayers,
       status: this.status,
       mapId: this.mapId,
+      mapName: this.mapName,
+      mapThumbnailUrl: this.mapThumbnailUrl,
       gameMode: this.gameMode,
       roomType: this.roomType,
       isPrivate: this.isPrivate,

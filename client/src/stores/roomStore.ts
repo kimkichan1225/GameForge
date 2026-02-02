@@ -18,6 +18,8 @@ export interface RoomInfo {
   maxPlayers: number;
   status: 'waiting' | 'countdown' | 'playing' | 'finished';
   mapId: string;
+  mapName?: string;
+  mapThumbnailUrl?: string;
   gameMode: GameMode;
   roomType: RoomType;
   isPrivate: boolean;
@@ -31,6 +33,8 @@ export interface RoomDetail {
   maxPlayers: number;
   status: 'waiting' | 'countdown' | 'playing' | 'finished';
   mapId: string;
+  mapName?: string;
+  mapThumbnailUrl?: string;
   gameMode: GameMode;
   roomType: RoomType;
   isPrivate: boolean;
@@ -56,6 +60,8 @@ interface RoomState {
     nickname: string;
     roomName: string;
     mapId?: string;
+    mapName?: string;
+    mapThumbnailUrl?: string;
     maxPlayers?: number;
     gameMode?: GameMode;
     roomType?: RoomType;
@@ -73,6 +79,8 @@ interface RoomState {
     isPrivate?: boolean;
     buildTimeLimit?: number;
     mapId?: string;
+    mapName?: string;
+    mapThumbnailUrl?: string;
   }) => Promise<boolean>;
 }
 
@@ -205,6 +213,8 @@ export const useRoomStore = create<RoomState>((set, get) => ({
       nickname,
       roomName,
       mapId = 'default',
+      mapName,
+      mapThumbnailUrl,
       maxPlayers = 4,
       gameMode = 'race',
       roomType = 'create_map',
@@ -222,7 +232,7 @@ export const useRoomStore = create<RoomState>((set, get) => ({
 
       socket.emit(
         'room:create',
-        { nickname, roomName, mapId, maxPlayers, gameMode, roomType, isPrivate, buildTimeLimit },
+        { nickname, roomName, mapId, mapName, mapThumbnailUrl, maxPlayers, gameMode, roomType, isPrivate, buildTimeLimit },
         (response: { success: boolean; room?: RoomDetail; error?: string }) => {
           if (response.success && response.room) {
             set({ currentRoom: response.room, canStart: false });

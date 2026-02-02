@@ -14,19 +14,23 @@ export function registerRoomHandlers(io: Server, socket: Socket): void {
     nickname: string;
     roomName: string;
     mapId?: string;
+    mapName?: string;
+    mapThumbnailUrl?: string;
     maxPlayers?: number;
     gameMode?: 'race' | 'shooter';
     roomType?: 'create_map' | 'load_map';
     isPrivate?: boolean;
     buildTimeLimit?: number;
   }, callback) => {
-    const { nickname, roomName, mapId, maxPlayers, gameMode, roomType, isPrivate, buildTimeLimit } = data;
+    const { nickname, roomName, mapId, mapName, mapThumbnailUrl, maxPlayers, gameMode, roomType, isPrivate, buildTimeLimit } = data;
 
     const room = roomManager.createRoom({
       hostId: socket.id,
       hostNickname: nickname,
       roomName,
       mapId,
+      mapName,
+      mapThumbnailUrl,
       maxPlayers,
       gameMode,
       roomType,
@@ -104,6 +108,8 @@ export function registerRoomHandlers(io: Server, socket: Socket): void {
     isPrivate?: boolean;
     buildTimeLimit?: number;
     mapId?: string;
+    mapName?: string;
+    mapThumbnailUrl?: string;
   }, callback) => {
     const room = roomManager.getPlayerRoom(socket.id);
 

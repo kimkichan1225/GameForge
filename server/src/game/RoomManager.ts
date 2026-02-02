@@ -5,6 +5,8 @@ export interface CreateRoomParams {
   hostNickname: string;
   roomName: string;
   mapId?: string;
+  mapName?: string;
+  mapThumbnailUrl?: string;
   maxPlayers?: number;
   gameMode?: GameMode;
   roomType?: RoomType;
@@ -21,7 +23,7 @@ export class RoomManager {
   }
 
   createRoom(params: CreateRoomParams): Room | null {
-    const { hostId, hostNickname, roomName, mapId, maxPlayers, gameMode, roomType, isPrivate, buildTimeLimit } = params;
+    const { hostId, hostNickname, roomName, mapId, mapName, mapThumbnailUrl, maxPlayers, gameMode, roomType, isPrivate, buildTimeLimit } = params;
 
     // Check if player is already in a room
     if (this.playerRooms.has(hostId)) {
@@ -33,6 +35,8 @@ export class RoomManager {
       name: roomName,
       hostId,
       mapId,
+      mapName,
+      mapThumbnailUrl,
       maxPlayers,
       gameMode,
       roomType,

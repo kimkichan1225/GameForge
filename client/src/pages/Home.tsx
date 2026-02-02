@@ -36,6 +36,9 @@ function Home() {
   const [editBuildTimeLimit, setEditBuildTimeLimit] = useState(300)
   const [isSavingSettings, setIsSavingSettings] = useState(false)
 
+  // 맵 변경 (대기방에서)
+  const [showEditMapBrowser, setShowEditMapBrowser] = useState(false)
+
   const navigate = useNavigate()
 
   // Auth store
@@ -162,6 +165,8 @@ function Home() {
       nickname: username,
       roomName: roomName.trim(),
       mapId: roomType === 'load_map' && selectedMap ? selectedMap.id : 'default',
+      mapName: roomType === 'load_map' && selectedMap ? selectedMap.name : undefined,
+      mapThumbnailUrl: roomType === 'load_map' && selectedMap ? selectedMap.thumbnail_url : undefined,
       maxPlayers,
       gameMode,
       roomType,
@@ -224,6 +229,17 @@ function Home() {
       setEditBuildTimeLimit(currentRoom.buildTimeLimit || 300)
       setShowSettingsModal(true)
     }
+  }
+
+  // 대기방에서 맵 변경
+  const handleEditMapSelect = async (map: MapRecord) => {
+    setShowEditMapBrowser(false)
+    // 바로 서버에 저장
+    await updateRoomSettings({
+      mapId: map.id,
+      mapName: map.name,
+      mapThumbnailUrl: map.thumbnail_url || undefined,
+    })
   }
 
   // 방 설정 저장
@@ -370,19 +386,24 @@ function Home() {
 
           {/* Current Room (대기실) */}
           {currentRoom && (
-            <div className="mb-8 bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 p-6">
-              <div className="flex items-center justify-between mb-6">
-                <div>
-                  <h2 className="text-xl font-bold text-white">{currentRoom.name}</h2>
-                  <div className="flex items-center gap-2">
-                    <p className="text-white/50 text-sm">방 코드:</p>
-                    <span className="text-sky-400 font-mono font-bold tracking-widest">{currentRoom.id}</span>
+            <div className="mb-8 bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 overflow-hidden">
+              {/* 상단: 방 정보 + 썸네일 (좌우 분할) */}
+              <div className="flex flex-col md:flex-row">
+                {/* 왼쪽: 방 정보 */}
+                <div className="flex-1 p-6">
+                  {/* 방 이름 */}
+                  <h2 className="text-2xl font-bold text-white mb-3">{currentRoom.name}</h2>
+
+                  {/* 방 코드 */}
+                  <div className="flex items-center gap-2 mb-4">
+                    <span className="text-white/50 text-sm">방 코드</span>
+                    <span className="px-3 py-1 bg-white/10 rounded-lg text-sky-400 font-mono font-bold tracking-widest">{currentRoom.id}</span>
                     <button
                       onClick={() => {
                         navigator.clipboard.writeText(currentRoom.id)
                         alert('방 코드가 복사되었습니다!')
                       }}
-                      className="p-1 hover:bg-white/10 rounded transition-colors"
+                      className="p-1.5 hover:bg-white/10 rounded-lg transition-colors"
                       title="코드 복사"
                     >
                       <svg className="w-4 h-4 text-white/50 hover:text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -390,112 +411,169 @@ function Home() {
                       </svg>
                     </button>
                   </div>
-                  {/* 방 정보 표시 */}
-                  <div className="flex items-center gap-3 mt-2 text-white/50 text-xs">
-                    <span>{currentRoom.isPrivate ? '비공개' : '공개'}</span>
-                    <span>•</span>
-                    <span>{currentRoom.gameMode === 'race' ? '레이스' : '슈터'}</span>
-                    {currentRoom.roomType === 'create_map' && (
-                      <>
-                        <span>•</span>
-                        <span>제작 시간: {Math.floor((currentRoom.buildTimeLimit || 300) / 60)}분</span>
-                      </>
+
+                  {/* 맵 이름 (load_map 모드) */}
+                  {currentRoom.roomType === 'load_map' && currentRoom.mapName && (
+                    <div className="flex items-center gap-2 mb-4">
+                      <span className="text-white/50 text-sm">맵</span>
+                      <span className="text-sky-400 font-medium">{currentRoom.mapName}</span>
+                    </div>
+                  )}
+
+                  {/* 방 설정 정보 */}
+                  <div className="flex flex-wrap items-center gap-2 mb-6">
+                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${currentRoom.gameMode === 'race' ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
+                      {currentRoom.gameMode === 'race' ? 'Race' : 'Shooter'}
+                    </span>
+                    <span className="px-2 py-1 rounded-full text-xs font-medium bg-white/10 text-white/70">
+                      {currentRoom.roomType === 'create_map' ? '맵 제작' : '맵 플레이'}
+                    </span>
+                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${currentRoom.isPrivate ? 'bg-amber-500/20 text-amber-400' : 'bg-sky-500/20 text-sky-400'}`}>
+                      {currentRoom.isPrivate ? '비공개' : '공개'}
+                    </span>
+                    {currentRoom.roomType === 'create_map' && currentRoom.buildTimeLimit && (
+                      <span className="px-2 py-1 rounded-full text-xs font-medium bg-violet-500/20 text-violet-400">
+                        제작 {Math.floor(currentRoom.buildTimeLimit / 60)}분
+                      </span>
                     )}
                   </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  {isHost && (
+
+                  {/* 버튼들 */}
+                  <div className="flex items-center gap-2">
+                    {isHost && (
+                      <button
+                        onClick={openSettingsModal}
+                        className="px-4 py-2 bg-white/10 text-white font-medium rounded-lg hover:bg-white/20 transition-colors flex items-center gap-2"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                        </svg>
+                        설정
+                      </button>
+                    )}
                     <button
-                      onClick={openSettingsModal}
-                      className="px-4 py-2 bg-white/10 text-white font-medium rounded-lg hover:bg-white/20 transition-colors flex items-center gap-2"
+                      onClick={leaveRoom}
+                      className="px-4 py-2 bg-red-500/20 text-red-400 font-medium rounded-lg hover:bg-red-500/30 transition-colors"
                     >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                      </svg>
-                      설정
+                      나가기
                     </button>
+                  </div>
+                </div>
+
+                {/* 오른쪽: 맵 썸네일 */}
+                <div className="md:w-80 lg:w-96 bg-slate-800 flex-shrink-0 relative group">
+                  <div className="aspect-video md:aspect-auto md:h-full w-full">
+                    {currentRoom.mapThumbnailUrl ? (
+                      <img src={currentRoom.mapThumbnailUrl} alt={currentRoom.mapName || 'Map'} className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="w-full h-full min-h-[180px] flex flex-col items-center justify-center bg-gradient-to-br from-slate-700 to-slate-800">
+                        <svg className="w-16 h-16 text-white/20 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+                        </svg>
+                        <span className="text-white/30 text-sm">
+                          {currentRoom.roomType === 'create_map' ? '맵 제작 모드' : '맵 미리보기'}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                  {/* 맵 이름 표시 */}
+                  {currentRoom.mapName && (
+                    <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-3">
+                      <span className="text-white font-medium text-sm">{currentRoom.mapName}</span>
+                    </div>
                   )}
-                  <button
-                    onClick={leaveRoom}
-                    className="px-4 py-2 bg-red-500/20 text-red-400 font-medium rounded-lg hover:bg-red-500/30 transition-colors"
-                  >
-                    나가기
-                  </button>
+                  {/* 맵 변경 버튼 (방장 + load_map 모드일 때만) */}
+                  {isHost && currentRoom.roomType === 'load_map' && (
+                    <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                      <button
+                        onClick={() => setShowEditMapBrowser(true)}
+                        className="px-4 py-2 bg-sky-500 hover:bg-sky-400 text-white font-medium rounded-lg transition-colors flex items-center gap-2"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                        </svg>
+                        맵 변경
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
 
-              {/* Player List */}
-              <div className="mb-6">
-                <h3 className="text-white/70 text-sm font-medium mb-3">
-                  플레이어 ({currentRoom.players.length}/{currentRoom.maxPlayers})
-                </h3>
-                <div className="space-y-2">
-                  {currentRoom.players.map((player) => (
-                    <div
-                      key={player.id}
-                      className={`flex items-center justify-between p-3 rounded-xl ${
-                        player.id === myId ? 'bg-sky-500/20 border border-sky-500/30' : 'bg-white/5'
-                      }`}
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-gradient-to-br from-sky-400 to-violet-500 rounded-full flex items-center justify-center">
-                          <span className="text-white font-bold">
-                            {player.nickname[0]?.toUpperCase()}
-                          </span>
-                        </div>
-                        <div>
-                          <div className="text-white font-medium flex items-center gap-2">
-                            {player.nickname}
-                            {player.isHost && (
-                              <span className="px-2 py-0.5 bg-amber-500/20 text-amber-400 text-xs rounded-full">
-                                방장
-                              </span>
-                            )}
-                            {player.id === myId && (
-                              <span className="px-2 py-0.5 bg-sky-500/20 text-sky-400 text-xs rounded-full">
-                                나
-                              </span>
-                            )}
+              {/* 하단: 플레이어 목록 + 액션 */}
+              <div className="border-t border-white/10 p-6">
+                {/* Player List */}
+                <div className="mb-6">
+                  <h3 className="text-white/70 text-sm font-medium mb-3">
+                    플레이어 ({currentRoom.players.length}/{currentRoom.maxPlayers})
+                  </h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+                    {currentRoom.players.map((player) => (
+                      <div
+                        key={player.id}
+                        className={`flex items-center justify-between p-3 rounded-xl ${
+                          player.id === myId ? 'bg-sky-500/20 border border-sky-500/30' : 'bg-white/5'
+                        }`}
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="w-10 h-10 bg-gradient-to-br from-sky-400 to-violet-500 rounded-full flex items-center justify-center flex-shrink-0">
+                            <span className="text-white font-bold">
+                              {player.nickname[0]?.toUpperCase()}
+                            </span>
+                          </div>
+                          <div className="min-w-0">
+                            <div className="text-white font-medium flex items-center gap-1 truncate">
+                              <span className="truncate">{player.nickname}</span>
+                              {player.isHost && (
+                                <span className="px-1.5 py-0.5 bg-amber-500/20 text-amber-400 text-xs rounded-full flex-shrink-0">
+                                  방장
+                                </span>
+                              )}
+                              {player.id === myId && (
+                                <span className="px-1.5 py-0.5 bg-sky-500/20 text-sky-400 text-xs rounded-full flex-shrink-0">
+                                  나
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-xs">
+                              {player.isHost ? (
+                                <span className="text-amber-400">방장</span>
+                              ) : player.isReady ? (
+                                <span className="text-green-400">준비 완료</span>
+                              ) : (
+                                <span className="text-white/50">대기 중</span>
+                              )}
+                            </div>
                           </div>
                         </div>
                       </div>
-                      <div>
-                        {player.isHost ? (
-                          <span className="text-amber-400 text-sm">방장</span>
-                        ) : player.isReady ? (
-                          <span className="text-green-400 text-sm">준비 완료</span>
-                        ) : (
-                          <span className="text-white/50 text-sm">대기 중</span>
-                        )}
-                      </div>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
                 </div>
-              </div>
 
-              {/* Actions */}
-              <div className="flex gap-3">
-                {isHost ? (
-                  <button
-                    onClick={handleStartGame}
-                    disabled={!canStart && currentRoom.players.length > 1}
-                    className="flex-1 py-3 bg-gradient-to-r from-green-500 to-emerald-600 text-white font-bold rounded-xl hover:shadow-lg hover:shadow-green-500/25 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {currentRoom.players.length === 1 ? '게임 시작 (혼자)' : canStart ? '게임 시작' : '모든 플레이어 준비 대기'}
-                  </button>
-                ) : (
-                  <button
-                    onClick={handleReady}
-                    className={`flex-1 py-3 font-bold rounded-xl transition-all ${
-                      me?.isReady
-                        ? 'bg-white/10 text-white hover:bg-white/20'
-                        : 'bg-gradient-to-r from-sky-400 to-violet-500 text-white hover:shadow-lg hover:shadow-sky-500/25'
-                    }`}
-                  >
-                    {me?.isReady ? '준비 취소' : '준비 완료'}
-                  </button>
-                )}
+                {/* Actions */}
+                <div className="flex gap-3">
+                  {isHost ? (
+                    <button
+                      onClick={handleStartGame}
+                      disabled={!canStart && currentRoom.players.length > 1}
+                      className="flex-1 py-3 bg-gradient-to-r from-green-500 to-emerald-600 text-white font-bold rounded-xl hover:shadow-lg hover:shadow-green-500/25 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {currentRoom.players.length === 1 ? '게임 시작 (혼자)' : canStart ? '게임 시작' : '모든 플레이어 준비 대기'}
+                    </button>
+                  ) : (
+                    <button
+                      onClick={handleReady}
+                      className={`flex-1 py-3 font-bold rounded-xl transition-all ${
+                        me?.isReady
+                          ? 'bg-white/10 text-white hover:bg-white/20'
+                          : 'bg-gradient-to-r from-sky-400 to-violet-500 text-white hover:shadow-lg hover:shadow-sky-500/25'
+                      }`}
+                    >
+                      {me?.isReady ? '준비 취소' : '준비 완료'}
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
           )}
@@ -545,22 +623,22 @@ function Home() {
                 )}
               </div>
 
-              {/* Room Items */}
-              <div className="space-y-3">
-                {!user ? (
-                  <div className="text-center py-12 text-white/50">
-                    로그인이 필요합니다
-                  </div>
-                ) : !isConnected ? (
-                  <div className="text-center py-12 text-white/50">
-                    서버에 연결 중...
-                  </div>
-                ) : rooms.length === 0 ? (
-                  <div className="text-center py-12 text-white/50">
-                    현재 열린 방이 없습니다
-                  </div>
-                ) : (
-                  rooms.map((room) => {
+              {/* Room Cards */}
+              {!user ? (
+                <div className="text-center py-12 text-white/50">
+                  로그인이 필요합니다
+                </div>
+              ) : !isConnected ? (
+                <div className="text-center py-12 text-white/50">
+                  서버에 연결 중...
+                </div>
+              ) : rooms.length === 0 ? (
+                <div className="text-center py-12 text-white/50">
+                  현재 열린 방이 없습니다
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                  {rooms.map((room) => {
                     const isPlaying = room.status === 'playing' || room.status === 'countdown';
                     const isFull = room.playerCount >= room.maxPlayers;
                     const canJoin = !isPlaying && !isFull && !room.isPrivate;
@@ -570,45 +648,77 @@ function Home() {
                     return (
                       <div
                         key={room.id}
-                        className={`flex items-center justify-between p-4 bg-white/5 rounded-xl transition-colors ${
-                          canJoin ? 'hover:bg-white/10' : 'opacity-70'
+                        className={`bg-white/5 rounded-xl overflow-hidden border border-white/10 transition-all ${
+                          canJoin ? 'hover:border-sky-500/50 hover:shadow-lg hover:shadow-sky-500/10' : 'opacity-70'
                         }`}
                       >
-                        <div className="flex items-center gap-4">
-                          <div className={`w-3 h-3 rounded-full ${isPlaying ? 'bg-amber-400' : 'bg-green-400'}`}></div>
-                          <div>
-                            <div className="text-white font-medium flex items-center gap-2">
-                              {room.name}
-                              {room.isPrivate && (
-                                <svg className="w-4 h-4 text-white/50" fill="currentColor" viewBox="0 0 24 24">
+                        {/* 썸네일 영역 */}
+                        <div className="relative aspect-video bg-slate-800">
+                          {room.mapThumbnailUrl ? (
+                            <img src={room.mapThumbnailUrl} alt={room.mapName || 'Map'} className="w-full h-full object-cover" />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-slate-700 to-slate-800">
+                              <svg className="w-12 h-12 text-white/20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+                              </svg>
+                            </div>
+                          )}
+                          {/* 상태 뱃지 */}
+                          <div className="absolute top-2 left-2 flex items-center gap-2">
+                            <span className={`px-2 py-1 rounded-full text-xs font-medium ${room.gameMode === 'race' ? 'bg-green-500/90 text-white' : 'bg-red-500/90 text-white'}`}>
+                              {modeLabel}
+                            </span>
+                            {room.isPrivate && (
+                              <span className="px-2 py-1 rounded-full text-xs font-medium bg-amber-500/90 text-white flex items-center gap-1">
+                                <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
                                   <path d="M12 1C8.676 1 6 3.676 6 7v2H4v14h16V9h-2V7c0-3.324-2.676-6-6-6zm0 2c2.276 0 4 1.724 4 4v2H8V7c0-2.276 1.724-4 4-4z"/>
                                 </svg>
-                              )}
-                            </div>
-                            <div className="flex items-center gap-2 text-sm">
-                              <span className={`px-1.5 py-0.5 rounded text-xs ${room.gameMode === 'race' ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
-                                {modeLabel}
                               </span>
-                              <span className="text-white/50">{typeLabel}</span>
-                              {isPlaying && <span className="text-amber-400">게임 중</span>}
-                            </div>
+                            )}
+                          </div>
+                          {/* 인원수 뱃지 */}
+                          <div className="absolute top-2 right-2">
+                            <span className="px-2 py-1 rounded-full text-xs font-medium bg-black/60 text-white flex items-center gap-1">
+                              <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
+                                <path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/>
+                              </svg>
+                              {room.playerCount}/{room.maxPlayers}
+                            </span>
                           </div>
                         </div>
-                        <div className="flex items-center gap-4">
-                          <span className="text-white/70 text-sm">{room.playerCount}/{room.maxPlayers}</span>
+
+                        {/* 정보 영역 */}
+                        <div className="p-4">
+                          <div className="flex items-start justify-between gap-2 mb-2">
+                            <h3 className="text-white font-medium truncate flex-1" title={room.name}>
+                              {room.name}
+                            </h3>
+                            <div className={`w-2 h-2 rounded-full flex-shrink-0 mt-2 ${isPlaying ? 'bg-amber-400' : 'bg-green-400'}`}></div>
+                          </div>
+
+                          <div className="flex items-center gap-2 text-xs text-white/50 mb-3">
+                            <span>{typeLabel}</span>
+                            {room.mapName && (
+                              <>
+                                <span>•</span>
+                                <span className="text-sky-400 truncate" title={room.mapName}>{room.mapName}</span>
+                              </>
+                            )}
+                          </div>
+
                           <button
                             onClick={() => handleJoinRoom(room.id)}
                             disabled={!canJoin}
-                            className="px-4 py-2 bg-sky-500 hover:bg-sky-400 text-white font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                            className="w-full py-2 bg-sky-500 hover:bg-sky-400 text-white font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm"
                           >
-                            {isPlaying ? '게임 중' : isFull ? '가득 참' : room.isPrivate ? '비공개' : '참가'}
+                            {isPlaying ? '게임 중' : isFull ? '가득 참' : room.isPrivate ? '비공개' : '참가하기'}
                           </button>
                         </div>
                       </div>
                     );
-                  })
-                )}
-              </div>
+                  })}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -829,12 +939,21 @@ function Home() {
         </div>
       )}
 
-      {/* Map Browser Modal */}
+      {/* Map Browser Modal (방 생성용) */}
       {showMapBrowser && (
         <MapBrowser
           onSelect={handleMapSelect}
           onClose={() => setShowMapBrowser(false)}
           selectedMapId={selectedMap?.id}
+        />
+      )}
+
+      {/* Map Browser Modal (대기방 맵 변경용) */}
+      {showEditMapBrowser && (
+        <MapBrowser
+          onSelect={handleEditMapSelect}
+          onClose={() => setShowEditMapBrowser(false)}
+          selectedMapId={currentRoom?.mapId}
         />
       )}
 
