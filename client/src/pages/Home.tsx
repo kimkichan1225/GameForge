@@ -589,30 +589,30 @@ function Home() {
 
                               {/* 색상 선택 팝업 */}
                               {showColorPicker && (
-                                <div ref={colorPickerRef} className="absolute top-8 right-0 z-50 bg-slate-800 rounded-xl p-2 border border-white/10 shadow-xl">
-                                  <div className="grid grid-cols-4 gap-1">
-                                    {PLAYER_COLORS.map((color) => {
-                                      const isUsed = usedColors.includes(color.id) && color.id !== player.color;
-                                      const isSelected = color.id === player.color;
-                                      return (
-                                        <button
-                                          key={color.id}
-                                          onClick={() => {
-                                            if (!isUsed) {
-                                              selectColor(color.id as PlayerColorId);
-                                              setShowColorPicker(false);
-                                            }
-                                          }}
-                                          disabled={isUsed}
-                                          className={`w-8 h-8 rounded-full transition-all ${
-                                            isSelected ? 'ring-2 ring-white scale-110' : ''
-                                          } ${isUsed ? 'opacity-30 cursor-not-allowed' : 'hover:scale-110'}`}
-                                          style={{ backgroundColor: color.hex }}
-                                          title={isUsed ? `${color.name} (사용 중)` : color.name}
-                                        />
-                                      );
-                                    })}
-                                  </div>
+                                <div ref={colorPickerRef} className="absolute top-0 right-8 z-50 bg-slate-800/95 backdrop-blur rounded-lg p-2 border border-white/20 shadow-xl"
+                                  style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 24px)', gap: '8px' }}
+                                >
+                                  {PLAYER_COLORS.map((color) => {
+                                    const isUsed = usedColors.includes(color.id) && color.id !== player.color;
+                                    const isSelected = color.id === player.color;
+                                    return (
+                                      <button
+                                        key={color.id}
+                                        onClick={() => {
+                                          if (!isUsed) {
+                                            selectColor(color.id as PlayerColorId);
+                                            setShowColorPicker(false);
+                                          }
+                                        }}
+                                        disabled={isUsed}
+                                        className={`transition-all ${
+                                          isSelected ? 'ring-2 ring-white ring-offset-1 ring-offset-slate-800' : ''
+                                        } ${isUsed ? 'opacity-30 cursor-not-allowed' : 'hover:brightness-125'}`}
+                                        style={{ width: '24px', height: '24px', borderRadius: '50%', backgroundColor: color.hex }}
+                                        title={isUsed ? `${color.name} (사용 중)` : color.name}
+                                      />
+                                    );
+                                  })}
                                 </div>
                               )}
                             </div>
