@@ -1,6 +1,17 @@
 import { create } from 'zustand';
 import { socketManager } from '../lib/socket';
-import type { MapObject, MapMarker } from './editorStore';
+import type { MapObject, MapMarker, PlaceableType } from './editorStore';
+
+// 빌딩 모드 히스토리 엔트리
+export interface BuildingHistoryEntry {
+  type: 'add' | 'remove' | 'update'
+  target: 'object' | 'marker'
+  data: MapObject | MapMarker
+  previousData?: MapObject | MapMarker
+}
+
+// 빌딩 모드 클립보드 아이템
+export type BuildingClipboardItem = { kind: 'object'; data: MapObject } | { kind: 'marker'; data: MapMarker }
 
 // 빌딩 페이즈 관련 타입
 export interface BuildingRegion {
@@ -78,6 +89,12 @@ interface GameState {
   isRelayRace: boolean;
   relayMapData: RelayMapData | null;
   pendingTeleport: [number, number, number] | null;
+
+  // 빌딩 모드 로컬 히스토리 (서버 동기화 X)
+  buildingSelectedIds: string[];
+  buildingUndoStack: BuildingHistoryEntry[];
+  buildingRedoStack: BuildingHistoryEntry[];
+  buildingClipboard: BuildingClipboardItem[];
 }
 
 interface MultiplayerGameStore extends GameState {
@@ -105,6 +122,17 @@ interface MultiplayerGameStore extends GameState {
   finishTest: (success: boolean) => Promise<void>;
   voteKick: (targetPlayerId: string) => Promise<{ success: boolean; error?: string; kicked?: boolean }>;
   clearPendingTeleport: () => void;
+
+  // 빌딩 모드 로컬 기능
+  setBuildingSelectedIds: (ids: string[]) => void;
+  toggleBuildingSelection: (id: string) => void;
+  clearBuildingSelection: () => void;
+  buildingUndo: () => Promise<void>;
+  buildingRedo: () => Promise<void>;
+  buildingCopy: () => void;
+  buildingPaste: (cameraPosition: [number, number, number], cameraDirection: [number, number, number]) => Promise<void>;
+  buildingDeleteSelected: () => Promise<void>;
+  pushBuildingHistory: (entry: BuildingHistoryEntry) => void;
 }
 
 export const useMultiplayerGameStore = create<MultiplayerGameStore>((set, get) => ({
@@ -135,6 +163,12 @@ export const useMultiplayerGameStore = create<MultiplayerGameStore>((set, get) =
   isRelayRace: false,
   relayMapData: null,
   pendingTeleport: null,
+
+  // 빌딩 모드 로컬 히스토리 초기 상태
+  buildingSelectedIds: [],
+  buildingUndoStack: [],
+  buildingRedoStack: [],
+  buildingClipboard: [],
 
   initGame: () => {
     const socket = socketManager.getSocket();
@@ -287,6 +321,11 @@ export const useMultiplayerGameStore = create<MultiplayerGameStore>((set, get) =
       isRelayRace: false,
       relayMapData: null,
       pendingTeleport: null,
+      // 빌딩 로컬 히스토리 초기화
+      buildingSelectedIds: [],
+      buildingUndoStack: [],
+      buildingRedoStack: [],
+      buildingClipboard: [],
     });
   },
 
@@ -744,5 +783,324 @@ export const useMultiplayerGameStore = create<MultiplayerGameStore>((set, get) =
         resolve(response);
       });
     });
+  },
+
+  // ===== 빌딩 모드 로컬 기능 =====
+
+  setBuildingSelectedIds: (ids) => set({ buildingSelectedIds: ids }),
+
+  toggleBuildingSelection: (id) => set(state => {
+    if (state.buildingSelectedIds.includes(id)) {
+      return { buildingSelectedIds: state.buildingSelectedIds.filter(sId => sId !== id) }
+    } else {
+      return { buildingSelectedIds: [...state.buildingSelectedIds, id] }
+    }
+  }),
+
+  clearBuildingSelection: () => set({ buildingSelectedIds: [] }),
+
+  pushBuildingHistory: (entry) => set(state => ({
+    buildingUndoStack: [...state.buildingUndoStack, entry],
+    buildingRedoStack: [],
+  })),
+
+  buildingUndo: async () => {
+    const state = get()
+    if (state.buildingUndoStack.length === 0) return
+    if (state.myVerified) return  // 검증 완료 후 수정 불가
+
+    const entry = state.buildingUndoStack[state.buildingUndoStack.length - 1]
+    const newUndoStack = state.buildingUndoStack.slice(0, -1)
+
+    const socket = socketManager.getSocket()
+    if (!socket) return
+
+    if (entry.type === 'add') {
+      // add를 취소 -> 삭제
+      if (entry.target === 'object') {
+        const objectId = (entry.data as MapObject).id
+        await new Promise<void>((resolve) => {
+          socket.emit('build:removeObject', { objectId }, () => resolve())
+        })
+      } else {
+        const markerId = (entry.data as MapMarker).id
+        await new Promise<void>((resolve) => {
+          socket.emit('build:removeMarker', { markerId }, () => resolve())
+        })
+      }
+    } else if (entry.type === 'remove') {
+      // remove를 취소 -> 다시 추가
+      if (entry.target === 'object') {
+        const obj = entry.data as MapObject
+        await new Promise<void>((resolve) => {
+          socket.emit('build:placeObject', {
+            type: obj.type,
+            position: obj.position,
+            rotation: obj.rotation,
+            scale: obj.scale,
+            color: obj.color,
+            name: obj.name,
+          }, () => resolve())
+        })
+      } else {
+        const marker = entry.data as MapMarker
+        await new Promise<void>((resolve) => {
+          socket.emit('build:placeMarker', {
+            type: marker.type,
+            position: marker.position,
+            rotation: marker.rotation,
+          }, () => resolve())
+        })
+      }
+    } else if (entry.type === 'update' && entry.previousData) {
+      // update를 취소 -> 이전 상태로
+      if (entry.target === 'object') {
+        const obj = entry.previousData as MapObject
+        await new Promise<void>((resolve) => {
+          socket.emit('build:updateObject', {
+            objectId: obj.id,
+            updates: { position: obj.position, rotation: obj.rotation, scale: obj.scale, color: obj.color },
+          }, () => resolve())
+        })
+      } else {
+        const marker = entry.previousData as MapMarker
+        await new Promise<void>((resolve) => {
+          socket.emit('build:updateMarker', {
+            markerId: marker.id,
+            updates: { position: marker.position, rotation: marker.rotation },
+          }, () => resolve())
+        })
+      }
+    }
+
+    set({
+      buildingUndoStack: newUndoStack,
+      buildingRedoStack: [...state.buildingRedoStack, entry],
+    })
+  },
+
+  buildingRedo: async () => {
+    const state = get()
+    if (state.buildingRedoStack.length === 0) return
+    if (state.myVerified) return  // 검증 완료 후 수정 불가
+
+    const entry = state.buildingRedoStack[state.buildingRedoStack.length - 1]
+    const newRedoStack = state.buildingRedoStack.slice(0, -1)
+
+    const socket = socketManager.getSocket()
+    if (!socket) return
+
+    if (entry.type === 'add') {
+      // add를 다시 실행 -> 추가
+      if (entry.target === 'object') {
+        const obj = entry.data as MapObject
+        await new Promise<void>((resolve) => {
+          socket.emit('build:placeObject', {
+            type: obj.type,
+            position: obj.position,
+            rotation: obj.rotation,
+            scale: obj.scale,
+            color: obj.color,
+            name: obj.name,
+          }, () => resolve())
+        })
+      } else {
+        const marker = entry.data as MapMarker
+        await new Promise<void>((resolve) => {
+          socket.emit('build:placeMarker', {
+            type: marker.type,
+            position: marker.position,
+            rotation: marker.rotation,
+          }, () => resolve())
+        })
+      }
+    } else if (entry.type === 'remove') {
+      // remove를 다시 실행 -> 삭제
+      if (entry.target === 'object') {
+        const objectId = (entry.data as MapObject).id
+        await new Promise<void>((resolve) => {
+          socket.emit('build:removeObject', { objectId }, () => resolve())
+        })
+      } else {
+        const markerId = (entry.data as MapMarker).id
+        await new Promise<void>((resolve) => {
+          socket.emit('build:removeMarker', { markerId }, () => resolve())
+        })
+      }
+    } else if (entry.type === 'update') {
+      // update를 다시 실행 -> 새 상태로
+      if (entry.target === 'object') {
+        const obj = entry.data as MapObject
+        await new Promise<void>((resolve) => {
+          socket.emit('build:updateObject', {
+            objectId: obj.id,
+            updates: { position: obj.position, rotation: obj.rotation, scale: obj.scale, color: obj.color },
+          }, () => resolve())
+        })
+      } else {
+        const marker = entry.data as MapMarker
+        await new Promise<void>((resolve) => {
+          socket.emit('build:updateMarker', {
+            markerId: marker.id,
+            updates: { position: marker.position, rotation: marker.rotation },
+          }, () => resolve())
+        })
+      }
+    }
+
+    set({
+      buildingUndoStack: [...state.buildingUndoStack, entry],
+      buildingRedoStack: newRedoStack,
+    })
+  },
+
+  buildingCopy: () => {
+    const state = get()
+    if (state.buildingSelectedIds.length === 0) return
+
+    const clipboardItems: BuildingClipboardItem[] = []
+
+    for (const id of state.buildingSelectedIds) {
+      if (id.startsWith('marker_')) {
+        const markerId = id.replace('marker_', '')
+        const marker = state.myMarkers.find(m => m.id === markerId)
+        if (marker) {
+          clipboardItems.push({ kind: 'marker', data: { ...marker } })
+        }
+      } else {
+        const obj = state.myObjects.find(o => o.id === id)
+        if (obj) {
+          clipboardItems.push({ kind: 'object', data: { ...obj } })
+        }
+      }
+    }
+
+    set({ buildingClipboard: clipboardItems })
+  },
+
+  buildingPaste: async (cameraPosition, cameraDirection) => {
+    const state = get()
+    if (state.buildingClipboard.length === 0) return
+    if (state.myVerified) return  // 검증 완료 후 배치 불가
+    if (!state.myRegion) return
+
+    const socket = socketManager.getSocket()
+    if (!socket) return
+
+    // 클립보드 아이템들의 중심점 계산
+    let centerX = 0, centerY = 0, centerZ = 0
+    let count = 0
+    for (const item of state.buildingClipboard) {
+      const pos = item.data.position
+      centerX += pos[0]
+      centerY += pos[1]
+      centerZ += pos[2]
+      count++
+    }
+    centerX /= count
+    centerY /= count
+    centerZ /= count
+
+    // 카메라 앞 5 유닛 위치에 배치
+    let pasteX = cameraPosition[0] + cameraDirection[0] * 5
+    const pasteY = 0.5
+    let pasteZ = cameraPosition[2] + cameraDirection[2] * 5
+
+    // 영역 제한 체크
+    const region = state.myRegion
+    pasteX = Math.max(region.startX + 1, Math.min(region.endX - 1, pasteX))
+    pasteZ = Math.max(-49, Math.min(49, pasteZ))
+
+    const historyEntries: BuildingHistoryEntry[] = []
+
+    for (const item of state.buildingClipboard) {
+      const offsetX = item.data.position[0] - centerX
+      const offsetY = item.data.position[1] - centerY
+      const offsetZ = item.data.position[2] - centerZ
+
+      const newX = pasteX + offsetX
+      const newZ = pasteZ + offsetZ
+
+      // 영역 제한 체크
+      if (newX < region.startX || newX >= region.endX || newZ < -50 || newZ > 50) {
+        continue  // 영역 밖이면 스킵
+      }
+
+      if (item.kind === 'object') {
+        const result = await new Promise<MapObject | null>((resolve) => {
+          socket.emit('build:placeObject', {
+            type: item.data.type,
+            position: [newX, pasteY + offsetY, newZ] as [number, number, number],
+            rotation: item.data.rotation,
+            scale: item.data.scale,
+            color: item.data.color,
+            name: `${item.data.type}_${Math.random().toString(36).substr(2, 4)}`,
+          }, (response: { success: boolean; object?: MapObject }) => {
+            resolve(response.success && response.object ? response.object : null)
+          })
+        })
+        if (result) {
+          historyEntries.push({ type: 'add', target: 'object', data: result })
+        }
+      } else {
+        const result = await new Promise<MapMarker | null>((resolve) => {
+          socket.emit('build:placeMarker', {
+            type: item.data.type,
+            position: [newX, pasteY + offsetY, newZ] as [number, number, number],
+            rotation: item.data.rotation,
+          }, (response: { success: boolean; marker?: MapMarker }) => {
+            resolve(response.success && response.marker ? response.marker : null)
+          })
+        })
+        if (result) {
+          historyEntries.push({ type: 'add', target: 'marker', data: result })
+        }
+      }
+    }
+
+    if (historyEntries.length > 0) {
+      set(state => ({
+        buildingUndoStack: [...state.buildingUndoStack, ...historyEntries],
+        buildingRedoStack: [],
+      }))
+    }
+  },
+
+  buildingDeleteSelected: async () => {
+    const state = get()
+    if (state.buildingSelectedIds.length === 0) return
+    if (state.myVerified) return  // 검증 완료 후 삭제 불가
+
+    const socket = socketManager.getSocket()
+    if (!socket) return
+
+    const historyEntries: BuildingHistoryEntry[] = []
+
+    for (const selectedId of state.buildingSelectedIds) {
+      if (selectedId.startsWith('marker_')) {
+        const markerId = selectedId.replace('marker_', '')
+        const marker = state.myMarkers.find(m => m.id === markerId)
+        if (marker) {
+          await new Promise<void>((resolve) => {
+            socket.emit('build:removeMarker', { markerId }, () => resolve())
+          })
+          historyEntries.push({ type: 'remove', target: 'marker', data: marker })
+        }
+      } else {
+        const obj = state.myObjects.find(o => o.id === selectedId)
+        if (obj) {
+          await new Promise<void>((resolve) => {
+            socket.emit('build:removeObject', { objectId: selectedId }, () => resolve())
+          })
+          historyEntries.push({ type: 'remove', target: 'object', data: obj })
+        }
+      }
+    }
+
+    set(state => ({
+      buildingSelectedIds: [],
+      buildingUndoStack: [...state.buildingUndoStack, ...historyEntries],
+      buildingRedoStack: [],
+    }))
   },
 }));

@@ -45,6 +45,17 @@ export interface MapData {
   updatedAt: number
 }
 
+// 히스토리 엔트리 타입 (Undo/Redo용)
+export interface HistoryEntry {
+  type: 'add' | 'remove' | 'update'
+  target: 'object' | 'marker'
+  data: MapObject | MapMarker
+  previousData?: MapObject | MapMarker  // update 시 이전 상태
+}
+
+// 클립보드 아이템 타입
+export type ClipboardItem = { kind: 'object'; data: MapObject } | { kind: 'marker'; data: MapMarker }
+
 interface EditorState {
   // 맵 정보
   mapName: string
@@ -55,8 +66,15 @@ interface EditorState {
   objects: MapObject[]
   markers: MapMarker[]
 
-  // 선택
-  selectedId: string | null
+  // 선택 (다중 선택 지원)
+  selectedIds: string[]
+
+  // Undo/Redo 히스토리
+  undoStack: HistoryEntry[]
+  redoStack: HistoryEntry[]
+
+  // 클립보드
+  clipboard: ClipboardItem[]
 
   // 기즈모
   gizmoMode: GizmoMode
@@ -94,7 +112,21 @@ interface EditorState {
   updateMarker: (id: string, updates: Partial<MapMarker>) => void
   removeMarker: (id: string) => void
 
+  // 선택 관련
   setSelectedId: (id: string | null) => void
+  setSelectedIds: (ids: string[]) => void
+  toggleSelection: (id: string) => void
+  clearSelection: () => void
+  setSelectMode: () => void
+
+  // Undo/Redo
+  undo: () => void
+  redo: () => void
+  clearHistory: () => void
+
+  // 복사/붙여넣기
+  copy: () => void
+  paste: (cameraPosition: [number, number, number], cameraDirection: [number, number, number]) => void
   setGizmoMode: (mode: GizmoMode) => void
   setGridSnap: (enabled: boolean) => void
   setGridSize: (size: number) => void
@@ -115,9 +147,9 @@ interface EditorState {
   // 설치 오류
   setPlacementError: (error: string | null) => void
 
-  // 설치 가능한 오브젝트/마커
-  currentPlaceable: PlaceableType
-  setCurrentPlaceable: (type: PlaceableType) => void
+  // 설치 가능한 오브젝트/마커 (null이면 선택 모드)
+  currentPlaceable: PlaceableType | null
+  setCurrentPlaceable: (type: PlaceableType | null) => void
   placeObjectAt: (position: [number, number, number], isAdjacent?: boolean, yaw?: number) => void
 
   // 마커 배치 (6-9 키)
@@ -135,6 +167,9 @@ interface EditorState {
 
   // 선택된 오브젝트 복제
   duplicateSelected: () => void
+
+  // 다중 선택 삭제
+  deleteSelected: () => void
 }
 
 const generateId = () => Math.random().toString(36).substr(2, 9)
@@ -150,15 +185,15 @@ const initialState = {
   shooterSubMode: 'team' as ShooterSubMode,  // 기본 슈터 서브모드
   objects: [] as MapObject[],
   markers: [] as MapMarker[],
-  selectedId: null as string | null,
+  selectedIds: [] as string[],
   gizmoMode: 'translate' as GizmoMode,
   gridSnap: true,
   gridSize: 1,
   cameraPosition: [10, 10, 10] as [number, number, number],
   cameraTarget: [0, 0, 0] as [number, number, number],
   isTestPlaying: false,
-  // 설치할 오브젝트 타입 (1-5 키)
-  currentPlaceable: 'box' as PlaceableType,
+  // 설치할 오브젝트 타입 (1-5 키), null이면 선택 모드
+  currentPlaceable: 'box' as PlaceableType | null,
   // 설치할 마커 타입 (6-9 키), null이면 오브젝트 모드
   currentMarker: null as MarkerType | null,
   // 맵 완주 검증 (Race 모드)
@@ -169,6 +204,11 @@ const initialState = {
   capturedThumbnail: null as Blob | null,
   // 설치 오류
   placementError: null as string | null,
+  // Undo/Redo 히스토리
+  undoStack: [] as HistoryEntry[],
+  redoStack: [] as HistoryEntry[],
+  // 클립보드
+  clipboard: [] as ClipboardItem[],
 }
 
 export const useEditorStore = create<EditorState>((set, get) => ({
@@ -176,8 +216,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   setMapName: (name) => set({ mapName: name }),
   // 모드 변경 시 마커 초기화 및 완주 상태 리셋
-  setMapMode: (mode) => set({ mapMode: mode, markers: [], selectedId: null, currentMarker: null, mapCompleted: false, completionTime: null }),
-  setShooterSubMode: (subMode) => set({ shooterSubMode: subMode, markers: [], selectedId: null, currentMarker: null, mapCompleted: false, completionTime: null }),
+  setMapMode: (mode) => set({ mapMode: mode, markers: [], selectedIds: [], currentMarker: null, mapCompleted: false, completionTime: null, undoStack: [], redoStack: [] }),
+  setShooterSubMode: (subMode) => set({ shooterSubMode: subMode, markers: [], selectedIds: [], currentMarker: null, mapCompleted: false, completionTime: null, undoStack: [], redoStack: [] }),
 
   addObject: (type) => {
     const id = generateId()
@@ -192,22 +232,37 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     }
     set(state => ({
       objects: [...state.objects, newObject],
-      selectedId: id,
+      selectedIds: [id],
+      undoStack: [...state.undoStack, { type: 'add', target: 'object', data: newObject }],
+      redoStack: [],
     }))
   },
 
   updateObject: (id, updates) => {
+    const state = get()
+    const obj = state.objects.find(o => o.id === id)
+    if (!obj) return
+
+    const previousData = { ...obj }
+    const newData = { ...obj, ...updates }
+
     set(state => ({
-      objects: state.objects.map(obj =>
-        obj.id === id ? { ...obj, ...updates } : obj
-      ),
+      objects: state.objects.map(o => o.id === id ? newData : o),
+      undoStack: [...state.undoStack, { type: 'update', target: 'object', data: newData, previousData }],
+      redoStack: [],
     }))
   },
 
   removeObject: (id) => {
+    const state = get()
+    const obj = state.objects.find(o => o.id === id)
+    if (!obj) return
+
     set(state => ({
-      objects: state.objects.filter(obj => obj.id !== id),
-      selectedId: state.selectedId === id ? null : state.selectedId,
+      objects: state.objects.filter(o => o.id !== id),
+      selectedIds: state.selectedIds.filter(sId => sId !== id),
+      undoStack: [...state.undoStack, { type: 'remove', target: 'object', data: obj }],
+      redoStack: [],
     }))
   },
 
@@ -221,32 +276,287 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     }
     set(state => ({
       markers: [...state.markers, newMarker],
-      selectedId: `marker_${id}`,
+      selectedIds: [`marker_${id}`],
       mapCompleted: false,
       completionTime: null,
+      undoStack: [...state.undoStack, { type: 'add', target: 'marker', data: newMarker }],
+      redoStack: [],
     }))
   },
 
   updateMarker: (id, updates) => {
+    const state = get()
+    const marker = state.markers.find(m => m.id === id)
+    if (!marker) return
+
+    const previousData = { ...marker }
+    const newData = { ...marker, ...updates }
+
     set(state => ({
-      markers: state.markers.map(marker =>
-        marker.id === id ? { ...marker, ...updates } : marker
-      ),
+      markers: state.markers.map(m => m.id === id ? newData : m),
       mapCompleted: false,
       completionTime: null,
+      undoStack: [...state.undoStack, { type: 'update', target: 'marker', data: newData, previousData }],
+      redoStack: [],
     }))
   },
 
   removeMarker: (id) => {
+    const state = get()
+    const marker = state.markers.find(m => m.id === id)
+    if (!marker) return
+
     set(state => ({
-      markers: state.markers.filter(marker => marker.id !== id),
-      selectedId: state.selectedId === `marker_${id}` ? null : state.selectedId,
+      markers: state.markers.filter(m => m.id !== id),
+      selectedIds: state.selectedIds.filter(sId => sId !== `marker_${id}`),
       mapCompleted: false,
       completionTime: null,
+      undoStack: [...state.undoStack, { type: 'remove', target: 'marker', data: marker }],
+      redoStack: [],
     }))
   },
 
-  setSelectedId: (id) => set({ selectedId: id }),
+  setSelectedId: (id) => set({ selectedIds: id ? [id] : [] }),
+  setSelectedIds: (ids) => set({ selectedIds: ids }),
+  toggleSelection: (id) => set(state => {
+    if (state.selectedIds.includes(id)) {
+      return { selectedIds: state.selectedIds.filter(sId => sId !== id) }
+    } else {
+      return { selectedIds: [...state.selectedIds, id] }
+    }
+  }),
+  clearSelection: () => set({ selectedIds: [] }),
+  setSelectMode: () => set({ currentPlaceable: null, currentMarker: null }),
+
+  // Undo/Redo
+  undo: () => {
+    const state = get()
+    if (state.undoStack.length === 0) return
+
+    const entry = state.undoStack[state.undoStack.length - 1]
+    const newUndoStack = state.undoStack.slice(0, -1)
+
+    if (entry.type === 'add') {
+      // add를 취소 -> 삭제
+      if (entry.target === 'object') {
+        set({
+          objects: state.objects.filter(o => o.id !== (entry.data as MapObject).id),
+          selectedIds: state.selectedIds.filter(id => id !== (entry.data as MapObject).id),
+          undoStack: newUndoStack,
+          redoStack: [...state.redoStack, entry],
+        })
+      } else {
+        set({
+          markers: state.markers.filter(m => m.id !== (entry.data as MapMarker).id),
+          selectedIds: state.selectedIds.filter(id => id !== `marker_${(entry.data as MapMarker).id}`),
+          undoStack: newUndoStack,
+          redoStack: [...state.redoStack, entry],
+          mapCompleted: false,
+          completionTime: null,
+        })
+      }
+    } else if (entry.type === 'remove') {
+      // remove를 취소 -> 다시 추가
+      if (entry.target === 'object') {
+        set({
+          objects: [...state.objects, entry.data as MapObject],
+          undoStack: newUndoStack,
+          redoStack: [...state.redoStack, entry],
+        })
+      } else {
+        set({
+          markers: [...state.markers, entry.data as MapMarker],
+          undoStack: newUndoStack,
+          redoStack: [...state.redoStack, entry],
+          mapCompleted: false,
+          completionTime: null,
+        })
+      }
+    } else if (entry.type === 'update' && entry.previousData) {
+      // update를 취소 -> 이전 상태로
+      if (entry.target === 'object') {
+        set({
+          objects: state.objects.map(o =>
+            o.id === (entry.previousData as MapObject).id ? (entry.previousData as MapObject) : o
+          ),
+          undoStack: newUndoStack,
+          redoStack: [...state.redoStack, entry],
+        })
+      } else {
+        set({
+          markers: state.markers.map(m =>
+            m.id === (entry.previousData as MapMarker).id ? (entry.previousData as MapMarker) : m
+          ),
+          undoStack: newUndoStack,
+          redoStack: [...state.redoStack, entry],
+          mapCompleted: false,
+          completionTime: null,
+        })
+      }
+    }
+  },
+
+  redo: () => {
+    const state = get()
+    if (state.redoStack.length === 0) return
+
+    const entry = state.redoStack[state.redoStack.length - 1]
+    const newRedoStack = state.redoStack.slice(0, -1)
+
+    if (entry.type === 'add') {
+      // add를 다시 실행 -> 추가
+      if (entry.target === 'object') {
+        set({
+          objects: [...state.objects, entry.data as MapObject],
+          undoStack: [...state.undoStack, entry],
+          redoStack: newRedoStack,
+        })
+      } else {
+        set({
+          markers: [...state.markers, entry.data as MapMarker],
+          undoStack: [...state.undoStack, entry],
+          redoStack: newRedoStack,
+          mapCompleted: false,
+          completionTime: null,
+        })
+      }
+    } else if (entry.type === 'remove') {
+      // remove를 다시 실행 -> 삭제
+      if (entry.target === 'object') {
+        set({
+          objects: state.objects.filter(o => o.id !== (entry.data as MapObject).id),
+          selectedIds: state.selectedIds.filter(id => id !== (entry.data as MapObject).id),
+          undoStack: [...state.undoStack, entry],
+          redoStack: newRedoStack,
+        })
+      } else {
+        set({
+          markers: state.markers.filter(m => m.id !== (entry.data as MapMarker).id),
+          selectedIds: state.selectedIds.filter(id => id !== `marker_${(entry.data as MapMarker).id}`),
+          undoStack: [...state.undoStack, entry],
+          redoStack: newRedoStack,
+          mapCompleted: false,
+          completionTime: null,
+        })
+      }
+    } else if (entry.type === 'update') {
+      // update를 다시 실행 -> 새 상태로
+      if (entry.target === 'object') {
+        set({
+          objects: state.objects.map(o =>
+            o.id === (entry.data as MapObject).id ? (entry.data as MapObject) : o
+          ),
+          undoStack: [...state.undoStack, entry],
+          redoStack: newRedoStack,
+        })
+      } else {
+        set({
+          markers: state.markers.map(m =>
+            m.id === (entry.data as MapMarker).id ? (entry.data as MapMarker) : m
+          ),
+          undoStack: [...state.undoStack, entry],
+          redoStack: newRedoStack,
+          mapCompleted: false,
+          completionTime: null,
+        })
+      }
+    }
+  },
+
+  clearHistory: () => set({ undoStack: [], redoStack: [] }),
+
+  // 복사
+  copy: () => {
+    const state = get()
+    if (state.selectedIds.length === 0) return
+
+    const clipboardItems: ClipboardItem[] = []
+
+    for (const id of state.selectedIds) {
+      if (id.startsWith('marker_')) {
+        const markerId = id.replace('marker_', '')
+        const marker = state.markers.find(m => m.id === markerId)
+        if (marker) {
+          clipboardItems.push({ kind: 'marker', data: { ...marker } })
+        }
+      } else {
+        const obj = state.objects.find(o => o.id === id)
+        if (obj) {
+          clipboardItems.push({ kind: 'object', data: { ...obj } })
+        }
+      }
+    }
+
+    set({ clipboard: clipboardItems })
+  },
+
+  // 붙여넣기
+  paste: (cameraPosition, cameraDirection) => {
+    const state = get()
+    if (state.clipboard.length === 0) return
+
+    // 클립보드 아이템들의 중심점 계산
+    let centerX = 0, centerY = 0, centerZ = 0
+    let count = 0
+    for (const item of state.clipboard) {
+      const pos = item.data.position
+      centerX += pos[0]
+      centerY += pos[1]
+      centerZ += pos[2]
+      count++
+    }
+    centerX /= count
+    centerY /= count
+    centerZ /= count
+
+    // 카메라 앞 5 유닛 위치에 배치
+    const pasteX = cameraPosition[0] + cameraDirection[0] * 5
+    const pasteY = 0.5
+    const pasteZ = cameraPosition[2] + cameraDirection[2] * 5
+
+    const newIds: string[] = []
+    const newObjects: MapObject[] = []
+    const newMarkers: MapMarker[] = []
+    const historyEntries: HistoryEntry[] = []
+
+    for (const item of state.clipboard) {
+      const newId = generateId()
+      const offsetX = item.data.position[0] - centerX
+      const offsetY = item.data.position[1] - centerY
+      const offsetZ = item.data.position[2] - centerZ
+
+      if (item.kind === 'object') {
+        const newObj: MapObject = {
+          ...item.data,
+          id: newId,
+          name: `${item.data.type}_${newId.slice(0, 4)}`,
+          position: [pasteX + offsetX, pasteY + offsetY, pasteZ + offsetZ],
+        }
+        newObjects.push(newObj)
+        newIds.push(newId)
+        historyEntries.push({ type: 'add', target: 'object', data: newObj })
+      } else {
+        const newMarker: MapMarker = {
+          ...item.data,
+          id: newId,
+          position: [pasteX + offsetX, pasteY + offsetY, pasteZ + offsetZ],
+        }
+        newMarkers.push(newMarker)
+        newIds.push(`marker_${newId}`)
+        historyEntries.push({ type: 'add', target: 'marker', data: newMarker })
+      }
+    }
+
+    set(state => ({
+      objects: [...state.objects, ...newObjects],
+      markers: [...state.markers, ...newMarkers],
+      selectedIds: newIds,
+      undoStack: [...state.undoStack, ...historyEntries],
+      redoStack: [],
+      mapCompleted: newMarkers.length > 0 ? false : state.mapCompleted,
+      completionTime: newMarkers.length > 0 ? null : state.completionTime,
+    }))
+  },
   setGizmoMode: (mode) => set({ gizmoMode: mode }),
   setGridSnap: (enabled) => set({ gridSnap: enabled }),
   setGridSize: (size) => set({ gridSize: size }),
@@ -343,12 +653,17 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
     set(s => ({
       markers: [...s.markers, newMarker],
-      selectedId: `marker_${id}`,
+      selectedIds: [`marker_${id}`],
+      undoStack: [...s.undoStack, { type: 'add', target: 'marker', data: newMarker }],
+      redoStack: [],
     }))
   },
 
   placeObjectAt: (position, isAdjacent = false, yaw = 0) => {
     const state = get()
+    // 선택 모드이면 배치 안함
+    if (state.currentPlaceable === null) return
+
     const id = generateId()
     const type = state.currentPlaceable
 
@@ -423,7 +738,9 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     }
     set(s => ({
       objects: [...s.objects, newObject],
-      selectedId: id,
+      selectedIds: [id],
+      undoStack: [...s.undoStack, { type: 'add', target: 'object', data: newObject }],
+      redoStack: [],
     }))
   },
 
@@ -436,9 +753,11 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       shooterSubMode: data.shooterSubMode || 'team',
       objects: data.objects,
       markers: data.markers,
-      selectedId: null,
+      selectedIds: [],
       mapCompleted: false,
       completionTime: null,
+      undoStack: [],
+      redoStack: [],
     })
   },
 
@@ -497,41 +816,89 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   duplicateSelected: () => {
     const state = get()
-    if (!state.selectedId) return
+    if (state.selectedIds.length === 0) return
 
-    // 마커인지 확인
-    if (state.selectedId.startsWith('marker_')) {
-      const markerId = state.selectedId.replace('marker_', '')
-      const marker = state.markers.find(m => m.id === markerId)
-      if (marker) {
-        const newId = generateId()
-        const newMarker: MapMarker = {
-          ...marker,
-          id: newId,
-          position: [marker.position[0] + 1, marker.position[1], marker.position[2] + 1],
+    const newIds: string[] = []
+    const newObjects: MapObject[] = []
+    const newMarkers: MapMarker[] = []
+    const historyEntries: HistoryEntry[] = []
+
+    for (const selectedId of state.selectedIds) {
+      if (selectedId.startsWith('marker_')) {
+        const markerId = selectedId.replace('marker_', '')
+        const marker = state.markers.find(m => m.id === markerId)
+        if (marker) {
+          const newId = generateId()
+          const newMarker: MapMarker = {
+            ...marker,
+            id: newId,
+            position: [marker.position[0] + 1, marker.position[1], marker.position[2] + 1],
+          }
+          newMarkers.push(newMarker)
+          newIds.push(`marker_${newId}`)
+          historyEntries.push({ type: 'add', target: 'marker', data: newMarker })
         }
-        set(s => ({
-          markers: [...s.markers, newMarker],
-          selectedId: `marker_${newId}`,
-        }))
+      } else {
+        const obj = state.objects.find(o => o.id === selectedId)
+        if (obj) {
+          const newId = generateId()
+          const newObj: MapObject = {
+            ...obj,
+            id: newId,
+            name: `${obj.type}_${newId.slice(0, 4)}`,
+            position: [obj.position[0] + 1, obj.position[1], obj.position[2] + 1],
+          }
+          newObjects.push(newObj)
+          newIds.push(newId)
+          historyEntries.push({ type: 'add', target: 'object', data: newObj })
+        }
       }
-      return
     }
 
-    // 오브젝트인 경우
-    const obj = state.objects.find(o => o.id === state.selectedId)
-    if (obj) {
-      const newId = generateId()
-      const newObj: MapObject = {
-        ...obj,
-        id: newId,
-        name: `${obj.type}_${newId.slice(0, 4)}`,
-        position: [obj.position[0] + 1, obj.position[1], obj.position[2] + 1],
+    set(s => ({
+      objects: [...s.objects, ...newObjects],
+      markers: [...s.markers, ...newMarkers],
+      selectedIds: newIds,
+      undoStack: [...s.undoStack, ...historyEntries],
+      redoStack: [],
+      mapCompleted: newMarkers.length > 0 ? false : s.mapCompleted,
+      completionTime: newMarkers.length > 0 ? null : s.completionTime,
+    }))
+  },
+
+  deleteSelected: () => {
+    const state = get()
+    if (state.selectedIds.length === 0) return
+
+    const historyEntries: HistoryEntry[] = []
+    const objectsToRemove: string[] = []
+    const markersToRemove: string[] = []
+
+    for (const selectedId of state.selectedIds) {
+      if (selectedId.startsWith('marker_')) {
+        const markerId = selectedId.replace('marker_', '')
+        const marker = state.markers.find(m => m.id === markerId)
+        if (marker) {
+          markersToRemove.push(markerId)
+          historyEntries.push({ type: 'remove', target: 'marker', data: marker })
+        }
+      } else {
+        const obj = state.objects.find(o => o.id === selectedId)
+        if (obj) {
+          objectsToRemove.push(selectedId)
+          historyEntries.push({ type: 'remove', target: 'object', data: obj })
+        }
       }
-      set(s => ({
-        objects: [...s.objects, newObj],
-        selectedId: newId,
-      }))
     }
+
+    set(s => ({
+      objects: s.objects.filter(o => !objectsToRemove.includes(o.id)),
+      markers: s.markers.filter(m => !markersToRemove.includes(m.id)),
+      selectedIds: [],
+      undoStack: [...s.undoStack, ...historyEntries],
+      redoStack: [],
+      mapCompleted: markersToRemove.length > 0 ? false : s.mapCompleted,
+      completionTime: markersToRemove.length > 0 ? null : s.completionTime,
+    }))
   },
 }))

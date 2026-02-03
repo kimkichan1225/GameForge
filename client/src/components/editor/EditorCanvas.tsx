@@ -143,7 +143,7 @@ function FPSCamera() {
   const moveSpeed = 15
   const lookSpeed = 0.002
 
-  const keys = useRef({ w: false, a: false, s: false, d: false, space: false, shift: false })
+  const keys = useRef({ w: false, a: false, s: false, d: false, space: false, c: false })
   const isLocked = useRef(false)
   const euler = useRef(new THREE.Euler(0, 0, 0, 'YXZ'))
   const skipNextMove = useRef(false)
@@ -163,9 +163,6 @@ function FPSCamera() {
         e.preventDefault()
         keys.current.space = true
       }
-      if (e.key === 'Shift') {
-        keys.current.shift = true
-      }
       // ESC로 잠금 해제
       if (e.key === 'Escape' && isLocked.current) {
         document.exitPointerLock()
@@ -179,9 +176,6 @@ function FPSCamera() {
       }
       if (e.key === ' ') {
         keys.current.space = false
-      }
-      if (e.key === 'Shift') {
-        keys.current.shift = false
       }
     }
 
@@ -258,7 +252,7 @@ function FPSCamera() {
     if (keys.current.a) camera.position.addScaledVector(right.current, -speed)
     if (keys.current.d) camera.position.addScaledVector(right.current, speed)
     if (keys.current.space) camera.position.y += speed
-    if (keys.current.shift) camera.position.y -= speed
+    if (keys.current.c) camera.position.y -= speed
   })
 
   return null
@@ -275,17 +269,20 @@ const Ground = memo(function Ground() {
   return <mesh rotation={GROUND_ROTATION} position={GROUND_POSITION} geometry={geometry} material={material} />
 })
 
-// 레이캐스트 배치 - 좌클릭으로 설치, 우클릭으로 선택
+// 레이캐스트 배치 - 좌클릭으로 설치 또는 선택, 우클릭으로 선택
 function RaycastPlacer() {
   const { camera, scene } = useThree()
   const placeObjectAt = useEditorStore(state => state.placeObjectAt)
   const placeMarkerAt = useEditorStore(state => state.placeMarkerAt)
   const currentMarker = useEditorStore(state => state.currentMarker)
+  const currentPlaceable = useEditorStore(state => state.currentPlaceable)
   const setSelectedId = useEditorStore(state => state.setSelectedId)
+  const toggleSelection = useEditorStore(state => state.toggleSelection)
   const raycaster = useRef(new THREE.Raycaster())
   const dirVec = useRef(new THREE.Vector3())
   const screenCenter = useRef(new THREE.Vector2(0, 0))
   const normalMatrix = useRef(new THREE.Matrix3())
+  const shiftPressed = useRef(false)
 
   // 카메라 Y 회전(yaw)을 90도 단위로 스냅
   const getCameraYaw = useCallback(() => {
@@ -293,6 +290,28 @@ function RaycastPlacer() {
     const angle = Math.atan2(dirVec.current.x, dirVec.current.z)
     return Math.round(angle / (Math.PI / 2)) * (Math.PI / 2)
   }, [camera])
+
+  // 선택 모드 체크 (currentPlaceable이 null이고 currentMarker도 null)
+  const isSelectMode = useCallback(() => {
+    const state = useEditorStore.getState()
+    return state.currentMarker === null && state.currentPlaceable === null
+  }, [])
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Shift') shiftPressed.current = true
+    }
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.key === 'Shift') shiftPressed.current = false
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    window.addEventListener('keyup', handleKeyUp)
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown)
+      window.removeEventListener('keyup', handleKeyUp)
+    }
+  }, [])
 
   useEffect(() => {
     const handleMouseDown = (e: MouseEvent) => {
@@ -310,19 +329,48 @@ function RaycastPlacer() {
           if (hit.object.userData.isEditorObject) {
             const id = hit.object.userData.objectId
             if (id) {
-              setSelectedId(id)
+              if (shiftPressed.current) {
+                toggleSelection(id)
+              } else {
+                setSelectedId(id)
+              }
               document.exitPointerLock()
             }
             return
           }
         }
-        setSelectedId(null)
+        if (!shiftPressed.current) {
+          setSelectedId(null)
+        }
         return
       }
 
-      // 좌클릭 - 오브젝트 또는 마커 설치
+      // 좌클릭
       if (e.button === 0) {
         const yaw = getCameraYaw()
+        const selectMode = isSelectMode()
+
+        // 선택 모드이면 좌클릭으로도 선택
+        if (selectMode) {
+          for (const hit of intersects) {
+            if (hit.object.userData.isEditorObject) {
+              const id = hit.object.userData.objectId
+              if (id) {
+                if (shiftPressed.current) {
+                  toggleSelection(id)
+                } else {
+                  setSelectedId(id)
+                }
+              }
+              return
+            }
+          }
+          // 빈 곳 클릭시 선택 해제
+          if (!shiftPressed.current) {
+            setSelectedId(null)
+          }
+          return
+        }
 
         for (const hit of intersects) {
           // 마커 모드인 경우
@@ -363,7 +411,7 @@ function RaycastPlacer() {
 
     window.addEventListener('mousedown', handleMouseDown)
     return () => window.removeEventListener('mousedown', handleMouseDown)
-  }, [camera, scene, placeObjectAt, placeMarkerAt, currentMarker, setSelectedId, getCameraYaw])
+  }, [camera, scene, placeObjectAt, placeMarkerAt, currentMarker, currentPlaceable, setSelectedId, toggleSelection, getCameraYaw, isSelectMode])
 
   return null
 }
@@ -415,7 +463,9 @@ function PlacementPreview() {
   useFrame(() => {
     // 캡처 모드이거나 포인터 잠금이 해제된 경우 미리보기 숨기기
     const isCaptureMode = useEditorStore.getState().isThumbnailCaptureMode
-    if (document.pointerLockElement === null || isCaptureMode) {
+    // 선택 모드 (currentPlaceable === null && currentMarker === null)
+    const isSelectMode = currentPlaceable === null && currentMarker === null
+    if (document.pointerLockElement === null || isCaptureMode || isSelectMode) {
       if (meshRef.current) meshRef.current.visible = false
       if (markerRef.current) markerRef.current.visible = false
       return
@@ -682,7 +732,7 @@ const EditorMarker = memo(function EditorMarker({ marker, selected }: { marker: 
 const SceneContent = memo(function SceneContent() {
   const objects = useEditorStore(state => state.objects)
   const markers = useEditorStore(state => state.markers)
-  const selectedId = useEditorStore(state => state.selectedId)
+  const selectedIds = useEditorStore(state => state.selectedIds)
 
   return (
     <>
@@ -716,7 +766,7 @@ const SceneContent = memo(function SceneContent() {
         <EditorObject
           key={obj.id}
           obj={obj}
-          selected={selectedId === obj.id}
+          selected={selectedIds.includes(obj.id)}
         />
       ))}
 
@@ -725,7 +775,7 @@ const SceneContent = memo(function SceneContent() {
         <EditorMarker
           key={marker.id}
           marker={marker}
-          selected={selectedId === `marker_${marker.id}`}
+          selected={selectedIds.includes(`marker_${marker.id}`)}
         />
       ))}
 
@@ -737,25 +787,42 @@ const SceneContent = memo(function SceneContent() {
 
       {/* 설치 미리보기 */}
       <PlacementPreview />
+
+      {/* 키보드 단축키 */}
+      <KeyboardShortcuts />
     </>
   )
 })
 
 // 키보드 단축키 (최적화된 셀렉터)
 const KeyboardShortcuts = memo(function KeyboardShortcuts() {
-  const removeObject = useEditorStore(state => state.removeObject)
-  const removeMarker = useEditorStore(state => state.removeMarker)
-  const selectedId = useEditorStore(state => state.selectedId)
+  const { camera } = useThree()
+  const selectedIds = useEditorStore(state => state.selectedIds)
   const duplicateSelected = useEditorStore(state => state.duplicateSelected)
+  const deleteSelected = useEditorStore(state => state.deleteSelected)
   const setCurrentPlaceable = useEditorStore(state => state.setCurrentPlaceable)
   const setCurrentMarker = useEditorStore(state => state.setCurrentMarker)
   const mapMode = useEditorStore(state => state.mapMode)
   const shooterSubMode = useEditorStore(state => state.shooterSubMode)
+  const undo = useEditorStore(state => state.undo)
+  const redo = useEditorStore(state => state.redo)
+  const copy = useEditorStore(state => state.copy)
+  const paste = useEditorStore(state => state.paste)
+
+  // 카메라 방향 벡터 참조
+  const dirVec = useRef(new THREE.Vector3())
 
   // 핸들러를 useCallback으로 메모이제이션하여 불필요한 리스너 재등록 방지
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
       // 입력 필드에서는 단축키 무시
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
+
+      // Q키 - 선택 모드
+      if (e.key.toLowerCase() === 'q' && !e.ctrlKey && !e.metaKey) {
+        // currentPlaceable과 currentMarker를 모두 null로 설정 (선택 모드)
+        useEditorStore.setState({ currentPlaceable: null, currentMarker: null })
+        return
+      }
 
       // 숫자 키로 오브젝트 선택 (1-5)
       const placeables: PlaceableType[] = ['box', 'cylinder', 'sphere', 'plane', 'ramp']
@@ -795,12 +862,8 @@ const KeyboardShortcuts = memo(function KeyboardShortcuts() {
       switch (e.key.toLowerCase()) {
         case 'delete':
         case 'backspace':
-          if (selectedId) {
-            if (selectedId.startsWith('marker_')) {
-              removeMarker(selectedId.replace('marker_', ''))
-            } else {
-              removeObject(selectedId)
-            }
+          if (selectedIds.length > 0) {
+            deleteSelected()
           }
           break
         case 'd':
@@ -809,8 +872,40 @@ const KeyboardShortcuts = memo(function KeyboardShortcuts() {
             duplicateSelected()
           }
           break
+        case 'z':
+          if (e.ctrlKey || e.metaKey) {
+            e.preventDefault()
+            if (e.shiftKey) {
+              redo()
+            } else {
+              undo()
+            }
+          }
+          break
+        case 'y':
+          if (e.ctrlKey || e.metaKey) {
+            e.preventDefault()
+            redo()
+          }
+          break
+        case 'c':
+          if (e.ctrlKey || e.metaKey) {
+            e.preventDefault()
+            copy()
+          }
+          break
+        case 'v':
+          if (e.ctrlKey || e.metaKey) {
+            e.preventDefault()
+            camera.getWorldDirection(dirVec.current)
+            paste(
+              [camera.position.x, camera.position.y, camera.position.z],
+              [dirVec.current.x, dirVec.current.y, dirVec.current.z]
+            )
+          }
+          break
       }
-  }, [selectedId, removeObject, removeMarker, duplicateSelected, setCurrentPlaceable, setCurrentMarker, mapMode, shooterSubMode])
+  }, [selectedIds, duplicateSelected, deleteSelected, setCurrentPlaceable, setCurrentMarker, mapMode, shooterSubMode, undo, redo, copy, paste, camera])
 
   useEffect(() => {
     window.addEventListener('keydown', handleKeyDown)
@@ -933,7 +1028,6 @@ export function EditorCanvas() {
         <SceneContent />
       </Canvas>
       <Crosshair />
-      <KeyboardShortcuts />
       <ThumbnailCaptureOverlay />
     </div>
   )

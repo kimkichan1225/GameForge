@@ -182,7 +182,7 @@ function FPSCamera({ region }: { region: BuildingRegion | null }) {
   const moveSpeed = 15
   const lookSpeed = 0.002
 
-  const keys = useRef({ w: false, a: false, s: false, d: false, space: false, shift: false })
+  const keys = useRef({ w: false, a: false, s: false, d: false, space: false, c: false })
   const isLocked = useRef(false)
   const euler = useRef(new THREE.Euler(0, 0, 0, 'YXZ'))
   const skipNextMove = useRef(false)
@@ -203,9 +203,6 @@ function FPSCamera({ region }: { region: BuildingRegion | null }) {
         e.preventDefault()
         keys.current.space = true
       }
-      if (e.key === 'Shift') {
-        keys.current.shift = true
-      }
       if (e.key === 'Escape' && isLocked.current) {
         document.exitPointerLock()
       }
@@ -218,9 +215,6 @@ function FPSCamera({ region }: { region: BuildingRegion | null }) {
       }
       if (e.key === ' ') {
         keys.current.space = false
-      }
-      if (e.key === 'Shift') {
-        keys.current.shift = false
       }
     }
 
@@ -292,7 +286,7 @@ function FPSCamera({ region }: { region: BuildingRegion | null }) {
     if (keys.current.a) camera.position.addScaledVector(right.current, -speed)
     if (keys.current.d) camera.position.addScaledVector(right.current, speed)
     if (keys.current.space) camera.position.y += speed
-    if (keys.current.shift) camera.position.y -= speed
+    if (keys.current.c) camera.position.y -= speed
   })
 
   return null
@@ -344,20 +338,23 @@ function RaycastPlacer({
   onPlaceObject,
   onPlaceMarker,
   onSelect,
+  onToggleSelect,
 }: {
   region: BuildingRegion | null
   isVerified: boolean
-  currentPlaceable: PlaceableType
+  currentPlaceable: PlaceableType | null
   currentMarker: MarkerType | null
   onPlaceObject: (data: Omit<MapObject, 'id'>) => void
   onPlaceMarker: (data: { type: MarkerType; position: [number, number, number]; rotation: [number, number, number] }) => void
   onSelect: (id: string | null) => void
+  onToggleSelect: (id: string) => void
 }) {
   const { camera, scene } = useThree()
   const raycaster = useRef(new THREE.Raycaster())
   const dirVec = useRef(new THREE.Vector3())
   const screenCenter = useRef(new THREE.Vector2(0, 0))
   const normalMatrix = useRef(new THREE.Matrix3())
+  const shiftPressed = useRef(false)
   const objects = useMultiplayerGameStore(state => state.myObjects)
 
   const getCameraYaw = useCallback(() => {
@@ -370,6 +367,9 @@ function RaycastPlacer({
     const colors = ['#ff6b6b', '#4ecdc4', '#45b7d1', '#96ceb4', '#ffeaa7', '#dfe6e9', '#a29bfe', '#fd79a8']
     return colors[Math.floor(Math.random() * colors.length)]
   }, [])
+
+  // 선택 모드 체크 (currentPlaceable과 currentMarker 모두 null)
+  const isSelectMode = currentPlaceable === null && currentMarker === null
 
   // 겹침 체크
   const checkOverlap = useCallback((pos: [number, number, number], scale: number[]) => {
@@ -385,6 +385,22 @@ function RaycastPlacer({
   }, [objects])
 
   useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Shift') shiftPressed.current = true
+    }
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.key === 'Shift') shiftPressed.current = false
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    window.addEventListener('keyup', handleKeyUp)
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown)
+      window.removeEventListener('keyup', handleKeyUp)
+    }
+  }, [])
+
+  useEffect(() => {
     const handleMouseDown = (e: MouseEvent) => {
       if (document.pointerLockElement === null) return
       if (!region) return
@@ -398,20 +414,48 @@ function RaycastPlacer({
           if (hit.object.userData.isEditorObject) {
             const id = hit.object.userData.objectId
             if (id) {
-              // marker_로 시작하면 마커, 아니면 오브젝트
-              onSelect(id)
+              if (shiftPressed.current) {
+                onToggleSelect(id)
+              } else {
+                onSelect(id)
+              }
               return
             }
           }
         }
-        onSelect(null)
+        if (!shiftPressed.current) {
+          onSelect(null)
+        }
         return
       }
 
-      if (isVerified) return // 검증 완료 후 배치 불가
-
+      // 좌클릭
       if (e.button === 0) {
         const yaw = getCameraYaw()
+
+        // 선택 모드이면 좌클릭으로도 선택
+        if (isSelectMode) {
+          for (const hit of intersects) {
+            if (hit.object.userData.isEditorObject) {
+              const id = hit.object.userData.objectId
+              if (id) {
+                if (shiftPressed.current) {
+                  onToggleSelect(id)
+                } else {
+                  onSelect(id)
+                }
+              }
+              return
+            }
+          }
+          // 빈 곳 클릭시 선택 해제
+          if (!shiftPressed.current) {
+            onSelect(null)
+          }
+          return
+        }
+
+        if (isVerified) return // 검증 완료 후 배치 불가
 
         for (const hit of intersects) {
           // 마커 모드
@@ -432,6 +476,7 @@ function RaycastPlacer({
           }
 
           // 오브젝트 모드
+          if (!currentPlaceable) return  // null이면 선택 모드
           const type = currentPlaceable
           const newScale: [number, number, number] = type === 'plane' ? [2, 1, 2] : [1, 1, 1]
 
@@ -491,7 +536,7 @@ function RaycastPlacer({
 
     window.addEventListener('mousedown', handleMouseDown)
     return () => window.removeEventListener('mousedown', handleMouseDown)
-  }, [camera, scene, region, isVerified, currentPlaceable, currentMarker, getCameraYaw, getRandomColor, checkOverlap, onPlaceObject, onPlaceMarker, onSelect])
+  }, [camera, scene, region, isVerified, currentPlaceable, currentMarker, isSelectMode, getCameraYaw, getRandomColor, checkOverlap, onPlaceObject, onPlaceMarker, onSelect, onToggleSelect])
 
   return null
 }
@@ -505,7 +550,7 @@ function PlacementPreview({
 }: {
   region: BuildingRegion | null
   isVerified: boolean
-  currentPlaceable: PlaceableType
+  currentPlaceable: PlaceableType | null
   currentMarker: MarkerType | null
 }) {
   const { camera, scene } = useThree()
@@ -551,7 +596,9 @@ function PlacementPreview({
   }, [region])
 
   useFrame(() => {
-    if (document.pointerLockElement === null || isVerified) {
+    // 선택 모드 (currentPlaceable === null && currentMarker === null)
+    const isSelectMode = currentPlaceable === null && currentMarker === null
+    if (document.pointerLockElement === null || isVerified || isSelectMode) {
       if (meshRef.current) meshRef.current.visible = false
       if (markerRef.current) markerRef.current.visible = false
       return
@@ -583,7 +630,7 @@ function PlacementPreview({
 
       // 오브젝트 모드
       if (markerRef.current) markerRef.current.visible = false
-      if (!meshRef.current) return
+      if (!meshRef.current || !currentPlaceable) return
 
       const type = currentPlaceable
       const newScale = type === 'plane' ? [2, 1, 2] : [1, 1, 1]
@@ -791,19 +838,21 @@ const SceneContent = memo(function SceneContent({
   isVerified,
   currentPlaceable,
   currentMarker,
-  selectedId,
+  selectedIds,
   onPlaceObject,
   onPlaceMarker,
   onSelect,
+  onToggleSelect,
 }: {
   region: BuildingRegion | null
   isVerified: boolean
-  currentPlaceable: PlaceableType
+  currentPlaceable: PlaceableType | null
   currentMarker: MarkerType | null
-  selectedId: string | null
+  selectedIds: string[]
   onPlaceObject: (data: Omit<MapObject, 'id'>) => void
   onPlaceMarker: (data: { type: MarkerType; position: [number, number, number]; rotation: [number, number, number] }) => void
   onSelect: (id: string | null) => void
+  onToggleSelect: (id: string) => void
 }) {
   const objects = useMultiplayerGameStore(state => state.myObjects)
   const markers = useMultiplayerGameStore(state => state.myMarkers)
@@ -840,12 +889,12 @@ const SceneContent = memo(function SceneContent({
 
       {/* 오브젝트 */}
       {objects.map(obj => (
-        <BuildingObject key={obj.id} obj={obj} selected={selectedId === obj.id} />
+        <BuildingObject key={obj.id} obj={obj} selected={selectedIds.includes(obj.id)} />
       ))}
 
       {/* 마커 */}
       {markers.map(marker => (
-        <BuildingMarker key={marker.id} marker={marker} selected={selectedId === `marker_${marker.id}`} />
+        <BuildingMarker key={marker.id} marker={marker} selected={selectedIds.includes(`marker_${marker.id}`)} />
       ))}
 
       {/* FPS 카메라 */}
@@ -860,6 +909,7 @@ const SceneContent = memo(function SceneContent({
         onPlaceObject={onPlaceObject}
         onPlaceMarker={onPlaceMarker}
         onSelect={onSelect}
+        onToggleSelect={onToggleSelect}
       />
 
       {/* 설치 미리보기 */}
@@ -888,80 +938,128 @@ const Crosshair = memo(function Crosshair() {
   )
 })
 
-// 키보드 단축키 (삭제)
+// 키보드 단축키 (삭제, Undo/Redo, Copy/Paste)
 function KeyboardShortcuts({
-  selectedId,
-  onDelete,
   isVerified,
+  onSetSelectMode,
 }: {
-  selectedId: string | null
-  onDelete: (id: string) => void
   isVerified: boolean
+  onSetSelectMode: () => void
 }) {
+  const { camera } = useThree()
+  const selectedIds = useMultiplayerGameStore(state => state.buildingSelectedIds)
+  const buildingUndo = useMultiplayerGameStore(state => state.buildingUndo)
+  const buildingRedo = useMultiplayerGameStore(state => state.buildingRedo)
+  const buildingCopy = useMultiplayerGameStore(state => state.buildingCopy)
+  const buildingPaste = useMultiplayerGameStore(state => state.buildingPaste)
+  const buildingDeleteSelected = useMultiplayerGameStore(state => state.buildingDeleteSelected)
+
+  const dirVec = useRef(new THREE.Vector3())
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // 검증 완료 후 삭제 불가
-      if (isVerified) return
       // 입력 필드에서는 단축키 무시
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
 
-      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedId) {
+      // Q키 - 선택 모드
+      if (e.key.toLowerCase() === 'q' && !e.ctrlKey && !e.metaKey) {
+        onSetSelectMode()
+        return
+      }
+
+      // Ctrl+Z - Undo
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
         e.preventDefault()
-        onDelete(selectedId)
+        if (e.shiftKey) {
+          buildingRedo()
+        } else {
+          buildingUndo()
+        }
+        return
+      }
+
+      // Ctrl+Y - Redo
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
+        e.preventDefault()
+        buildingRedo()
+        return
+      }
+
+      // Ctrl+C - Copy
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c') {
+        e.preventDefault()
+        buildingCopy()
+        return
+      }
+
+      // Ctrl+V - Paste
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v') {
+        e.preventDefault()
+        camera.getWorldDirection(dirVec.current)
+        buildingPaste(
+          [camera.position.x, camera.position.y, camera.position.z],
+          [dirVec.current.x, dirVec.current.y, dirVec.current.z]
+        )
+        return
+      }
+
+      // 검증 완료 후 삭제 불가
+      if (isVerified) return
+
+      // Delete/Backspace - 삭제
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedIds.length > 0) {
+        e.preventDefault()
+        buildingDeleteSelected()
       }
     }
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [selectedId, onDelete, isVerified])
+  }, [selectedIds, isVerified, buildingUndo, buildingRedo, buildingCopy, buildingPaste, buildingDeleteSelected, camera, onSetSelectMode])
 
   return null
 }
 
 // 메인 컴포넌트
 interface BuildingCanvasProps {
-  currentPlaceable: PlaceableType
+  currentPlaceable: PlaceableType | null
   currentMarker: MarkerType | null
-  selectedId: string | null
-  onSelectId: (id: string | null) => void
+  onSetSelectMode: () => void
 }
 
-export function BuildingCanvas({ currentPlaceable, currentMarker, selectedId, onSelectId }: BuildingCanvasProps) {
+export function BuildingCanvas({ currentPlaceable, currentMarker, onSetSelectMode }: BuildingCanvasProps) {
   const region = useMultiplayerGameStore(state => state.myRegion)
   const isVerified = useMultiplayerGameStore(state => state.myVerified)
   const placeObject = useMultiplayerGameStore(state => state.placeObject)
   const placeMarker = useMultiplayerGameStore(state => state.placeMarker)
-  const removeObject = useMultiplayerGameStore(state => state.removeObject)
-  const removeMarker = useMultiplayerGameStore(state => state.removeMarker)
+  const selectedIds = useMultiplayerGameStore(state => state.buildingSelectedIds)
+  const setBuildingSelectedIds = useMultiplayerGameStore(state => state.setBuildingSelectedIds)
+  const toggleBuildingSelection = useMultiplayerGameStore(state => state.toggleBuildingSelection)
+  const pushBuildingHistory = useMultiplayerGameStore(state => state.pushBuildingHistory)
+  const myObjects = useMultiplayerGameStore(state => state.myObjects)
+  const myMarkers = useMultiplayerGameStore(state => state.myMarkers)
 
   const handlePlaceObject = useCallback(async (data: Omit<MapObject, 'id'>) => {
-    await placeObject(data)
-  }, [placeObject])
+    const result = await placeObject(data)
+    if (result) {
+      pushBuildingHistory({ type: 'add', target: 'object', data: result })
+    }
+  }, [placeObject, pushBuildingHistory])
 
   const handlePlaceMarker = useCallback(async (data: { type: MarkerType; position: [number, number, number]; rotation: [number, number, number] }) => {
-    await placeMarker(data)
-  }, [placeMarker])
+    const result = await placeMarker(data)
+    if (result) {
+      pushBuildingHistory({ type: 'add', target: 'marker', data: result })
+    }
+  }, [placeMarker, pushBuildingHistory])
 
   const handleSelect = useCallback((id: string | null) => {
-    onSelectId(id)
-  }, [onSelectId])
+    setBuildingSelectedIds(id ? [id] : [])
+  }, [setBuildingSelectedIds])
 
-  const handleDelete = useCallback(async (id: string) => {
-    if (id.startsWith('marker_')) {
-      // 마커 삭제
-      const markerId = id.replace('marker_', '')
-      const success = await removeMarker(markerId)
-      if (success) {
-        onSelectId(null)
-      }
-    } else {
-      // 오브젝트 삭제
-      const success = await removeObject(id)
-      if (success) {
-        onSelectId(null)
-      }
-    }
-  }, [removeObject, removeMarker, onSelectId])
+  const handleToggleSelect = useCallback((id: string) => {
+    toggleBuildingSelection(id)
+  }, [toggleBuildingSelection])
 
   return (
     <div className="w-full h-full relative">
@@ -975,18 +1073,19 @@ export function BuildingCanvas({ currentPlaceable, currentMarker, selectedId, on
           isVerified={isVerified}
           currentPlaceable={currentPlaceable}
           currentMarker={currentMarker}
-          selectedId={selectedId}
+          selectedIds={selectedIds}
           onPlaceObject={handlePlaceObject}
           onPlaceMarker={handlePlaceMarker}
           onSelect={handleSelect}
+          onToggleSelect={handleToggleSelect}
         />
+        <KeyboardShortcuts isVerified={isVerified} onSetSelectMode={onSetSelectMode} />
       </Canvas>
       {!isVerified && <Crosshair />}
-      <KeyboardShortcuts selectedId={selectedId} onDelete={handleDelete} isVerified={isVerified} />
       {/* 선택된 오브젝트 안내 */}
-      {selectedId && !isVerified && (
+      {selectedIds.length > 0 && !isVerified && (
         <div className="absolute bottom-4 right-4 z-10 bg-slate-800/80 backdrop-blur-sm rounded-lg px-4 py-2 text-white text-sm">
-          <span className="text-yellow-400">선택됨</span> - Delete 또는 Backspace로 삭제
+          <span className="text-yellow-400">{selectedIds.length}개 선택됨</span> - Delete로 삭제, Ctrl+C로 복사
         </div>
       )}
     </div>

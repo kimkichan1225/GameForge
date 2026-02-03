@@ -65,6 +65,18 @@ VITE_SUPABASE_URL=your_supabase_url
 VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
 ```
 
+### Railway 배포
+
+1. [Railway](https://railway.app)에서 GitHub 저장소 연결
+2. Variables에 환경변수 추가:
+   ```
+   VITE_SUPABASE_URL=your_supabase_url
+   VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
+   ```
+3. 자동 빌드 및 배포 완료
+
+> 클라이언트와 서버가 단일 서비스로 배포됩니다.
+
 ## 사용법
 
 ### 맵 에디터 (`/editor`)
@@ -73,13 +85,17 @@ VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
 |---|---|
 | 클릭 | 마우스 잠금 |
 | WASD | 이동 |
-| Space / Shift | 위 / 아래 |
+| Space / C | 위 / 아래 |
 | 마우스 | 시점 회전 |
+| Q | 선택 모드 |
 | 1-5 | 오브젝트 선택 (Box, Cylinder, Sphere, Plane, Ramp) |
 | 6-9 | 마커 선택 (모드별 다름) |
-| 좌클릭 | 설치 |
+| 좌클릭 | 설치 / 선택 |
+| Shift+클릭 | 다중 선택 |
 | 우클릭 | 편집 |
-| Delete | 삭제 |
+| Delete | 선택 삭제 |
+| Ctrl+Z / Y | Undo / Redo |
+| Ctrl+C / V | 복사 / 붙여넣기 |
 | Ctrl+D | 복제 |
 | ESC | 마우스 잠금 해제 |
 
@@ -219,6 +235,18 @@ GameForge/
 - [ ] Phase 4: 총게임 모드 (Shooter)
 
 ## 최근 업데이트
+
+### 2026-02-03 (Update 2)
+- **에디터 기능 대폭 개선**
+  - 선택 모드 (Q키) - 빈 손 상태에서 좌클릭으로 선택
+  - 다중 선택 (Shift+클릭) - 여러 오브젝트 동시 선택
+  - Undo/Redo (Ctrl+Z/Y) - 작업 취소/다시 실행
+  - 복사/붙여넣기 (Ctrl+C/V) - 선택한 오브젝트 복사
+  - Delete 키로 선택된 모든 오브젝트 삭제
+- **카메라 조작 개선**
+  - 아래로 이동 키 Shift → C로 변경 (다중 선택과 충돌 방지)
+- **빌딩 모드에도 동일 기능 적용**
+  - 선택 모드, 다중 선택, Undo/Redo, 복사/붙여넣기
 
 ### 2026-02-03
 - **협동 빌딩 모드 (릴레이 레이스)**

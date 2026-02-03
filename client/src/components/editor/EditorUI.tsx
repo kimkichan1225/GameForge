@@ -37,14 +37,17 @@ const FFA_MARKERS = [
 // 0.5 단위로 스냅하는 유틸 함수
 const snap = (val: number) => Math.round(val * 2) / 2
 
-// 핫바 - 오브젝트(1-5) + 마커(6-9) 선택
+// 핫바 - 선택(Q) + 오브젝트(1-5) + 마커(6-9) 선택
 const Hotbar = memo(function Hotbar() {
   const currentPlaceable = useEditorStore(state => state.currentPlaceable)
   const setCurrentPlaceable = useEditorStore(state => state.setCurrentPlaceable)
   const currentMarker = useEditorStore(state => state.currentMarker)
   const setCurrentMarker = useEditorStore(state => state.setCurrentMarker)
+  const setSelectMode = useEditorStore(state => state.setSelectMode)
   const mapMode = useEditorStore(state => state.mapMode)
   const shooterSubMode = useEditorStore(state => state.shooterSubMode)
+
+  const isSelectMode = currentPlaceable === null && currentMarker === null
 
   // useMemo로 마커 아이템 메모이제이션
   const markerItems = useMemo(() => {
@@ -59,6 +62,27 @@ const Hotbar = memo(function Hotbar() {
 
   return (
     <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-10 flex items-center gap-1 bg-slate-800/90 backdrop-blur-sm rounded-xl p-2 border border-white/10">
+      {/* 선택 모드 버튼 (Q) */}
+      <button
+        onClick={() => setSelectMode()}
+        className={`relative w-14 h-14 rounded-lg flex flex-col items-center justify-center transition-all ${
+          isSelectMode
+            ? 'bg-amber-500 text-white ring-2 ring-white'
+            : 'bg-white/5 text-white/70 hover:bg-white/10 hover:text-white'
+        }`}
+      >
+        <span className="absolute top-1 left-2 text-xs font-bold opacity-60">Q</span>
+        <div className="w-6 h-6 flex items-center justify-center">
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122" />
+          </svg>
+        </div>
+        <span className="text-[10px] mt-1">Select</span>
+      </button>
+
+      {/* 구분선 */}
+      <div className="w-px h-10 bg-white/20 mx-1" />
+
       {/* 오브젝트 버튼 (1-5) */}
       {OBJECT_ITEMS.map((item) => (
         <button
@@ -317,14 +341,16 @@ const AXES = ['X', 'Y', 'Z'] as const
 
 // 속성 패널 (우클릭으로 오브젝트 선택 시 표시)
 const PropertiesPanel = memo(function PropertiesPanel() {
-  const selectedId = useEditorStore(state => state.selectedId)
+  const selectedIds = useEditorStore(state => state.selectedIds)
   const objects = useEditorStore(state => state.objects)
   const markers = useEditorStore(state => state.markers)
   const updateObject = useEditorStore(state => state.updateObject)
   const updateMarker = useEditorStore(state => state.updateMarker)
-  const removeObject = useEditorStore(state => state.removeObject)
-  const removeMarker = useEditorStore(state => state.removeMarker)
-  const setSelectedId = useEditorStore(state => state.setSelectedId)
+  const deleteSelected = useEditorStore(state => state.deleteSelected)
+  const clearSelection = useEditorStore(state => state.clearSelection)
+
+  // 첫 번째 선택된 아이템만 속성 편집에 표시
+  const selectedId = selectedIds.length > 0 ? selectedIds[0] : null
 
   // useMemo로 선택된 오브젝트/마커 메모이제이션
   const selectedObject = useMemo(() => {
@@ -337,7 +363,7 @@ const PropertiesPanel = memo(function PropertiesPanel() {
     return markers.find(m => m.id === selectedId.replace('marker_', '')) || null
   }, [selectedId, markers])
 
-  const handleClose = useCallback(() => setSelectedId(null), [setSelectedId])
+  const handleClose = useCallback(() => clearSelection(), [clearSelection])
 
   // 오브젝트 속성 변경 핸들러 (useCallback으로 최적화)
   const handleColorChange = useCallback((color: string) => {
@@ -398,10 +424,7 @@ const PropertiesPanel = memo(function PropertiesPanel() {
         </span>
         <div className="flex gap-2">
           <button
-            onClick={() => {
-              if (selectedObject) removeObject(selectedObject.id)
-              else if (selectedMarker) removeMarker(selectedMarker.id)
-            }}
+            onClick={() => deleteSelected()}
             className="text-red-400 hover:text-red-300 text-xs px-2 py-1 bg-red-500/10 rounded"
           >
             Delete
@@ -544,19 +567,24 @@ const PropertiesPanel = memo(function PropertiesPanel() {
   )
 })
 
-// 도움말 오버레이 (좌측 하단) - 변경 없음, memo로 최적화
+// 도움말 오버레이 (좌측 하단) - memo로 최적화
 const HelpOverlay = memo(function HelpOverlay() {
   return (
     <div className="absolute bottom-6 left-4 z-10 bg-slate-800/70 backdrop-blur-sm rounded-xl p-3 border border-white/10 text-white/40 text-xs">
       <div className="grid grid-cols-2 gap-x-4 gap-y-1">
         <span>클릭</span><span>마우스 잠금</span>
         <span>WASD</span><span>이동</span>
-        <span>Space / Shift</span><span>위 / 아래</span>
+        <span>Space / C</span><span>위 / 아래</span>
         <span>마우스</span><span>시점 회전</span>
-        <span>좌클릭</span><span>설치</span>
+        <span>Q</span><span>선택 모드</span>
+        <span>좌클릭</span><span>설치 / 선택</span>
+        <span>Shift+클릭</span><span>다중 선택</span>
         <span>우클릭</span><span>편집</span>
         <span>1-5</span><span>오브젝트 선택</span>
         <span>6-9</span><span>마커 선택</span>
+        <span>Ctrl+Z / Y</span><span>Undo / Redo</span>
+        <span>Ctrl+C / V</span><span>복사 / 붙여넣기</span>
+        <span>Delete</span><span>선택 삭제</span>
         <span>ESC</span><span>마우스 잠금 해제</span>
       </div>
     </div>

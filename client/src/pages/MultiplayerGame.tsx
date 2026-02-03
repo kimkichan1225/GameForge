@@ -27,10 +27,15 @@ export default function MultiplayerGame() {
   const startTest = useMultiplayerGameStore((state) => state.startTest);
   const finishTest = useMultiplayerGameStore((state) => state.finishTest);
 
-  // 빌딩 UI 상태
-  const [currentPlaceable, setCurrentPlaceable] = useState<PlaceableType>('box');
+  // 빌딩 UI 상태 (null이면 선택 모드)
+  const [currentPlaceable, setCurrentPlaceable] = useState<PlaceableType | null>('box');
   const [currentMarker, setCurrentMarker] = useState<'spawn' | 'finish' | 'checkpoint' | 'killzone' | null>(null);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  // 선택 모드 설정
+  const handleSetSelectMode = useCallback(() => {
+    setCurrentPlaceable(null);
+    setCurrentMarker(null);
+  }, []);
 
   // 게임 이벤트 리스너 초기화 여부 추적
   const gameInitializedRef = useRef(false);
@@ -142,8 +147,7 @@ export default function MultiplayerGame() {
         <BuildingCanvas
           currentPlaceable={currentPlaceable}
           currentMarker={currentMarker}
-          selectedId={selectedId}
-          onSelectId={setSelectedId}
+          onSetSelectMode={handleSetSelectMode}
         />
         <BuildingUI
           currentPlaceable={currentPlaceable}
@@ -151,8 +155,7 @@ export default function MultiplayerGame() {
           onSelectPlaceable={setCurrentPlaceable}
           onSelectMarker={setCurrentMarker}
           onStartTest={handleStartTest}
-          selectedId={selectedId}
-          onSelectId={setSelectedId}
+          onSetSelectMode={handleSetSelectMode}
         />
       </div>
     );

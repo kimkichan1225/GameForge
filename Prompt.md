@@ -162,7 +162,7 @@ interface GameMarker {
 |--------|------|
 | 마우스 우클릭 + WASD | 카메라 앞/뒤/좌/우 이동 |
 | 마우스 우클릭 + Space | 카메라 위로 이동 |
-| 마우스 우클릭 + Shift | 카메라 아래로 이동 |
+| 마우스 우클릭 + C | 카메라 아래로 이동 |
 | 마우스 우클릭 + 드래그 | 카메라 회전 (시점 변경) |
 | 마우스 휠 | 줌 인/아웃 |
 | F | 선택한 오브젝트로 포커스 이동 |
@@ -180,11 +180,12 @@ interface EditorCamera {
 
 #### 에디터 기능
 - **오브젝트 배치**: 원하는 위치에서 클릭하여 도형 배치
-- **기즈모 조작**: 이동(W) / 회전(E) / 스케일(R) 모드 전환
+- **선택 모드 (Q)**: 빈 손 상태에서 좌클릭으로 오브젝트/마커 선택
+- **다중 선택 (Shift+클릭)**: 여러 오브젝트 동시 선택
 - 복사(Ctrl+C) / 붙여넣기(Ctrl+V) / 삭제(Delete)
 - Undo(Ctrl+Z) / Redo(Ctrl+Y)
-- 그리드 스냅 (G 토글)
-- 테스트 플레이 모드 (P - 에디터 내에서 캐릭터로 테스트)
+- 그리드 스냅 (0.5 단위)
+- 테스트 플레이 모드 (Play 버튼 - 에디터 내에서 캐릭터로 테스트)
 
 #### 맵 모드 선택
 
@@ -1265,7 +1266,7 @@ supabase
   - 방 목록 (더미 데이터)
   - 로그인 상태에 따른 UI 변경
 - [x] **맵 에디터** (`/editor`) - FPS 스타일 맵 에디터
-  - FPS 스타일 카메라 (WASD + Space/Shift + 마우스)
+  - FPS 스타일 카메라 (WASD + Space/C + 마우스)
   - 오브젝트 배치 (Box, Cylinder, Sphere, Plane, Ramp)
   - 마커 배치 (Race: Spawn/Checkpoint/Finish, Shooter: Team A/B/Capture)
   - 속성 편집 (위치/회전/크기/색상)
@@ -1288,7 +1289,7 @@ supabase
 - [x] 3D 캔버스 (Three.js + React Three Fiber)
 - [x] FPS 스타일 카메라 컨트롤
   - 클릭으로 포인터 잠금, ESC로 해제
-  - WASD 이동, Space/Shift 위/아래
+  - WASD 이동, Space/C 위/아래
   - 마우스로 시점 회전
 - [x] 오브젝트 배치 시스템
   - 1-5 키로 오브젝트 타입 선택
@@ -1303,8 +1304,17 @@ supabase
   - 1개 제한 마커 (Spawn, Finish, Team A/B, Capture)
 - [x] 속성 편집 (우클릭으로 선택)
   - 위치/회전/크기/색상 편집
-  - 삭제 (Delete/Backspace)
+  - 삭제 (Delete)
   - 복제 (Ctrl+D)
+- [x] 선택 모드 (Q키)
+  - 빈 손 상태에서 좌클릭으로 선택
+- [x] 다중 선택 (Shift+클릭)
+  - 여러 오브젝트 동시 선택
+  - Delete로 일괄 삭제
+- [x] Undo/Redo (Ctrl+Z/Y)
+  - 히스토리 스택으로 작업 취소/다시 실행
+- [x] 복사/붙여넣기 (Ctrl+C/V)
+  - 선택한 오브젝트를 카메라 앞에 붙여넣기
 - [x] 맵 관리
   - 모드 전환 (Race/Shooter)
   - 슈터 서브모드 (팀전/점령전/개인전)

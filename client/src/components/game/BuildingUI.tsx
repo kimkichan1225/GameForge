@@ -72,14 +72,16 @@ const Hotbar = memo(function Hotbar({
   currentMarker,
   onSelectPlaceable,
   onSelectMarker,
+  onSetSelectMode,
   hasSpawn,
   hasFinish,
   isVerified,
 }: {
-  currentPlaceable: PlaceableType
+  currentPlaceable: PlaceableType | null
   currentMarker: MarkerType | null
-  onSelectPlaceable: (type: PlaceableType) => void
+  onSelectPlaceable: (type: PlaceableType | null) => void
   onSelectMarker: (type: MarkerType | null) => void
+  onSetSelectMode: () => void
   hasSpawn: boolean
   hasFinish: boolean
   isVerified: boolean
@@ -99,6 +101,8 @@ const Hotbar = memo(function Hotbar({
     { type: 'killzone', label: 'Kill', key: '9', color: 'bg-purple-500' },
   ]
 
+  const isSelectMode = currentPlaceable === null && currentMarker === null
+
   // 키보드 단축키
   useEffect(() => {
     if (isVerified) return
@@ -112,19 +116,19 @@ const Hotbar = memo(function Hotbar({
         onSelectPlaceable(placeables[parseInt(key) - 1].type)
       }
       if (key === '6') {
-        onSelectPlaceable('box')
+        onSelectPlaceable(null)
         onSelectMarker('spawn')
       }
       if (key === '7') {
-        onSelectPlaceable('box')
+        onSelectPlaceable(null)
         onSelectMarker('finish')
       }
       if (key === '8') {
-        onSelectPlaceable('box')
+        onSelectPlaceable(null)
         onSelectMarker('checkpoint')
       }
       if (key === '9') {
-        onSelectPlaceable('box')
+        onSelectPlaceable(null)
         onSelectMarker('killzone')
       }
     }
@@ -144,6 +148,20 @@ const Hotbar = memo(function Hotbar({
   return (
     <div className="bg-slate-800/80 backdrop-blur-sm rounded-lg p-2 border border-white/10">
       <div className="flex items-center gap-1">
+        {/* 선택 모드 */}
+        <button
+          onClick={onSetSelectMode}
+          className={`px-3 py-1.5 rounded text-sm ${
+            isSelectMode
+              ? 'bg-sky-500 text-white'
+              : 'bg-slate-700 text-white/70 hover:bg-slate-600'
+          }`}
+        >
+          [Q]선택
+        </button>
+
+        <div className="w-px h-6 bg-white/20 mx-1" />
+
         {/* 오브젝트 */}
         {placeables.map(item => (
           <button
@@ -165,7 +183,7 @@ const Hotbar = memo(function Hotbar({
         {markers.map(item => (
           <button
             key={item.type}
-            onClick={() => onSelectMarker(currentMarker === item.type ? null : item.type)}
+            onClick={() => { onSelectPlaceable(null); onSelectMarker(currentMarker === item.type ? null : item.type) }}
             className={`px-3 py-1.5 rounded text-sm ${
               currentMarker === item.type
                 ? `${item.color} text-white`
@@ -565,13 +583,12 @@ const PropertiesPanel = memo(function PropertiesPanel({
 
 // 메인 UI 컴포넌트
 interface BuildingUIProps {
-  currentPlaceable: PlaceableType
+  currentPlaceable: PlaceableType | null
   currentMarker: MarkerType | null
-  onSelectPlaceable: (type: PlaceableType) => void
+  onSelectPlaceable: (type: PlaceableType | null) => void
   onSelectMarker: (type: MarkerType | null) => void
   onStartTest: () => void
-  selectedId: string | null
-  onSelectId: (id: string | null) => void
+  onSetSelectMode: () => void
 }
 
 export function BuildingUI({
@@ -580,8 +597,7 @@ export function BuildingUI({
   onSelectPlaceable,
   onSelectMarker,
   onStartTest,
-  selectedId,
-  onSelectId,
+  onSetSelectMode,
 }: BuildingUIProps) {
   const region = useMultiplayerGameStore(state => state.myRegion)
   const timeRemaining = useMultiplayerGameStore(state => state.buildingTimeRemaining)
@@ -590,6 +606,11 @@ export function BuildingUI({
   const myMarkers = useMultiplayerGameStore(state => state.myMarkers)
   const allPlayersStatus = useMultiplayerGameStore(state => state.allPlayersStatus)
   const voteKick = useMultiplayerGameStore(state => state.voteKick)
+  const selectedIds = useMultiplayerGameStore(state => state.buildingSelectedIds)
+  const setBuildingSelectedIds = useMultiplayerGameStore(state => state.setBuildingSelectedIds)
+
+  // 첫 번째 선택된 아이템만 속성 패널에 표시
+  const selectedId = selectedIds.length > 0 ? selectedIds[0] : null
 
   const [showTestConfirm, setShowTestConfirm] = useState(false)
   const [showTimeExtended, setShowTimeExtended] = useState(false)
@@ -730,7 +751,7 @@ export function BuildingUI({
       {selectedId ? (
         <PropertiesPanel
           selectedId={selectedId}
-          onClose={() => onSelectId(null)}
+          onClose={() => setBuildingSelectedIds([])}
           isVerified={myVerified}
         />
       ) : !myVerified && (
@@ -772,6 +793,7 @@ export function BuildingUI({
           currentMarker={currentMarker}
           onSelectPlaceable={onSelectPlaceable}
           onSelectMarker={onSelectMarker}
+          onSetSelectMode={onSetSelectMode}
           hasSpawn={hasSpawn}
           hasFinish={hasFinish}
           isVerified={myVerified}
@@ -784,10 +806,13 @@ export function BuildingUI({
         <div className="grid grid-cols-2 gap-x-4 gap-y-1">
           <span>클릭</span><span>마우스 잠금</span>
           <span>WASD</span><span>카메라 이동</span>
-          <span>Space/Shift</span><span>상승/하강</span>
-          <span>좌클릭</span><span>배치</span>
-          <span>우클릭</span><span>선택</span>
+          <span>Space/C</span><span>상승/하강</span>
+          <span>Q</span><span>선택 모드</span>
+          <span>좌클릭</span><span>배치/선택</span>
+          <span>Shift+클릭</span><span>다중 선택</span>
           <span>Delete</span><span>삭제</span>
+          <span>Ctrl+Z/Y</span><span>Undo/Redo</span>
+          <span>Ctrl+C/V</span><span>복사/붙여넣기</span>
           <span>1-5</span><span>오브젝트 선택</span>
           <span>6-9</span><span>마커 선택</span>
         </div>
