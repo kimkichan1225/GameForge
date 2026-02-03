@@ -117,8 +117,8 @@ export class RoomManager {
       if (!includePrivate && room.isPrivate) {
         continue;
       }
-      // waiting 상태인 방만 목록에 표시 (playing, finished 상태는 참가 불가)
-      if (room.status !== 'waiting') {
+      // finished 상태인 방은 목록에서 제외
+      if (room.status === 'finished') {
         continue;
       }
       list.push(room.toListItem());
