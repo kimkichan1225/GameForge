@@ -112,22 +112,28 @@ const Hotbar = memo(function Hotbar({
 
       const key = e.key
       if (key >= '1' && key <= '5') {
+        // 붙여넣기 모드 종료
+        useMultiplayerGameStore.setState({ isBuildingPasteMode: false })
         onSelectMarker(null)
         onSelectPlaceable(placeables[parseInt(key) - 1].type)
       }
       if (key === '6') {
+        useMultiplayerGameStore.setState({ isBuildingPasteMode: false })
         onSelectPlaceable(null)
         onSelectMarker('spawn')
       }
       if (key === '7') {
+        useMultiplayerGameStore.setState({ isBuildingPasteMode: false })
         onSelectPlaceable(null)
         onSelectMarker('finish')
       }
       if (key === '8') {
+        useMultiplayerGameStore.setState({ isBuildingPasteMode: false })
         onSelectPlaceable(null)
         onSelectMarker('checkpoint')
       }
       if (key === '9') {
+        useMultiplayerGameStore.setState({ isBuildingPasteMode: false })
         onSelectPlaceable(null)
         onSelectMarker('killzone')
       }
@@ -335,10 +341,12 @@ const AXES = ['X', 'Y', 'Z'] as const
 // 속성 패널 (우클릭으로 오브젝트 선택 시 표시)
 const PropertiesPanel = memo(function PropertiesPanel({
   selectedId,
+  selectedIds,
   onClose,
   isVerified,
 }: {
   selectedId: string | null
+  selectedIds: string[]
   onClose: () => void
   isVerified: boolean
 }) {
@@ -348,6 +356,27 @@ const PropertiesPanel = memo(function PropertiesPanel({
   const updateMarker = useMultiplayerGameStore(state => state.updateMarker)
   const removeObject = useMultiplayerGameStore(state => state.removeObject)
   const removeMarker = useMultiplayerGameStore(state => state.removeMarker)
+  const moveBuildingSelectedObjects = useMultiplayerGameStore(state => state.moveBuildingSelectedObjects)
+  const buildingDeleteSelected = useMultiplayerGameStore(state => state.buildingDeleteSelected)
+  const setBuildingSelectedObjectsColor = useMultiplayerGameStore(state => state.setBuildingSelectedObjectsColor)
+
+  // 다중 선택 여부
+  const isMultiSelect = selectedIds.length > 1
+
+  // 다중 선택 이동용 오프셋 상태
+  const [moveOffset, setMoveOffset] = useState<[number, number, number]>([0, 0, 0])
+  // 이미 적용된 오프셋 (실시간 이동용)
+  const [appliedOffset, setAppliedOffset] = useState<[number, number, number]>([0, 0, 0])
+  // 다중 선택 색상 변경용
+  const [multiColor, setMultiColor] = useState('#3b82f6')
+
+  // 선택이 해제되면 오프셋 초기화
+  useEffect(() => {
+    if (!isMultiSelect) {
+      setMoveOffset([0, 0, 0])
+      setAppliedOffset([0, 0, 0])
+    }
+  }, [isMultiSelect])
 
   // 선택된 오브젝트/마커 메모이제이션
   const selectedObject = useMemo(() => {
@@ -418,10 +447,133 @@ const PropertiesPanel = memo(function PropertiesPanel({
     }
   }, [selectedObject?.id, selectedMarker?.id, removeObject, removeMarker, onClose])
 
-  if (!selectedObject && !selectedMarker) return null
+  // 다중 선택 이동 핸들러 - 입력 시 바로 이동
+  const handleMoveOffsetChange = useCallback(async (axis: number, value: number) => {
+    const snappedValue = snap(value)
+    const newOffset = [...moveOffset] as [number, number, number]
+    newOffset[axis] = snappedValue
+
+    // 이전에 적용된 것과의 차이만 이동
+    const deltaOffset: [number, number, number] = [
+      newOffset[0] - appliedOffset[0],
+      newOffset[1] - appliedOffset[1],
+      newOffset[2] - appliedOffset[2],
+    ]
+
+    // 차이가 있으면 이동 적용
+    if (deltaOffset[0] !== 0 || deltaOffset[1] !== 0 || deltaOffset[2] !== 0) {
+      await moveBuildingSelectedObjects(deltaOffset)
+      setAppliedOffset(newOffset)
+    }
+
+    setMoveOffset(newOffset)
+  }, [moveOffset, appliedOffset, moveBuildingSelectedObjects])
+
+  // 오프셋 초기화
+  const handleResetOffset = useCallback(() => {
+    setMoveOffset([0, 0, 0])
+    setAppliedOffset([0, 0, 0])
+  }, [])
+
+  // 다중 선택 삭제 핸들러
+  const handleDeleteMultiple = useCallback(async () => {
+    await buildingDeleteSelected()
+    onClose()
+  }, [buildingDeleteSelected, onClose])
+
+  if (!selectedObject && !selectedMarker && !isMultiSelect) return null
+
+  // 다중 선택 UI
+  if (isMultiSelect) {
+    return (
+      <div className="absolute top-36 right-4 z-20 w-64 bg-slate-800/95 backdrop-blur-sm rounded-xl p-4 border border-white/10 shadow-xl">
+        {/* 헤더 */}
+        <div className="flex items-center justify-between mb-4">
+          <span className="text-white font-medium">{selectedIds.length}개 선택됨</span>
+          <div className="flex gap-2">
+            {!isVerified && (
+              <button
+                onClick={handleDeleteMultiple}
+                className="text-red-400 hover:text-red-300 text-xs px-2 py-1 bg-red-500/10 rounded"
+              >
+                Delete
+              </button>
+            )}
+            <button
+              onClick={onClose}
+              className="text-white/50 hover:text-white text-lg leading-none"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+
+        {/* 이동 오프셋 - 실시간 적용 */}
+        {!isVerified && (
+          <div className="space-y-4">
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-white/50 text-xs">이동 (실시간)</label>
+                <button
+                  onClick={handleResetOffset}
+                  disabled={moveOffset[0] === 0 && moveOffset[1] === 0 && moveOffset[2] === 0}
+                  className="text-white/50 hover:text-white text-[10px] disabled:opacity-30"
+                >
+                  초기화
+                </button>
+              </div>
+              <div className="grid grid-cols-3 gap-1">
+                {AXES.map((axis, i) => (
+                  <div key={axis}>
+                    <span className="text-white/30 text-[10px]">{axis}</span>
+                    <input
+                      type="number"
+                      step="0.5"
+                      value={moveOffset[i]}
+                      onChange={(e) => handleMoveOffsetChange(i, parseFloat(e.target.value) || 0)}
+                      className="w-full px-2 py-1.5 bg-white/5 border border-white/10 rounded text-white text-xs focus:outline-none focus:border-sky-400"
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* 색상 일괄 변경 */}
+            <div>
+              <label className="block text-white/50 text-xs mb-1.5">색상 일괄 변경</label>
+              <div className="flex gap-2">
+                <input
+                  type="color"
+                  value={multiColor}
+                  onChange={(e) => setMultiColor(e.target.value)}
+                  className="w-10 h-8 rounded cursor-pointer border-0"
+                />
+                <input
+                  type="text"
+                  value={multiColor}
+                  onChange={(e) => setMultiColor(e.target.value)}
+                  className="flex-1 px-2 py-1 bg-white/5 border border-white/10 rounded text-white text-xs focus:outline-none focus:border-sky-400 uppercase"
+                />
+                <button
+                  onClick={() => setBuildingSelectedObjectsColor(multiColor)}
+                  className="px-3 py-1 bg-sky-500 hover:bg-sky-400 text-white text-xs rounded"
+                >
+                  적용
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div className="mt-4 pt-3 border-t border-white/10 text-white/30 text-[10px]">
+          {isVerified ? '읽기 전용' : 'ESC로 닫기'}
+        </div>
+      </div>
+    )
+  }
 
   return (
-    <div className="absolute top-20 right-4 z-20 w-64 bg-slate-800/95 backdrop-blur-sm rounded-xl p-4 border border-white/10 shadow-xl">
+    <div className="absolute top-36 right-4 z-20 w-64 bg-slate-800/95 backdrop-blur-sm rounded-xl p-4 border border-white/10 shadow-xl">
       {/* 헤더 */}
       <div className="flex items-center justify-between mb-4">
         <span className="text-white font-medium">
@@ -747,14 +899,8 @@ export function BuildingUI({
         />
       </div>
 
-      {/* 우측 속성 패널 또는 테스트 버튼 */}
-      {selectedId ? (
-        <PropertiesPanel
-          selectedId={selectedId}
-          onClose={() => setBuildingSelectedIds([])}
-          isVerified={myVerified}
-        />
-      ) : !myVerified && (
+      {/* 우측 테스트 버튼 */}
+      {!myVerified && (
         <div className="absolute top-20 right-4 z-10">
           <button
             onClick={handleTestClick}
@@ -774,6 +920,16 @@ export function BuildingUI({
             <div className="text-yellow-400 text-sm mt-2 text-right">Finish 마커 필요</div>
           )}
         </div>
+      )}
+
+      {/* 우측 속성 패널 (테스트 버튼 아래) */}
+      {(selectedId || selectedIds.length > 1) && (
+        <PropertiesPanel
+          selectedId={selectedId}
+          selectedIds={selectedIds}
+          onClose={() => setBuildingSelectedIds([])}
+          isVerified={myVerified}
+        />
       )}
 
       {/* 검증 완료 대기 화면 */}

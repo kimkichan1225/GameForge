@@ -339,6 +339,8 @@ function RaycastPlacer({
   onPlaceMarker,
   onSelect,
   onToggleSelect,
+  isPasteMode,
+  onPasteAtPosition,
 }: {
   region: BuildingRegion | null
   isVerified: boolean
@@ -348,6 +350,8 @@ function RaycastPlacer({
   onPlaceMarker: (data: { type: MarkerType; position: [number, number, number]; rotation: [number, number, number] }) => void
   onSelect: (id: string | null) => void
   onToggleSelect: (id: string) => void
+  isPasteMode: boolean
+  onPasteAtPosition: (position: [number, number, number]) => void
 }) {
   const { camera, scene } = useThree()
   const raycaster = useRef(new THREE.Raycaster())
@@ -368,8 +372,8 @@ function RaycastPlacer({
     return colors[Math.floor(Math.random() * colors.length)]
   }, [])
 
-  // 선택 모드 체크 (currentPlaceable과 currentMarker 모두 null)
-  const isSelectMode = currentPlaceable === null && currentMarker === null
+  // 선택 모드 체크 (currentPlaceable과 currentMarker 모두 null이고 붙여넣기 모드도 아님)
+  const isSelectMode = currentPlaceable === null && currentMarker === null && !isPasteMode
 
   // 겹침 체크
   const checkOverlap = useCallback((pos: [number, number, number], scale: number[]) => {
@@ -432,6 +436,17 @@ function RaycastPlacer({
       // 좌클릭
       if (e.button === 0) {
         const yaw = getCameraYaw()
+
+        // 붙여넣기 모드 - 좌클릭으로 붙여넣기
+        if (isPasteMode) {
+          for (const hit of intersects) {
+            const heightOffset = 0.5
+            const pos: [number, number, number] = [snap(hit.point.x), snap(hit.point.y + heightOffset), snap(hit.point.z)]
+            onPasteAtPosition(pos)
+            return
+          }
+          return
+        }
 
         // 선택 모드이면 좌클릭으로도 선택
         if (isSelectMode) {
@@ -795,6 +810,117 @@ function PlacementPreview({
   )
 }
 
+// 붙여넣기 미리보기 (Ctrl+C 후 클립보드 아이템들을 마우스 위치에 표시)
+function BuildingPastePreview({ region }: { region: BuildingRegion | null }) {
+  const { camera, scene } = useThree()
+  const isPasteMode = useMultiplayerGameStore(state => state.isBuildingPasteMode)
+  const clipboard = useMultiplayerGameStore(state => state.buildingClipboard)
+
+  const groupRef = useRef<THREE.Group>(null)
+  const raycaster = useRef(new THREE.Raycaster())
+  const screenCenter = useRef(new THREE.Vector2(0, 0))
+
+  // 클립보드 아이템들의 중심점 계산
+  const clipboardCenter = useMemo(() => {
+    if (clipboard.length === 0) return [0, 0, 0] as [number, number, number]
+    let cx = 0, cy = 0, cz = 0
+    for (const item of clipboard) {
+      cx += item.data.position[0]
+      cy += item.data.position[1]
+      cz += item.data.position[2]
+    }
+    return [cx / clipboard.length, cy / clipboard.length, cz / clipboard.length] as [number, number, number]
+  }, [clipboard])
+
+  useFrame(() => {
+    if (!groupRef.current) return
+
+    // 붙여넣기 모드가 아니거나 포인터 잠금 해제 시 숨김
+    if (!isPasteMode || document.pointerLockElement === null || !region) {
+      groupRef.current.visible = false
+      return
+    }
+
+    raycaster.current.setFromCamera(screenCenter.current, camera)
+    const intersects = raycaster.current.intersectObjects(scene.children, true)
+
+    for (const hit of intersects) {
+      const heightOffset = 0.5
+      const basePos: [number, number, number] = [snap(hit.point.x), snap(hit.point.y + heightOffset), snap(hit.point.z)]
+
+      groupRef.current.visible = true
+      groupRef.current.position.set(
+        basePos[0] - clipboardCenter[0],
+        basePos[1] - clipboardCenter[1],
+        basePos[2] - clipboardCenter[2]
+      )
+      return
+    }
+
+    groupRef.current.visible = false
+  })
+
+  if (!isPasteMode || clipboard.length === 0) return null
+
+  return (
+    <group ref={groupRef} visible={false}>
+      {clipboard.map((item, index) => {
+        if (item.kind === 'object') {
+          const obj = item.data
+          const geometry = (() => {
+            switch (obj.type) {
+              case 'box': return getBoxGeometry()
+              case 'plane': return getPlaneGeometry()
+              case 'cylinder': return getCylinderGeometry()
+              case 'sphere': return getSphereGeometry()
+              case 'ramp': return getWedgeGeometry()
+              default: return getBoxGeometry()
+            }
+          })()
+          const material = getTransparentMaterial(obj.color)
+
+          return (
+            <mesh
+              key={`paste-preview-${index}`}
+              geometry={geometry}
+              material={material}
+              position={obj.position}
+              rotation={obj.rotation}
+              scale={obj.scale}
+              raycast={noRaycast}
+            />
+          )
+        } else {
+          // 마커 미리보기
+          const marker = item.data
+          const color = MARKER_COLORS[marker.type] || '#ffffff'
+          const material = getTransparentMaterial(color)
+
+          if (marker.type === 'killzone') {
+            return (
+              <mesh
+                key={`paste-preview-${index}`}
+                position={[marker.position[0], marker.position[1] + 0.01, marker.position[2]]}
+                rotation={MARKER_RING_ROTATION}
+                geometry={getRingGeometry()}
+                material={getTransparentMaterial(color, true)}
+                raycast={noRaycast}
+              />
+            )
+          }
+
+          return (
+            <group key={`paste-preview-${index}`} position={marker.position} rotation={marker.rotation}>
+              <mesh geometry={getConeGeometry()} material={material} raycast={noRaycast} />
+              <mesh position={MARKER_ARROW_POSITION} geometry={getSmallConeGeometry()} material={material} raycast={noRaycast} />
+            </group>
+          )
+        }
+      })}
+    </group>
+  )
+}
+
 // 오브젝트 렌더링
 const BuildingObject = memo(function BuildingObject({ obj, selected }: { obj: MapObject; selected: boolean }) {
   const geometry = useMemo(() => {
@@ -902,6 +1028,8 @@ const SceneContent = memo(function SceneContent({
   onPlaceMarker,
   onSelect,
   onToggleSelect,
+  isPasteMode,
+  onPasteAtPosition,
 }: {
   region: BuildingRegion | null
   isVerified: boolean
@@ -912,6 +1040,8 @@ const SceneContent = memo(function SceneContent({
   onPlaceMarker: (data: { type: MarkerType; position: [number, number, number]; rotation: [number, number, number] }) => void
   onSelect: (id: string | null) => void
   onToggleSelect: (id: string) => void
+  isPasteMode: boolean
+  onPasteAtPosition: (position: [number, number, number]) => void
 }) {
   const objects = useMultiplayerGameStore(state => state.myObjects)
   const markers = useMultiplayerGameStore(state => state.myMarkers)
@@ -969,6 +1099,8 @@ const SceneContent = memo(function SceneContent({
         onPlaceMarker={onPlaceMarker}
         onSelect={onSelect}
         onToggleSelect={onToggleSelect}
+        isPasteMode={isPasteMode}
+        onPasteAtPosition={onPasteAtPosition}
       />
 
       {/* 설치 미리보기 */}
@@ -980,6 +1112,9 @@ const SceneContent = memo(function SceneContent({
           currentMarker={currentMarker}
         />
       )}
+
+      {/* 붙여넣기 미리보기 */}
+      {!isVerified && <BuildingPastePreview region={region} />}
     </>
   )
 })
@@ -1005,23 +1140,30 @@ function KeyboardShortcuts({
   isVerified: boolean
   onSetSelectMode: () => void
 }) {
-  const { camera } = useThree()
   const selectedIds = useMultiplayerGameStore(state => state.buildingSelectedIds)
   const buildingUndo = useMultiplayerGameStore(state => state.buildingUndo)
   const buildingRedo = useMultiplayerGameStore(state => state.buildingRedo)
   const buildingCopy = useMultiplayerGameStore(state => state.buildingCopy)
-  const buildingPaste = useMultiplayerGameStore(state => state.buildingPaste)
+  const exitBuildingPasteMode = useMultiplayerGameStore(state => state.exitBuildingPasteMode)
   const buildingDeleteSelected = useMultiplayerGameStore(state => state.buildingDeleteSelected)
-
-  const dirVec = useRef(new THREE.Vector3())
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // 입력 필드에서는 단축키 무시
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
 
-      // Q키 - 선택 모드
+      // ESC키 - 붙여넣기 모드 종료
+      if (e.key === 'Escape') {
+        const state = useMultiplayerGameStore.getState()
+        if (state.isBuildingPasteMode) {
+          exitBuildingPasteMode()
+          return
+        }
+      }
+
+      // Q키 - 선택 모드 (붙여넣기 모드도 종료)
       if (e.key.toLowerCase() === 'q' && !e.ctrlKey && !e.metaKey) {
+        useMultiplayerGameStore.setState({ isBuildingPasteMode: false })
         onSetSelectMode()
         return
       }
@@ -1044,23 +1186,14 @@ function KeyboardShortcuts({
         return
       }
 
-      // Ctrl+C - Copy
+      // Ctrl+C - Copy (붙여넣기 모드 진입)
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c') {
         e.preventDefault()
         buildingCopy()
         return
       }
 
-      // Ctrl+V - Paste
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v') {
-        e.preventDefault()
-        camera.getWorldDirection(dirVec.current)
-        buildingPaste(
-          [camera.position.x, camera.position.y, camera.position.z],
-          [dirVec.current.x, dirVec.current.y, dirVec.current.z]
-        )
-        return
-      }
+      // Ctrl+V는 더 이상 사용하지 않음 (좌클릭으로 붙여넣기)
 
       // 검증 완료 후 삭제 불가
       if (isVerified) return
@@ -1074,7 +1207,7 @@ function KeyboardShortcuts({
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [selectedIds, isVerified, buildingUndo, buildingRedo, buildingCopy, buildingPaste, buildingDeleteSelected, camera, onSetSelectMode])
+  }, [selectedIds, isVerified, buildingUndo, buildingRedo, buildingCopy, exitBuildingPasteMode, buildingDeleteSelected, onSetSelectMode])
 
   return null
 }
@@ -1095,6 +1228,8 @@ export function BuildingCanvas({ currentPlaceable, currentMarker, onSetSelectMod
   const setBuildingSelectedIds = useMultiplayerGameStore(state => state.setBuildingSelectedIds)
   const toggleBuildingSelection = useMultiplayerGameStore(state => state.toggleBuildingSelection)
   const pushBuildingHistory = useMultiplayerGameStore(state => state.pushBuildingHistory)
+  const isPasteMode = useMultiplayerGameStore(state => state.isBuildingPasteMode)
+  const buildingPasteAtPosition = useMultiplayerGameStore(state => state.buildingPasteAtPosition)
 
   const handlePlaceObject = useCallback(async (data: Omit<MapObject, 'id'>) => {
     const result = await placeObject(data)
@@ -1118,6 +1253,10 @@ export function BuildingCanvas({ currentPlaceable, currentMarker, onSetSelectMod
     toggleBuildingSelection(id)
   }, [toggleBuildingSelection])
 
+  const handlePasteAtPosition = useCallback(async (position: [number, number, number]) => {
+    await buildingPasteAtPosition(position)
+  }, [buildingPasteAtPosition])
+
   return (
     <div className="w-full h-full relative">
       <Canvas
@@ -1135,6 +1274,8 @@ export function BuildingCanvas({ currentPlaceable, currentMarker, onSetSelectMod
           onPlaceMarker={handlePlaceMarker}
           onSelect={handleSelect}
           onToggleSelect={handleToggleSelect}
+          isPasteMode={isPasteMode}
+          onPasteAtPosition={handlePasteAtPosition}
         />
         <KeyboardShortcuts isVerified={isVerified} onSetSelectMode={onSetSelectMode} />
       </Canvas>
@@ -1142,7 +1283,7 @@ export function BuildingCanvas({ currentPlaceable, currentMarker, onSetSelectMod
       {/* 선택된 오브젝트 안내 */}
       {selectedIds.length > 0 && !isVerified && (
         <div className="absolute bottom-4 right-4 z-10 bg-slate-800/80 backdrop-blur-sm rounded-lg px-4 py-2 text-white text-sm">
-          <span className="text-yellow-400">{selectedIds.length}개 선택됨</span> - Delete로 삭제, Ctrl+C로 복사
+          <span className="text-yellow-400">{selectedIds.length}개 선택됨</span> - 바닥 클릭으로 이동, Delete로 삭제, Ctrl+C로 복사
         </div>
       )}
     </div>

@@ -348,9 +348,29 @@ const PropertiesPanel = memo(function PropertiesPanel() {
   const updateMarker = useEditorStore(state => state.updateMarker)
   const deleteSelected = useEditorStore(state => state.deleteSelected)
   const clearSelection = useEditorStore(state => state.clearSelection)
+  const moveSelectedObjects = useEditorStore(state => state.moveSelectedObjects)
+  const setSelectedObjectsColor = useEditorStore(state => state.setSelectedObjectsColor)
 
-  // 첫 번째 선택된 아이템만 속성 편집에 표시
-  const selectedId = selectedIds.length > 0 ? selectedIds[0] : null
+  // 다중 선택 시 오프셋 입력 상태
+  const [moveOffset, setMoveOffset] = useState<[number, number, number]>([0, 0, 0])
+  // 이미 적용된 오프셋 (실시간 이동용)
+  const [appliedOffset, setAppliedOffset] = useState<[number, number, number]>([0, 0, 0])
+  // 다중 선택 색상 변경용
+  const [multiColor, setMultiColor] = useState('#3b82f6')
+
+  // 다중 선택 모드 체크
+  const isMultiSelect = selectedIds.length > 1
+
+  // 선택이 해제되면 오프셋 초기화
+  useEffect(() => {
+    if (!isMultiSelect) {
+      setMoveOffset([0, 0, 0])
+      setAppliedOffset([0, 0, 0])
+    }
+  }, [isMultiSelect])
+
+  // 첫 번째 선택된 아이템만 속성 편집에 표시 (단일 선택 시)
+  const selectedId = selectedIds.length === 1 ? selectedIds[0] : null
 
   // useMemo로 선택된 오브젝트/마커 메모이제이션
   const selectedObject = useMemo(() => {
@@ -363,7 +383,39 @@ const PropertiesPanel = memo(function PropertiesPanel() {
     return markers.find(m => m.id === selectedId.replace('marker_', '')) || null
   }, [selectedId, markers])
 
-  const handleClose = useCallback(() => clearSelection(), [clearSelection])
+  const handleClose = useCallback(() => {
+    clearSelection()
+    setMoveOffset([0, 0, 0])
+    setAppliedOffset([0, 0, 0])
+  }, [clearSelection])
+
+  // 다중 선택 이동 핸들러 - 입력 시 바로 이동
+  const handleMoveOffsetChange = useCallback((axis: number, value: number) => {
+    const snappedValue = snap(value)
+    const newOffset = [...moveOffset] as [number, number, number]
+    newOffset[axis] = snappedValue
+
+    // 이전에 적용된 것과의 차이만 이동
+    const deltaOffset: [number, number, number] = [
+      newOffset[0] - appliedOffset[0],
+      newOffset[1] - appliedOffset[1],
+      newOffset[2] - appliedOffset[2],
+    ]
+
+    // 차이가 있으면 이동 적용
+    if (deltaOffset[0] !== 0 || deltaOffset[1] !== 0 || deltaOffset[2] !== 0) {
+      moveSelectedObjects(deltaOffset)
+      setAppliedOffset(newOffset)
+    }
+
+    setMoveOffset(newOffset)
+  }, [moveOffset, appliedOffset, moveSelectedObjects])
+
+  // 오프셋 초기화 (0,0,0으로 리셋)
+  const handleResetOffset = useCallback(() => {
+    setMoveOffset([0, 0, 0])
+    setAppliedOffset([0, 0, 0])
+  }, [])
 
   // 오브젝트 속성 변경 핸들러 (useCallback으로 최적화)
   const handleColorChange = useCallback((color: string) => {
@@ -412,6 +464,91 @@ const PropertiesPanel = memo(function PropertiesPanel() {
       updateMarker(selectedMarker.id, { rotation: rot })
     }
   }, [selectedMarker?.id, selectedMarker?.rotation, updateMarker])
+
+  // 다중 선택 UI
+  if (isMultiSelect) {
+    return (
+      <div className="absolute top-4 left-4 z-20 w-64 bg-slate-800/95 backdrop-blur-sm rounded-xl p-4 border border-white/10 shadow-xl">
+        {/* 헤더 */}
+        <div className="flex items-center justify-between mb-4">
+          <span className="text-yellow-400 font-medium">{selectedIds.length}개 선택됨</span>
+          <div className="flex gap-2">
+            <button
+              onClick={() => deleteSelected()}
+              className="text-red-400 hover:text-red-300 text-xs px-2 py-1 bg-red-500/10 rounded"
+            >
+              Delete
+            </button>
+            <button
+              onClick={handleClose}
+              className="text-white/50 hover:text-white text-lg leading-none"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+
+        {/* 이동 오프셋 입력 - 실시간 적용 */}
+        <div className="space-y-4">
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-white/50 text-xs">이동 (실시간)</label>
+              <button
+                onClick={handleResetOffset}
+                disabled={moveOffset[0] === 0 && moveOffset[1] === 0 && moveOffset[2] === 0}
+                className="text-white/50 hover:text-white text-[10px] disabled:opacity-30"
+              >
+                초기화
+              </button>
+            </div>
+            <div className="grid grid-cols-3 gap-1">
+              {AXES.map((axis, i) => (
+                <div key={axis}>
+                  <span className="text-white/30 text-[10px]">{axis}</span>
+                  <input
+                    type="number"
+                    step="0.5"
+                    value={moveOffset[i]}
+                    onChange={(e) => handleMoveOffsetChange(i, parseFloat(e.target.value) || 0)}
+                    className="w-full px-2 py-1.5 bg-white/5 border border-white/10 rounded text-white text-xs focus:outline-none focus:border-sky-400"
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* 색상 일괄 변경 */}
+          <div>
+            <label className="block text-white/50 text-xs mb-1.5">색상 일괄 변경</label>
+            <div className="flex gap-2">
+              <input
+                type="color"
+                value={multiColor}
+                onChange={(e) => setMultiColor(e.target.value)}
+                className="w-10 h-8 rounded cursor-pointer border-0"
+              />
+              <input
+                type="text"
+                value={multiColor}
+                onChange={(e) => setMultiColor(e.target.value)}
+                className="flex-1 px-2 py-1 bg-white/5 border border-white/10 rounded text-white text-xs focus:outline-none focus:border-sky-400 uppercase"
+              />
+              <button
+                onClick={() => setSelectedObjectsColor(multiColor)}
+                className="px-3 py-1 bg-sky-500 hover:bg-sky-400 text-white text-xs rounded"
+              >
+                적용
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-4 pt-3 border-t border-white/10 text-white/30 text-[10px]">
+          아무 곳이나 클릭하여 닫고 편집 계속하기
+        </div>
+      </div>
+    )
+  }
 
   if (!selectedObject && !selectedMarker) return null
 
@@ -595,6 +732,25 @@ interface EditorUIProps {
   onExit: () => void
 }
 
+// 선택 개수 표시 (다중 선택 시)
+const SelectionInfo = memo(function SelectionInfo() {
+  const selectedIds = useEditorStore(state => state.selectedIds)
+  const currentPlaceable = useEditorStore(state => state.currentPlaceable)
+  const currentMarker = useEditorStore(state => state.currentMarker)
+
+  // 선택 모드 (currentPlaceable과 currentMarker 모두 null)일 때만 표시
+  const isSelectMode = currentPlaceable === null && currentMarker === null
+
+  if (selectedIds.length <= 1 || !isSelectMode) return null
+
+  return (
+    <div className="absolute bottom-6 right-4 z-10 bg-slate-800/90 backdrop-blur-sm rounded-xl px-4 py-2 border border-white/10 text-white text-sm">
+      <span className="text-yellow-400 font-medium">{selectedIds.length}개 선택됨</span>
+      <span className="text-white/60 ml-2">- 바닥 클릭으로 이동</span>
+    </div>
+  )
+})
+
 // 설치 오류 메시지 컴포넌트
 const PlacementErrorToast = memo(function PlacementErrorToast() {
   const placementError = useEditorStore(state => state.placementError)
@@ -638,6 +794,7 @@ export function EditorUI({ onExit }: EditorUIProps) {
       <Hotbar />
       <PropertiesPanel />
       <HelpOverlay />
+      <SelectionInfo />
       <PlacementErrorToast />
       {showUploadModal && <UploadModal onClose={() => setShowUploadModal(false)} />}
     </>

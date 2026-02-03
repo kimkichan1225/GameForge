@@ -75,6 +75,7 @@ interface EditorState {
 
   // 클립보드
   clipboard: ClipboardItem[]
+  isPasteMode: boolean  // 붙여넣기 모드 (Ctrl+C 후 좌클릭으로 붙여넣기)
 
   // 기즈모
   gizmoMode: GizmoMode
@@ -118,6 +119,8 @@ interface EditorState {
   toggleSelection: (id: string) => void
   clearSelection: () => void
   setSelectMode: () => void
+  moveSelectedObjects: (offset: [number, number, number]) => void
+  setSelectedObjectsColor: (color: string) => void
 
   // Undo/Redo
   undo: () => void
@@ -125,8 +128,9 @@ interface EditorState {
   clearHistory: () => void
 
   // 복사/붙여넣기
-  copy: () => void
-  paste: (cameraPosition: [number, number, number], cameraDirection: [number, number, number]) => void
+  copy: () => void  // 복사 + 붙여넣기 모드 진입
+  exitPasteMode: () => void  // 붙여넣기 모드 종료
+  pasteAtPosition: (position: [number, number, number]) => void  // 특정 위치에 붙여넣기
   setGizmoMode: (mode: GizmoMode) => void
   setGridSnap: (enabled: boolean) => void
   setGridSize: (size: number) => void
@@ -209,6 +213,7 @@ const initialState = {
   redoStack: [] as HistoryEntry[],
   // 클립보드
   clipboard: [] as ClipboardItem[],
+  isPasteMode: false,
 }
 
 export const useEditorStore = create<EditorState>((set, get) => ({
@@ -327,6 +332,96 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   }),
   clearSelection: () => set({ selectedIds: [] }),
   setSelectMode: () => set({ currentPlaceable: null, currentMarker: null }),
+
+  // 다중 선택 이동 (선택된 오브젝트들을 오프셋만큼 이동)
+  moveSelectedObjects: (offset: [number, number, number]) => {
+    const state = get()
+    if (state.selectedIds.length === 0) return
+
+    // 0.5 단위로 스냅
+    const snap = (val: number) => Math.round(val * 2) / 2
+
+    // 이동할 양이 없으면 무시
+    if (offset[0] === 0 && offset[1] === 0 && offset[2] === 0) return
+
+    // 선택된 오브젝트/마커 분류
+    const selectedMarkerIds = state.selectedIds
+      .filter(id => id.startsWith('marker_'))
+      .map(id => id.replace('marker_', ''))
+
+    // 히스토리 배치 저장
+    const historyEntries: HistoryEntry[] = []
+
+    // 오브젝트 이동
+    const newObjects = state.objects.map(obj => {
+      if (!state.selectedIds.includes(obj.id)) return obj
+      const previousData = { ...obj }
+      const newObj = {
+        ...obj,
+        position: [
+          snap(obj.position[0] + offset[0]),
+          snap(obj.position[1] + offset[1]),
+          snap(obj.position[2] + offset[2]),
+        ] as [number, number, number],
+      }
+      historyEntries.push({ type: 'update', target: 'object', data: newObj, previousData })
+      return newObj
+    })
+
+    // 마커 이동
+    const newMarkers = state.markers.map(marker => {
+      if (!selectedMarkerIds.includes(marker.id)) return marker
+      const previousData = { ...marker }
+      const newMarker = {
+        ...marker,
+        position: [
+          snap(marker.position[0] + offset[0]),
+          snap(marker.position[1] + offset[1]),
+          snap(marker.position[2] + offset[2]),
+        ] as [number, number, number],
+      }
+      historyEntries.push({ type: 'update', target: 'marker', data: newMarker, previousData })
+      return newMarker
+    })
+
+    set({
+      objects: newObjects,
+      markers: newMarkers,
+      undoStack: [...state.undoStack, ...historyEntries],
+      redoStack: [],
+      mapCompleted: false,
+      completionTime: null,
+    })
+  },
+
+  // 다중 선택 색상 변경
+  setSelectedObjectsColor: (color: string) => {
+    const state = get()
+    if (state.selectedIds.length === 0) return
+
+    // 선택된 오브젝트만 필터 (마커는 색상 없음)
+    const selectedObjectIds = state.selectedIds.filter(id => !id.startsWith('marker_'))
+    if (selectedObjectIds.length === 0) return
+
+    // 히스토리 저장
+    const historyEntries: HistoryEntry[] = []
+
+    const newObjects = state.objects.map(obj => {
+      if (!selectedObjectIds.includes(obj.id)) return obj
+      const previousData = { ...obj }
+      const newObj = { ...obj, color }
+      historyEntries.push({ type: 'update', target: 'object', data: newObj, previousData })
+      return newObj
+    })
+
+    set({
+      objects: newObjects,
+      undoStack: [...state.undoStack, ...historyEntries],
+      redoStack: [],
+      mapCompleted: false,
+      completionTime: null,
+    })
+  },
 
   // Undo/Redo
   undo: () => {
@@ -465,7 +560,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   clearHistory: () => set({ undoStack: [], redoStack: [] }),
 
-  // 복사
+  // 복사 + 붙여넣기 모드 진입
   copy: () => {
     const state = get()
     if (state.selectedIds.length === 0) return
@@ -487,13 +582,25 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       }
     }
 
-    set({ clipboard: clipboardItems })
+    // 붙여넣기 모드 진입 (선택 해제, 배치 도구 해제)
+    set({
+      clipboard: clipboardItems,
+      isPasteMode: true,
+      selectedIds: [],
+      currentPlaceable: null,
+      currentMarker: null,
+    })
   },
 
-  // 붙여넣기
-  paste: (cameraPosition, cameraDirection) => {
+  // 붙여넣기 모드 종료
+  exitPasteMode: () => {
+    set({ isPasteMode: false })
+  },
+
+  // 특정 위치에 붙여넣기 (좌클릭 시 호출)
+  pasteAtPosition: (position: [number, number, number]) => {
     const state = get()
-    if (state.clipboard.length === 0) return
+    if (state.clipboard.length === 0 || !state.isPasteMode) return
 
     // 클립보드 아이템들의 중심점 계산
     let centerX = 0, centerY = 0, centerZ = 0
@@ -509,12 +616,6 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     centerY /= count
     centerZ /= count
 
-    // 카메라 앞 5 유닛 위치에 배치
-    const pasteX = cameraPosition[0] + cameraDirection[0] * 5
-    const pasteY = 0.5
-    const pasteZ = cameraPosition[2] + cameraDirection[2] * 5
-
-    const newIds: string[] = []
     const newObjects: MapObject[] = []
     const newMarkers: MapMarker[] = []
     const historyEntries: HistoryEntry[] = []
@@ -530,19 +631,17 @@ export const useEditorStore = create<EditorState>((set, get) => ({
           ...item.data,
           id: newId,
           name: `${item.data.type}_${newId.slice(0, 4)}`,
-          position: [pasteX + offsetX, pasteY + offsetY, pasteZ + offsetZ],
+          position: [position[0] + offsetX, position[1] + offsetY, position[2] + offsetZ],
         }
         newObjects.push(newObj)
-        newIds.push(newId)
         historyEntries.push({ type: 'add', target: 'object', data: newObj })
       } else {
         const newMarker: MapMarker = {
           ...item.data,
           id: newId,
-          position: [pasteX + offsetX, pasteY + offsetY, pasteZ + offsetZ],
+          position: [position[0] + offsetX, position[1] + offsetY, position[2] + offsetZ],
         }
         newMarkers.push(newMarker)
-        newIds.push(`marker_${newId}`)
         historyEntries.push({ type: 'add', target: 'marker', data: newMarker })
       }
     }
@@ -550,11 +649,11 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     set(state => ({
       objects: [...state.objects, ...newObjects],
       markers: [...state.markers, ...newMarkers],
-      selectedIds: newIds,
       undoStack: [...state.undoStack, ...historyEntries],
       redoStack: [],
       mapCompleted: newMarkers.length > 0 ? false : state.mapCompleted,
       completionTime: newMarkers.length > 0 ? null : state.completionTime,
+      // 붙여넣기 모드 유지 (여러 번 붙여넣기 가능)
     }))
   },
   setGizmoMode: (mode) => set({ gizmoMode: mode }),

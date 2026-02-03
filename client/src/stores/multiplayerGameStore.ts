@@ -96,6 +96,7 @@ interface GameState {
   buildingUndoStack: BuildingHistoryEntry[];
   buildingRedoStack: BuildingHistoryEntry[];
   buildingClipboard: BuildingClipboardItem[];
+  isBuildingPasteMode: boolean;  // 붙여넣기 모드
 }
 
 interface MultiplayerGameStore extends GameState {
@@ -128,11 +129,14 @@ interface MultiplayerGameStore extends GameState {
   setBuildingSelectedIds: (ids: string[]) => void;
   toggleBuildingSelection: (id: string) => void;
   clearBuildingSelection: () => void;
+  moveBuildingSelectedObjects: (offset: [number, number, number]) => Promise<void>;
   buildingUndo: () => Promise<void>;
   buildingRedo: () => Promise<void>;
-  buildingCopy: () => void;
-  buildingPaste: (cameraPosition: [number, number, number], cameraDirection: [number, number, number]) => Promise<void>;
+  buildingCopy: () => void;  // 복사 + 붙여넣기 모드 진입
+  exitBuildingPasteMode: () => void;  // 붙여넣기 모드 종료
+  buildingPasteAtPosition: (position: [number, number, number]) => Promise<void>;  // 특정 위치에 붙여넣기
   buildingDeleteSelected: () => Promise<void>;
+  setBuildingSelectedObjectsColor: (color: string) => Promise<void>;
   pushBuildingHistory: (entry: BuildingHistoryEntry) => void;
 }
 
@@ -170,6 +174,7 @@ export const useMultiplayerGameStore = create<MultiplayerGameStore>((set, get) =
   buildingUndoStack: [],
   buildingRedoStack: [],
   buildingClipboard: [],
+  isBuildingPasteMode: false,
 
   initGame: () => {
     const socket = socketManager.getSocket();
@@ -327,6 +332,7 @@ export const useMultiplayerGameStore = create<MultiplayerGameStore>((set, get) =
       buildingUndoStack: [],
       buildingRedoStack: [],
       buildingClipboard: [],
+      isBuildingPasteMode: false,
     });
   },
 
@@ -800,6 +806,77 @@ export const useMultiplayerGameStore = create<MultiplayerGameStore>((set, get) =
 
   clearBuildingSelection: () => set({ buildingSelectedIds: [] }),
 
+  // 다중 선택 이동 (선택된 오브젝트들을 오프셋만큼 이동)
+  moveBuildingSelectedObjects: async (offset: [number, number, number]) => {
+    const state = get()
+    if (state.buildingSelectedIds.length === 0) return
+    if (state.myVerified) return  // 검증 완료 후 수정 불가
+
+    const socket = socketManager.getSocket()
+    if (!socket) return
+
+    const snap = (val: number) => Math.round(val * 2) / 2
+
+    // 이동할 양이 없으면 무시
+    if (offset[0] === 0 && offset[1] === 0 && offset[2] === 0) return
+
+    // 선택된 오브젝트/마커 분류
+    const selectedObjects = state.myObjects.filter(o => state.buildingSelectedIds.includes(o.id))
+    const selectedMarkerIds = state.buildingSelectedIds
+      .filter(id => id.startsWith('marker_'))
+      .map(id => id.replace('marker_', ''))
+    const selectedMarkers = state.myMarkers.filter(m => selectedMarkerIds.includes(m.id))
+
+    if (selectedObjects.length === 0 && selectedMarkers.length === 0) return
+
+    // 히스토리 배치 저장
+    const historyEntries: BuildingHistoryEntry[] = []
+
+    // 오브젝트 이동 (서버에 업데이트 요청)
+    for (const obj of selectedObjects) {
+      const previousData = { ...obj }
+      const newPosition: [number, number, number] = [
+        snap(obj.position[0] + offset[0]),
+        snap(obj.position[1] + offset[1]),
+        snap(obj.position[2] + offset[2]),
+      ]
+
+      await new Promise<void>((resolve) => {
+        socket.emit('build:updateObject', { objectId: obj.id, updates: { position: newPosition } }, () => {
+          resolve()
+        })
+      })
+
+      const newObj = { ...obj, position: newPosition }
+      historyEntries.push({ type: 'update', target: 'object', data: newObj, previousData })
+    }
+
+    // 마커 이동 (서버에 업데이트 요청)
+    for (const marker of selectedMarkers) {
+      const previousData = { ...marker }
+      const newPosition: [number, number, number] = [
+        snap(marker.position[0] + offset[0]),
+        snap(marker.position[1] + offset[1]),
+        snap(marker.position[2] + offset[2]),
+      ]
+
+      await new Promise<void>((resolve) => {
+        socket.emit('build:updateMarker', { markerId: marker.id, updates: { position: newPosition } }, () => {
+          resolve()
+        })
+      })
+
+      const newMarker = { ...marker, position: newPosition }
+      historyEntries.push({ type: 'update', target: 'marker', data: newMarker, previousData })
+    }
+
+    // 히스토리 저장
+    set(state => ({
+      buildingUndoStack: [...state.buildingUndoStack, ...historyEntries],
+      buildingRedoStack: [],
+    }))
+  },
+
   pushBuildingHistory: (entry) => set(state => ({
     buildingUndoStack: [...state.buildingUndoStack, entry],
     buildingRedoStack: [],
@@ -955,6 +1032,7 @@ export const useMultiplayerGameStore = create<MultiplayerGameStore>((set, get) =
     })
   },
 
+  // 복사 + 붙여넣기 모드 진입
   buildingCopy: () => {
     const state = get()
     if (state.buildingSelectedIds.length === 0) return
@@ -976,12 +1054,23 @@ export const useMultiplayerGameStore = create<MultiplayerGameStore>((set, get) =
       }
     }
 
-    set({ buildingClipboard: clipboardItems })
+    // 붙여넣기 모드 진입 (선택 해제)
+    set({
+      buildingClipboard: clipboardItems,
+      isBuildingPasteMode: true,
+      buildingSelectedIds: [],
+    })
   },
 
-  buildingPaste: async (cameraPosition, cameraDirection) => {
+  // 붙여넣기 모드 종료
+  exitBuildingPasteMode: () => {
+    set({ isBuildingPasteMode: false })
+  },
+
+  // 특정 위치에 붙여넣기 (좌클릭 시 호출)
+  buildingPasteAtPosition: async (position: [number, number, number]) => {
     const state = get()
-    if (state.buildingClipboard.length === 0) return
+    if (state.buildingClipboard.length === 0 || !state.isBuildingPasteMode) return
     if (state.myVerified) return  // 검증 완료 후 배치 불가
     if (!state.myRegion) return
 
@@ -1002,16 +1091,7 @@ export const useMultiplayerGameStore = create<MultiplayerGameStore>((set, get) =
     centerY /= count
     centerZ /= count
 
-    // 카메라 앞 5 유닛 위치에 배치
-    let pasteX = cameraPosition[0] + cameraDirection[0] * 5
-    const pasteY = 0.5
-    let pasteZ = cameraPosition[2] + cameraDirection[2] * 5
-
-    // 영역 제한 체크
     const region = state.myRegion
-    pasteX = Math.max(region.startX + 1, Math.min(region.endX - 1, pasteX))
-    pasteZ = Math.max(-49, Math.min(49, pasteZ))
-
     const historyEntries: BuildingHistoryEntry[] = []
 
     for (const item of state.buildingClipboard) {
@@ -1019,8 +1099,9 @@ export const useMultiplayerGameStore = create<MultiplayerGameStore>((set, get) =
       const offsetY = item.data.position[1] - centerY
       const offsetZ = item.data.position[2] - centerZ
 
-      const newX = pasteX + offsetX
-      const newZ = pasteZ + offsetZ
+      const newX = position[0] + offsetX
+      const newY = position[1] + offsetY
+      const newZ = position[2] + offsetZ
 
       // 영역 제한 체크
       if (newX < region.startX || newX >= region.endX || newZ < -50 || newZ > 50) {
@@ -1031,7 +1112,7 @@ export const useMultiplayerGameStore = create<MultiplayerGameStore>((set, get) =
         const result = await new Promise<MapObject | null>((resolve) => {
           socket.emit('build:placeObject', {
             type: item.data.type,
-            position: [newX, pasteY + offsetY, newZ] as [number, number, number],
+            position: [newX, newY, newZ] as [number, number, number],
             rotation: item.data.rotation,
             scale: item.data.scale,
             color: item.data.color,
@@ -1047,7 +1128,7 @@ export const useMultiplayerGameStore = create<MultiplayerGameStore>((set, get) =
         const result = await new Promise<MapMarker | null>((resolve) => {
           socket.emit('build:placeMarker', {
             type: item.data.type,
-            position: [newX, pasteY + offsetY, newZ] as [number, number, number],
+            position: [newX, newY, newZ] as [number, number, number],
             rotation: item.data.rotation,
           }, (response: { success: boolean; marker?: MapMarker }) => {
             resolve(response.success && response.marker ? response.marker : null)
@@ -1063,6 +1144,7 @@ export const useMultiplayerGameStore = create<MultiplayerGameStore>((set, get) =
       set(state => ({
         buildingUndoStack: [...state.buildingUndoStack, ...historyEntries],
         buildingRedoStack: [],
+        // 붙여넣기 모드 유지 (여러 번 붙여넣기 가능)
       }))
     }
   },
@@ -1103,5 +1185,44 @@ export const useMultiplayerGameStore = create<MultiplayerGameStore>((set, get) =
       buildingUndoStack: [...state.buildingUndoStack, ...historyEntries],
       buildingRedoStack: [],
     }))
+  },
+
+  // 다중 선택 색상 일괄 변경
+  setBuildingSelectedObjectsColor: async (color: string) => {
+    const state = get()
+    if (state.buildingSelectedIds.length === 0) return
+    if (state.myVerified) return  // 검증 완료 후 수정 불가
+
+    const socket = socketManager.getSocket()
+    if (!socket) return
+
+    // 선택된 오브젝트만 필터 (마커는 색상 없음)
+    const selectedObjectIds = state.buildingSelectedIds.filter(id => !id.startsWith('marker_'))
+    if (selectedObjectIds.length === 0) return
+
+    const historyEntries: BuildingHistoryEntry[] = []
+
+    for (const objectId of selectedObjectIds) {
+      const obj = state.myObjects.find(o => o.id === objectId)
+      if (!obj) continue
+
+      const previousData = { ...obj }
+
+      await new Promise<void>((resolve) => {
+        socket.emit('build:updateObject', { objectId, updates: { color } }, () => {
+          resolve()
+        })
+      })
+
+      const newObj = { ...obj, color }
+      historyEntries.push({ type: 'update', target: 'object', data: newObj, previousData })
+    }
+
+    if (historyEntries.length > 0) {
+      set(state => ({
+        buildingUndoStack: [...state.buildingUndoStack, ...historyEntries],
+        buildingRedoStack: [],
+      }))
+    }
   },
 }));
