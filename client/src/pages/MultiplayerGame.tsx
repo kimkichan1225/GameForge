@@ -128,6 +128,11 @@ export default function MultiplayerGame() {
 
   // 빌딩 페이즈 - 테스트 플레이 중
   if (isBuildingPhase && myTesting && myRegion) {
+    // 내 플레이어 색상 가져오기
+    const myId = socketManager.getSocket()?.id;
+    const myPlayer = currentRoom?.players.find(p => p.id === myId);
+    const myColor = myPlayer?.color;
+
     return (
       <div className="w-screen h-screen">
         <BuildingTestPlay
@@ -135,6 +140,7 @@ export default function MultiplayerGame() {
           markers={myMarkers}
           region={myRegion}
           onExit={handleTestExit}
+          color={myColor}
         />
       </div>
     );

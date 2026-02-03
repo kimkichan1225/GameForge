@@ -1434,12 +1434,16 @@ export function MultiplayerCanvas({
   const isRelayRace = useMultiplayerGameStore((state) => state.isRelayRace);
   const relayMapData = useMultiplayerGameStore((state) => state.relayMapData);
 
-  // 내 플레이어 색상
+  // 내 플레이어 색상 (roomStore에서 먼저 확인, 없으면 게임 상태에서)
   const myId = socketManager.getSocket()?.id;
   const myColor = useMemo(() => {
-    const myPlayer = players.find(p => p.id === myId);
-    return myPlayer?.color;
-  }, [players, myId]);
+    // 먼저 roomStore에서 색상 확인 (대기방에서 선택한 색상)
+    const roomPlayer = currentRoom?.players.find(p => p.id === myId);
+    if (roomPlayer?.color) return roomPlayer.color;
+    // 없으면 게임 상태에서 확인
+    const gamePlayer = players.find(p => p.id === myId);
+    return gamePlayer?.color;
+  }, [currentRoom?.players, players, myId]);
 
   // 릴레이 레이스용 병합된 맵 데이터
   const mergedRelayMapData = useMemo((): MapData | null => {

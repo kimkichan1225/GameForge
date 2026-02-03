@@ -35,6 +35,21 @@ const KILLZONE_HEIGHT = 0.5   // 킬존 마커 Y 판정 높이 (위아래 각각
 const FALL_THRESHOLD = -10
 const DEAD_DURATION = 2.5
 
+// 색상 ID → hex 매핑
+const COLOR_MAP: Record<string, string> = {
+  red: '#FF4444',
+  blue: '#4444FF',
+  yellow: '#FFFF00',
+  green: '#44FF44',
+  white: '#FFFFFF',
+  black: '#333333',
+  orange: '#FF8800',
+  purple: '#AA44FF',
+}
+
+// 색상을 적용할 material 이름들
+const COLOR_MATERIALS = ['Main.002', 'Grey.002', 'Helmet.002']
+
 const GROUND_ROTATION: [number, number, number] = [-Math.PI / 2, 0, 0]
 const GROUND_POSITION: [number, number, number] = [0, 0, 0]
 const GRID_POSITION: [number, number, number] = [0, 0.01, 0]
@@ -190,6 +205,7 @@ const Player = memo(function Player({
   checkpoints,
   killzones,
   onFinish,
+  color,
 }: {
   startPosition: [number, number, number]
   physics: PhysicsContext
@@ -197,6 +213,7 @@ const Player = memo(function Player({
   checkpoints: MapMarker[]
   killzones: MapMarker[]
   onFinish: () => void
+  color?: string
 }) {
   const group = useRef<THREE.Group>(null!)
   const { scene, animations } = useGLTF('/Runtest.glb')
@@ -219,6 +236,23 @@ const Player = memo(function Player({
   const lastCheckpointPos = useRef<[number, number, number] | null>(null)
 
   const input = useInput()
+
+  // 색상 적용
+  useEffect(() => {
+    if (!color || !scene) return
+
+    const hexColor = COLOR_MAP[color] || '#FFFFFF'
+    const threeColor = new THREE.Color(hexColor)
+
+    scene.traverse((child) => {
+      if (child instanceof THREE.Mesh && child.material) {
+        const mat = child.material as THREE.MeshStandardMaterial
+        if (COLOR_MATERIALS.includes(mat.name)) {
+          mat.color = threeColor
+        }
+      }
+    })
+  }, [color, scene])
 
   useEffect(() => {
     const map: Record<string, string> = {}
@@ -705,6 +739,7 @@ const SceneContent = memo(function SceneContent({
   physics,
   onFinish,
   region,
+  color,
 }: {
   startPosition: [number, number, number]
   finishPosition: [number, number, number] | null
@@ -713,6 +748,7 @@ const SceneContent = memo(function SceneContent({
   physics: PhysicsContext | null
   onFinish: () => void
   region: BuildingRegion
+  color?: string
 }) {
   // 마커를 체크포인트와 킬존으로 분리
   const checkpoints = useMemo(() => markers.filter(m => m.type === 'checkpoint'), [markers])
@@ -760,6 +796,7 @@ const SceneContent = memo(function SceneContent({
         killzones={killzones}
         physics={physics}
         onFinish={onFinish}
+        color={color}
       />
       <FollowCamera />
     </>
@@ -851,9 +888,10 @@ interface BuildingTestPlayProps {
   markers: MapMarker[]
   region: BuildingRegion
   onExit: (success: boolean) => void
+  color?: string
 }
 
-export function BuildingTestPlay({ objects, markers, region, onExit }: BuildingTestPlayProps) {
+export function BuildingTestPlay({ objects, markers, region, onExit, color }: BuildingTestPlayProps) {
   const [loading, setLoading] = useState(true)
 
   const physicsRef = useRef<{
@@ -980,6 +1018,7 @@ export function BuildingTestPlay({ objects, markers, region, onExit }: BuildingT
           physics={physics}
           onFinish={handleFinish}
           region={region}
+          color={color}
         />
       </Canvas>
       <TestPlayUI onExit={handleExit} />
