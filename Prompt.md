@@ -618,6 +618,26 @@ const WEAPON_CONFIGS: { [key in WeaponType]: WeaponConfig } = {
 
 ### 4. 멀티플레이어 시스템
 
+#### 플레이어 색상 시스템
+```typescript
+// 8가지 플레이어 색상 (최대 8인)
+const PLAYER_COLORS = [
+  { id: 'red', hex: '#FF4444', name: '빨강' },
+  { id: 'blue', hex: '#4444FF', name: '파랑' },
+  { id: 'yellow', hex: '#FFFF00', name: '노랑' },
+  { id: 'green', hex: '#44FF44', name: '초록' },
+  { id: 'white', hex: '#FFFFFF', name: '흰색' },
+  { id: 'black', hex: '#333333', name: '검정' },
+  { id: 'orange', hex: '#FF8800', name: '주황' },
+  { id: 'purple', hex: '#AA44FF', name: '보라' },
+] as const;
+
+type PlayerColorId = 'red' | 'blue' | 'yellow' | 'green' | 'white' | 'black' | 'orange' | 'purple';
+
+// 3D 모델에서 색상 적용할 material 이름들
+const COLOR_MATERIALS = ['Main.002', 'Grey.002', 'Helmet.002'];
+```
+
 #### 방 시스템
 ```typescript
 interface Room {
@@ -1453,6 +1473,13 @@ supabase
   - [x] 공개/비공개 방
   - [x] 방 설정 변경 (방장)
   - [x] 대기방 맵 변경
+- [x] **플레이어 색상 시스템**
+  - [x] 8가지 색상 프리셋 (빨강/파랑/노랑/초록/흰색/검정/주황/보라)
+  - [x] 대기방에서 색상 선택 (중복 불가)
+  - [x] 입장 시 자동으로 첫 가용 색상 할당
+  - [x] 3D 캐릭터 모델에 색상 적용 (Main.002, Grey.002, Helmet.002 material)
+  - [x] 카운트다운/시네마틱/테스트 모드에서도 색상 유지
+  - [x] RemotePlayer material 메모리 누수 방지
 - [x] **협동 빌딩 모드 (릴레이 레이스)**
   - [x] 플레이어별 독립 빌딩 영역 할당 (50m 구간)
   - [x] 격리된 뷰 (서로 작업물 보이지 않음)
