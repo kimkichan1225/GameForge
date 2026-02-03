@@ -14,6 +14,7 @@ import {
   createGround,
   createPlayer,
   loadMapObjects,
+  createBoundaryColliders,
   checkGrounded,
   updatePlayerCollider,
   COLLIDER_CONFIG,
@@ -1700,6 +1701,15 @@ export function MultiplayerCanvas({
         // 맵 오브젝트를 물리 월드에 로드
         if (loadedMapData) {
           loadMapObjects(world, loadedMapData.objects);
+        }
+
+        // 릴레이 레이스인 경우 각 세그먼트의 영역 경계 콜라이더 생성
+        if (isRelay && relayData) {
+          for (const segment of relayData.segments) {
+            if (segment.region) {
+              createBoundaryColliders(world, segment.region);
+            }
+          }
         }
 
         // 스폰 위치 계산
