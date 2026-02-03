@@ -463,7 +463,8 @@ function RaycastPlacer({
             const pos: [number, number, number] = [snap(hit.point.x), snap(hit.point.y), snap(hit.point.z)]
             const wallThickness = 1
             const markerRadius = 0.5  // 마커 크기 고려
-            const maxHeight = 22  // 천장 높이 제한
+            const maxHeight = 21  // 천장(25) - 4칸 제한
+            const minHeight = 0   // 최저 높이
 
             // 영역 검사 (X축, Z축 - 벽 두께 고려)
             if (pos[0] - markerRadius < region.startX + wallThickness / 2 ||
@@ -474,7 +475,7 @@ function RaycastPlacer({
             }
 
             // Y축 높이 제한
-            if (pos[1] > maxHeight) {
+            if (pos[1] < minHeight || pos[1] > maxHeight) {
               return
             }
 
@@ -522,7 +523,8 @@ function RaycastPlacer({
           const halfWidth = newScale[0] / 2
           const halfDepth = newScale[2] / 2
           const halfHeight = newScale[1] / 2
-          const maxHeight = 22  // 천장(25) - 3칸 제한
+          const maxHeight = 21  // 천장(25) - 4칸 제한
+          const minHeight = 0   // 최저 높이
 
           // X축: 벽 안쪽으로 배치 (벽 두께 + 오브젝트 반 크기 고려)
           if (snappedPos[0] - halfWidth < region.startX + wallThickness / 2 ||
@@ -536,8 +538,8 @@ function RaycastPlacer({
             return
           }
 
-          // Y축: 천장 높이 제한 (오브젝트 상단이 maxHeight를 넘지 않도록)
-          if (snappedPos[1] + halfHeight > maxHeight) {
+          // Y축: 높이 제한 (오브젝트가 minHeight ~ maxHeight 범위 내에 있어야 함)
+          if (snappedPos[1] - halfHeight < minHeight || snappedPos[1] + halfHeight > maxHeight) {
             return
           }
 
@@ -627,7 +629,8 @@ function PlacementPreview({
     const halfWidth = scale[0] / 2
     const halfDepth = scale[2] / 2
     const halfHeight = scale[1] / 2
-    const maxHeight = 22  // 천장 높이 제한
+    const maxHeight = 21  // 천장(25) - 4칸 제한
+    const minHeight = 0   // 최저 높이
 
     // X축 경계 체크
     if (pos[0] - halfWidth < region.startX + wallThickness / 2 ||
@@ -642,7 +645,7 @@ function PlacementPreview({
     }
 
     // Y축 높이 제한
-    if (pos[1] + halfHeight > maxHeight) {
+    if (pos[1] - halfHeight < minHeight || pos[1] + halfHeight > maxHeight) {
       return false
     }
 
