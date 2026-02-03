@@ -180,8 +180,8 @@ function FPSCamera() {
     }
 
     const handleClick = () => {
-      if (!isLocked.current) {
-        gl.domElement.requestPointerLock()
+      if (document.pointerLockElement !== gl.domElement) {
+        Promise.resolve(gl.domElement.requestPointerLock()).catch(() => {})
       }
     }
 

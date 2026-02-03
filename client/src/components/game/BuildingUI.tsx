@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, memo, useMemo } from 'react'
+import { useState, useEffect, useCallback, memo, useMemo, useRef } from 'react'
 import { useMultiplayerGameStore, type PlayerBuildingStatus } from '../../stores/multiplayerGameStore'
 import type { PlaceableType } from '../../stores/editorStore'
 
@@ -66,6 +66,15 @@ const PlayerStatusPanel = memo(function PlayerStatusPanel({
 // 마커 타입 정의
 type MarkerType = 'spawn' | 'finish' | 'checkpoint' | 'killzone'
 
+// 오브젝트 타입 상수 (컴포넌트 외부)
+const PLACEABLES: { type: PlaceableType; label: string; key: string }[] = [
+  { type: 'box', label: 'Box', key: '1' },
+  { type: 'cylinder', label: 'Cyl', key: '2' },
+  { type: 'sphere', label: 'Sphere', key: '3' },
+  { type: 'plane', label: 'Plane', key: '4' },
+  { type: 'ramp', label: 'Ramp', key: '5' },
+]
+
 // 핫바 (오브젝트/마커 선택)
 const Hotbar = memo(function Hotbar({
   currentPlaceable,
@@ -86,14 +95,6 @@ const Hotbar = memo(function Hotbar({
   hasFinish: boolean
   isVerified: boolean
 }) {
-  const placeables: { type: PlaceableType; label: string; key: string }[] = [
-    { type: 'box', label: 'Box', key: '1' },
-    { type: 'cylinder', label: 'Cyl', key: '2' },
-    { type: 'sphere', label: 'Sphere', key: '3' },
-    { type: 'plane', label: 'Plane', key: '4' },
-    { type: 'ramp', label: 'Ramp', key: '5' },
-  ]
-
   const markers: { type: MarkerType; label: string; key: string; placed?: boolean; color: string }[] = [
     { type: 'spawn', label: 'Start', key: '6', placed: hasSpawn, color: 'bg-green-500' },
     { type: 'finish', label: 'Finish', key: '7', placed: hasFinish, color: 'bg-red-500' },
@@ -115,7 +116,7 @@ const Hotbar = memo(function Hotbar({
         // 붙여넣기 모드 종료
         useMultiplayerGameStore.setState({ isBuildingPasteMode: false })
         onSelectMarker(null)
-        onSelectPlaceable(placeables[parseInt(key) - 1].type)
+        onSelectPlaceable(PLACEABLES[parseInt(key) - 1].type)
       }
       if (key === '6') {
         useMultiplayerGameStore.setState({ isBuildingPasteMode: false })
@@ -169,7 +170,7 @@ const Hotbar = memo(function Hotbar({
         <div className="w-px h-6 bg-white/20 mx-1" />
 
         {/* 오브젝트 */}
-        {placeables.map(item => (
+        {PLACEABLES.map(item => (
           <button
             key={item.type}
             onClick={() => { onSelectMarker(null); onSelectPlaceable(item.type) }}
@@ -733,6 +734,40 @@ const PropertiesPanel = memo(function PropertiesPanel({
   )
 })
 
+// 일시정지 메뉴
+const BuildingPauseMenu = memo(function BuildingPauseMenu({
+  onResume,
+  onLeave,
+}: {
+  onResume: () => void
+  onLeave: () => void
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+      <div className="bg-slate-800/95 backdrop-blur-sm rounded-2xl p-8 text-center border border-white/20 min-w-72">
+        <div className="text-2xl font-bold text-white mb-6">일시정지</div>
+        <div className="space-y-3">
+          <button
+            onClick={onResume}
+            className="w-full px-6 py-3 bg-green-500 hover:bg-green-400 text-white rounded-lg font-medium"
+          >
+            계속하기
+          </button>
+          <button
+            onClick={onLeave}
+            className="w-full px-6 py-3 bg-slate-600 hover:bg-slate-500 text-white rounded-lg"
+          >
+            방 나가기
+          </button>
+        </div>
+        <div className="mt-4 text-white/50 text-sm">
+          ESC를 눌러 계속하기
+        </div>
+      </div>
+    </div>
+  )
+})
+
 // 메인 UI 컴포넌트
 interface BuildingUIProps {
   currentPlaceable: PlaceableType | null
@@ -741,6 +776,7 @@ interface BuildingUIProps {
   onSelectMarker: (type: MarkerType | null) => void
   onStartTest: () => void
   onSetSelectMode: () => void
+  onExit: () => void
 }
 
 export function BuildingUI({
@@ -750,6 +786,7 @@ export function BuildingUI({
   onSelectMarker,
   onStartTest,
   onSetSelectMode,
+  onExit,
 }: BuildingUIProps) {
   const region = useMultiplayerGameStore(state => state.myRegion)
   const timeRemaining = useMultiplayerGameStore(state => state.buildingTimeRemaining)
@@ -775,6 +812,57 @@ export function BuildingUI({
     currentVotes: number;
     votesNeeded: number;
   } | null>(null)
+
+  // 일시정지 메뉴 상태
+  const [showPauseMenu, setShowPauseMenu] = useState(false)
+  const showPauseMenuRef = useRef(showPauseMenu)
+
+  useEffect(() => {
+    showPauseMenuRef.current = showPauseMenu
+  }, [showPauseMenu])
+
+  // ESC 키 처리
+  // - 포인터 락 해제 상태 + 메뉴 닫혀있음 → 메뉴 열기
+  // - 메뉴 열려있음 → 닫고 포인터락 재요청
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      if (myTesting) return  // 테스트 중에는 무시
+
+      const isPointerLocked = document.pointerLockElement !== null
+
+      if (showPauseMenuRef.current) {
+        // 메뉴가 열려있으면 닫고 포인터락 재요청
+        setShowPauseMenu(false)
+        const canvas = document.querySelector('canvas') as HTMLCanvasElement
+        if (canvas) {
+          // Promise rejection 무시 (사용자가 빠르게 ESC 다시 누르면 발생)
+          Promise.resolve(canvas.requestPointerLock()).catch(() => {})
+        }
+      } else if (!isPointerLocked) {
+        // 포인터락이 해제된 상태에서 ESC → 메뉴 열기
+        setShowPauseMenu(true)
+      }
+      // 포인터락이 걸린 상태에서 ESC는 FPSCamera에서 처리 (포인터락 해제)
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [myTesting])
+
+  // 일시정지 메뉴 핸들러
+  const handleResume = useCallback(() => {
+    setShowPauseMenu(false)
+    const canvas = document.querySelector('canvas') as HTMLCanvasElement
+    if (canvas) {
+      Promise.resolve(canvas.requestPointerLock()).catch(() => {})
+    }
+  }, [])
+
+  const handleLeaveRoom = useCallback(() => {
+    setShowPauseMenu(false)
+    onExit()
+  }, [onExit])
 
   const hasSpawn = myMarkers.some(m => m.type === 'spawn')
   const hasFinish = myMarkers.some(m => m.type === 'finish')
@@ -1011,6 +1099,14 @@ export function BuildingUI({
             </div>
           </div>
         </div>
+      )}
+
+      {/* 일시정지 메뉴 */}
+      {showPauseMenu && !myTesting && (
+        <BuildingPauseMenu
+          onResume={handleResume}
+          onLeave={handleLeaveRoom}
+        />
       )}
     </>
   )

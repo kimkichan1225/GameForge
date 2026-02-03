@@ -105,16 +105,18 @@ function getPreviewMaterial(): THREE.MeshStandardMaterial {
   return cachedPreviewMaterial
 }
 
-function getTransparentMaterial(color: string): THREE.MeshStandardMaterial {
-  let mat = cachedTransparentMaterials.get(color)
+function getTransparentMaterial(color: string, doubleSide: boolean = false): THREE.MeshStandardMaterial {
+  const key = `${color}_${doubleSide}`
+  let mat = cachedTransparentMaterials.get(key)
   if (!mat) {
     mat = new THREE.MeshStandardMaterial({
       color,
       transparent: true,
       opacity: 0.5,
       depthWrite: false,
+      side: doubleSide ? THREE.DoubleSide : THREE.FrontSide,
     })
-    cachedTransparentMaterials.set(color, mat)
+    cachedTransparentMaterials.set(key, mat)
   }
   return mat
 }
@@ -219,8 +221,8 @@ function FPSCamera({ region }: { region: BuildingRegion | null }) {
     }
 
     const handleClick = () => {
-      if (!isLocked.current) {
-        gl.domElement.requestPointerLock()
+      if (document.pointerLockElement !== gl.domElement) {
+        Promise.resolve(gl.domElement.requestPointerLock()).catch(() => {})
       }
     }
 
@@ -583,7 +585,7 @@ function RaycastPlacer({
 
     window.addEventListener('mousedown', handleMouseDown)
     return () => window.removeEventListener('mousedown', handleMouseDown)
-  }, [camera, scene, region, isVerified, currentPlaceable, currentMarker, isSelectMode, getCameraYaw, getRandomColor, checkOverlap, onPlaceObject, onPlaceMarker, onSelect, onToggleSelect])
+  }, [camera, scene, region, isVerified, currentPlaceable, currentMarker, isSelectMode, isPasteMode, getCameraYaw, getRandomColor, checkOverlap, onPlaceObject, onPlaceMarker, onSelect, onToggleSelect, onPasteAtPosition])
 
   return null
 }

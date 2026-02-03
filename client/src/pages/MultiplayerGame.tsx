@@ -162,6 +162,7 @@ export default function MultiplayerGame() {
           onSelectMarker={setCurrentMarker}
           onStartTest={handleStartTest}
           onSetSelectMode={handleSetSelectMode}
+          onExit={handleExit}
         />
       </div>
     );

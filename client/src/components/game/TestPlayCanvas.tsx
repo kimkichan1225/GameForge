@@ -534,7 +534,7 @@ const FollowCamera = memo(function FollowCamera() {
   useEffect(() => {
     const canvas = gl.domElement
 
-    const onClick = () => canvas.requestPointerLock()
+    const onClick = () => Promise.resolve(canvas.requestPointerLock()).catch(() => {})
 
     const onMouseMove = (e: MouseEvent) => {
       if (!isLocked.current) return
