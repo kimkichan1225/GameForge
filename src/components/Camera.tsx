@@ -65,7 +65,11 @@ export function Camera() {
           store.setCameraPitch(pitch);
           store.setCameraAngle(angle);
         } else {
-          // 팔로우 모드: 기존 동작
+          // 팔로우 모드: pitch도 조절 + lookDirection 업데이트
+          let pitch = pitchRef.current + moveY * MOUSE_SENSITIVITY;
+          pitch = Math.max(MIN_PITCH, Math.min(MAX_PITCH, pitch));
+          pitchRef.current = pitch;
+          store.setCameraPitch(pitch);
           store.setLookDirection(angle);
           store.setCameraAngle(angle);
         }

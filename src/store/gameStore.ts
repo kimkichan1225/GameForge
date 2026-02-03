@@ -40,7 +40,7 @@ export const useGameStore = create<GameStore>((set) => ({
   lookDirection: 4.715,
   cameraMode: 'follow',
   cameraPitch: 0.3,
-  cameraDistance: 18,
+  cameraDistance: 8,
   weaponType: 'rifle',
   setPosture: (posture) => set({ posture }),
   setAnimation: (animation) => set({ animation }),

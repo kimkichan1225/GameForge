@@ -59,6 +59,25 @@ export function UI() {
         </button>
       </div>
 
+      {/* 시점 전환 (총게임 모드에서만) */}
+      {gameMode === 'gunGame' && (
+        <div style={{ marginBottom: 8 }}>
+          <span style={{ fontSize: 11, marginRight: 8 }}>시점:</span>
+          <button
+            style={{...buttonStyle(false), padding: '4px 10px', fontSize: 11}}
+            onClick={() => {}}
+          >
+            1인칭
+          </button>
+          <button
+            style={{...buttonStyle(true), padding: '4px 10px', fontSize: 11}}
+            onClick={() => {}}
+          >
+            3인칭
+          </button>
+        </div>
+      )}
+
       {/* 카메라 모드 (총게임 모드에서만) */}
       {gameMode === 'gunGame' && (
         <div style={{ marginBottom: 8 }}>
