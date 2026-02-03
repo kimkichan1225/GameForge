@@ -461,9 +461,20 @@ function RaycastPlacer({
           // 마커 모드
           if (currentMarker) {
             const pos: [number, number, number] = [snap(hit.point.x), snap(hit.point.y), snap(hit.point.z)]
+            const wallThickness = 1
+            const markerRadius = 0.5  // 마커 크기 고려
+            const maxHeight = 22  // 천장 높이 제한
 
-            // 영역 검사 (X축, Z축)
-            if (pos[0] < region.startX || pos[0] >= region.endX || pos[2] < -50 || pos[2] > 50) {
+            // 영역 검사 (X축, Z축 - 벽 두께 고려)
+            if (pos[0] - markerRadius < region.startX + wallThickness / 2 ||
+                pos[0] + markerRadius > region.endX - wallThickness / 2 ||
+                pos[2] - markerRadius < -50 + wallThickness / 2 ||
+                pos[2] + markerRadius > 50 - wallThickness / 2) {
+              return
+            }
+
+            // Y축 높이 제한
+            if (pos[1] > maxHeight) {
               return
             }
 
@@ -506,8 +517,27 @@ function RaycastPlacer({
             snappedPos = [snap(hit.point.x), snap(hit.point.y + heightOffset), snap(hit.point.z)]
           }
 
-          // 영역 검사 (X축, Z축)
-          if (snappedPos[0] < region.startX || snappedPos[0] >= region.endX || snappedPos[2] < -50 || snappedPos[2] > 50) {
+          // 영역 검사 (X축, Z축 - 벽 두께와 오브젝트 크기 고려)
+          const wallThickness = 1
+          const halfWidth = newScale[0] / 2
+          const halfDepth = newScale[2] / 2
+          const halfHeight = newScale[1] / 2
+          const maxHeight = 22  // 천장(25) - 3칸 제한
+
+          // X축: 벽 안쪽으로 배치 (벽 두께 + 오브젝트 반 크기 고려)
+          if (snappedPos[0] - halfWidth < region.startX + wallThickness / 2 ||
+              snappedPos[0] + halfWidth > region.endX - wallThickness / 2) {
+            return
+          }
+
+          // Z축: 벽 안쪽으로 배치
+          if (snappedPos[2] - halfDepth < -50 + wallThickness / 2 ||
+              snappedPos[2] + halfDepth > 50 - wallThickness / 2) {
+            return
+          }
+
+          // Y축: 천장 높이 제한 (오브젝트 상단이 maxHeight를 넘지 않도록)
+          if (snappedPos[1] + halfHeight > maxHeight) {
             return
           }
 
@@ -590,9 +620,33 @@ function PlacementPreview({
     return !markers.some(m => m.type === type)
   }, [markers])
 
-  const isInRegion = useCallback((x: number, z: number) => {
+  // 영역 내부 체크 (벽 두께, 오브젝트 크기, 높이 제한 고려)
+  const isValidPlacement = useCallback((pos: [number, number, number], scale: number[]) => {
     if (!region) return false
-    return x >= region.startX && x < region.endX && z >= -50 && z <= 50
+    const wallThickness = 1
+    const halfWidth = scale[0] / 2
+    const halfDepth = scale[2] / 2
+    const halfHeight = scale[1] / 2
+    const maxHeight = 22  // 천장 높이 제한
+
+    // X축 경계 체크
+    if (pos[0] - halfWidth < region.startX + wallThickness / 2 ||
+        pos[0] + halfWidth > region.endX - wallThickness / 2) {
+      return false
+    }
+
+    // Z축 경계 체크
+    if (pos[2] - halfDepth < -50 + wallThickness / 2 ||
+        pos[2] + halfDepth > 50 - wallThickness / 2) {
+      return false
+    }
+
+    // Y축 높이 제한
+    if (pos[1] + halfHeight > maxHeight) {
+      return false
+    }
+
+    return true
   }, [region])
 
   useFrame(() => {
@@ -614,9 +668,11 @@ function PlacementPreview({
       if (currentMarker) {
         if (meshRef.current) meshRef.current.visible = false
         if (markerRef.current) {
-          const canPlace = canPlaceMarker(currentMarker) && isInRegion(snap(hit.point.x), snap(hit.point.z))
+          const markerPos: [number, number, number] = [snap(hit.point.x), snap(hit.point.y), snap(hit.point.z)]
+          const markerScale: [number, number, number] = [1, 1, 1]  // 마커 크기
+          const canPlace = canPlaceMarker(currentMarker) && isValidPlacement(markerPos, markerScale)
           markerRef.current.visible = true
-          markerRef.current.position.set(snap(hit.point.x), snap(hit.point.y), snap(hit.point.z))
+          markerRef.current.position.set(markerPos[0], markerPos[1], markerPos[2])
           markerRef.current.rotation.set(0, yaw, 0)
 
           markerRef.current.traverse((child) => {
@@ -662,7 +718,7 @@ function PlacementPreview({
       }
 
       const isOverlapping = checkOverlap(snappedPos, newScale)
-      const isOutOfRegion = !isInRegion(snappedPos[0], snappedPos[2])
+      const isInvalidPlacement = !isValidPlacement(snappedPos, newScale)
 
       meshRef.current.visible = true
       meshRef.current.position.set(snappedPos[0], snappedPos[1], snappedPos[2])
@@ -675,7 +731,7 @@ function PlacementPreview({
       }
 
       const mat = meshRef.current.material as THREE.MeshStandardMaterial
-      mat.color.set((isOverlapping || isOutOfRegion) ? '#ff4444' : '#44ff44')
+      mat.color.set((isOverlapping || isInvalidPlacement) ? '#ff4444' : '#44ff44')
       return
     }
 

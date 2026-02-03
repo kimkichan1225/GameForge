@@ -1033,8 +1033,13 @@ const MultiplayerUI = memo(function MultiplayerUI({
   const statusRef = useRef(status);
   const showPauseMenuRef = useRef(showPauseMenu);
   const timerIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const wasPointerLockedRef = useRef(false);  // 포인터락이 한 번이라도 획득되었는지 추적
 
   useEffect(() => {
+    // 상태가 countdown으로 바뀌면 포인터락 플래그 리셋 (새 게임 시작)
+    if (status === 'countdown') {
+      wasPointerLockedRef.current = false;
+    }
     statusRef.current = status;
   }, [status]);
 
@@ -1046,8 +1051,15 @@ const MultiplayerUI = memo(function MultiplayerUI({
   useEffect(() => {
     const handlePointerLockChange = () => {
       const isLocked = document.pointerLockElement !== null;
-      // 포인터락이 해제되었고 게임 중이면 메뉴 표시
-      if (!isLocked && (statusRef.current === 'playing' || statusRef.current === 'countdown')) {
+
+      // 포인터락이 획득되면 플래그 설정
+      if (isLocked) {
+        wasPointerLockedRef.current = true;
+      }
+
+      // 포인터락이 해제되었고, 이전에 획득된 적이 있고, 게임 중이면 메뉴 표시
+      // (게임 시작 직후 아직 포인터락을 획득하지 않은 상태에서는 메뉴 안 보임)
+      if (!isLocked && wasPointerLockedRef.current && (statusRef.current === 'playing' || statusRef.current === 'countdown')) {
         setShowPauseMenu(true);
       }
     };
