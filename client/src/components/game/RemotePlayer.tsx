@@ -50,24 +50,35 @@ export const RemotePlayer = memo(function RemotePlayer({
     return clone;
   }, [scene]);
 
-  // 색상 적용
+  // 색상 적용 (material 메모리 관리 포함)
+  const appliedMaterials = useRef<THREE.MeshStandardMaterial[]>([]);
+
   useEffect(() => {
     if (!color || !clonedScene) return;
 
     const hexColor = COLOR_MAP[color] || '#FFFFFF';
     const threeColor = new THREE.Color(hexColor);
 
+    // 이전에 생성한 materials 정리
+    appliedMaterials.current.forEach(mat => mat.dispose());
+    appliedMaterials.current = [];
+
     clonedScene.traverse((child) => {
       if (child instanceof THREE.Mesh && child.material) {
         const mat = child.material as THREE.MeshStandardMaterial;
         if (COLOR_MATERIALS.includes(mat.name)) {
-          // 기존 material을 복제해서 색상 변경 (다른 플레이어와 공유 방지)
           const newMat = mat.clone();
           newMat.color = threeColor;
           child.material = newMat;
+          appliedMaterials.current.push(newMat);
         }
       }
     });
+
+    return () => {
+      appliedMaterials.current.forEach(mat => mat.dispose());
+      appliedMaterials.current = [];
+    };
   }, [color, clonedScene]);
 
   const { actions, names } = useAnimations(animations, clonedScene);
