@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../stores/authStore'
-import { useRoomStore, type RoomType, type GameMode } from '../stores/roomStore'
+import { useRoomStore, type RoomType, type GameMode, PLAYER_COLORS, type PlayerColorId } from '../stores/roomStore'
 import { socketManager } from '../lib/socket'
 import { MapBrowser } from '../components/map/MapBrowser'
 import type { MapRecord } from '../lib/mapService'
@@ -57,9 +57,29 @@ function Home() {
     joinRoom,
     leaveRoom,
     setReady,
+    selectColor,
     startGame,
     updateRoomSettings,
   } = useRoomStore()
+
+  // 색상 선택 UI
+  const [showColorPicker, setShowColorPicker] = useState(false)
+  const colorPickerRef = useRef<HTMLDivElement>(null)
+
+  // 색상 선택기 외부 클릭 감지
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (colorPickerRef.current && !colorPickerRef.current.contains(e.target as Node)) {
+        setShowColorPicker(false)
+      }
+    }
+    if (showColorPicker) {
+      document.addEventListener('mousedown', handleClickOutside)
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [showColorPicker])
 
   const myId = socketManager.getSocket()?.id
   const me = currentRoom?.players.find((p) => p.id === myId)
@@ -508,46 +528,93 @@ function Home() {
                     플레이어 ({currentRoom.players.length}/{currentRoom.maxPlayers})
                   </h3>
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
-                    {currentRoom.players.map((player) => (
-                      <div
-                        key={player.id}
-                        className={`flex items-center justify-between p-3 rounded-xl ${
-                          player.id === myId ? 'bg-sky-500/20 border border-sky-500/30' : 'bg-white/5'
-                        }`}
-                      >
-                        <div className="flex items-center gap-3 min-w-0">
-                          <div className="w-10 h-10 bg-gradient-to-br from-sky-400 to-violet-500 rounded-full flex items-center justify-center flex-shrink-0">
-                            <span className="text-white font-bold">
-                              {player.nickname[0]?.toUpperCase()}
-                            </span>
-                          </div>
-                          <div className="min-w-0">
-                            <div className="text-white font-medium flex items-center gap-1 truncate">
-                              <span className="truncate">{player.nickname}</span>
-                              {player.isHost && (
-                                <span className="px-1.5 py-0.5 bg-amber-500/20 text-amber-400 text-xs rounded-full flex-shrink-0">
-                                  방장
+                    {currentRoom.players.map((player) => {
+                      const playerColor = PLAYER_COLORS.find(c => c.id === player.color) || PLAYER_COLORS[0];
+                      const isMe = player.id === myId;
+                      const usedColors = currentRoom.players.map(p => p.color);
+
+                      return (
+                        <div
+                          key={player.id}
+                          className={`flex items-center justify-between p-3 rounded-xl ${
+                            isMe ? 'bg-sky-500/20 border border-sky-500/30' : 'bg-white/5'
+                          }`}
+                        >
+                          <div className="flex items-center gap-3 min-w-0">
+                            {/* 색상 아바타 - 내 플레이어만 클릭 가능 */}
+                            <div className="relative">
+                              <button
+                                onClick={() => isMe && setShowColorPicker(prev => !prev)}
+                                disabled={!isMe}
+                                className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 transition-all ${
+                                  isMe ? 'cursor-pointer hover:ring-2 hover:ring-white/50' : 'cursor-default'
+                                }`}
+                                style={{ backgroundColor: playerColor.hex }}
+                                title={isMe ? '클릭하여 색상 변경' : playerColor.name}
+                              >
+                                <span className={`font-bold ${playerColor.id === 'white' || playerColor.id === 'yellow' ? 'text-slate-800' : 'text-white'}`}>
+                                  {player.nickname[0]?.toUpperCase()}
                                 </span>
-                              )}
-                              {player.id === myId && (
-                                <span className="px-1.5 py-0.5 bg-sky-500/20 text-sky-400 text-xs rounded-full flex-shrink-0">
-                                  나
-                                </span>
+                              </button>
+
+                              {/* 색상 선택 팝업 */}
+                              {isMe && showColorPicker && (
+                                <div ref={colorPickerRef} className="absolute top-12 left-0 z-50 bg-slate-800 rounded-xl p-2 border border-white/10 shadow-xl">
+                                  <div className="grid grid-cols-4 gap-1">
+                                    {PLAYER_COLORS.map((color) => {
+                                      const isUsed = usedColors.includes(color.id) && color.id !== player.color;
+                                      const isSelected = color.id === player.color;
+                                      return (
+                                        <button
+                                          key={color.id}
+                                          onClick={() => {
+                                            if (!isUsed) {
+                                              selectColor(color.id as PlayerColorId);
+                                              setShowColorPicker(false);
+                                            }
+                                          }}
+                                          disabled={isUsed}
+                                          className={`w-8 h-8 rounded-full transition-all ${
+                                            isSelected ? 'ring-2 ring-white scale-110' : ''
+                                          } ${isUsed ? 'opacity-30 cursor-not-allowed' : 'hover:scale-110'}`}
+                                          style={{ backgroundColor: color.hex }}
+                                          title={isUsed ? `${color.name} (사용 중)` : color.name}
+                                        />
+                                      );
+                                    })}
+                                  </div>
+                                </div>
                               )}
                             </div>
-                            <div className="text-xs">
-                              {player.isHost ? (
-                                <span className="text-amber-400">방장</span>
-                              ) : player.isReady ? (
-                                <span className="text-green-400">준비 완료</span>
-                              ) : (
-                                <span className="text-white/50">대기 중</span>
-                              )}
+
+                            <div className="min-w-0">
+                              <div className="text-white font-medium flex items-center gap-1 truncate">
+                                <span className="truncate">{player.nickname}</span>
+                                {player.isHost && (
+                                  <span className="px-1.5 py-0.5 bg-amber-500/20 text-amber-400 text-xs rounded-full flex-shrink-0">
+                                    방장
+                                  </span>
+                                )}
+                                {isMe && (
+                                  <span className="px-1.5 py-0.5 bg-sky-500/20 text-sky-400 text-xs rounded-full flex-shrink-0">
+                                    나
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-xs">
+                                {player.isHost ? (
+                                  <span className="text-amber-400">방장</span>
+                                ) : player.isReady ? (
+                                  <span className="text-green-400">준비 완료</span>
+                                ) : (
+                                  <span className="text-white/50">대기 중</span>
+                                )}
+                              </div>
                             </div>
                           </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
 

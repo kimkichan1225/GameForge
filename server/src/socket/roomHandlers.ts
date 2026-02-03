@@ -2,6 +2,7 @@ import { Server, Socket } from 'socket.io';
 import { roomManager } from '../game/RoomManager.js';
 import { startGame, startGameFromBuilding, getGameLoop, stopGame } from '../game/GameLoop.js';
 import type { MapObject, MapMarker } from '../game/BuildingPhase.js';
+import type { PlayerColorId } from '../game/Room.js';
 
 export function registerRoomHandlers(io: Server, socket: Socket): void {
   // Get room list
@@ -94,6 +95,31 @@ export function registerRoomHandlers(io: Server, socket: Socket): void {
 
     room.setPlayerReady(socket.id, data.ready);
 
+    io.to(room.id).emit('room:playerUpdated', {
+      players: Array.from(room.players.values()),
+      canStart: room.canStart(),
+    });
+
+    callback?.({ success: true });
+  });
+
+  // Select player color
+  socket.on('room:selectColor', (data: { color: PlayerColorId }, callback) => {
+    const room = roomManager.getPlayerRoom(socket.id);
+
+    if (!room) {
+      callback?.({ success: false, error: '방을 찾을 수 없습니다' });
+      return;
+    }
+
+    const success = room.setPlayerColor(socket.id, data.color);
+
+    if (!success) {
+      callback?.({ success: false, error: '이 색상은 이미 사용 중입니다' });
+      return;
+    }
+
+    // Notify all players in the room
     io.to(room.id).emit('room:playerUpdated', {
       players: Array.from(room.players.values()),
       canStart: room.canStart(),

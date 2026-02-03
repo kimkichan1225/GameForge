@@ -56,6 +56,21 @@ interface PhysicsContext {
   playerColliderRef: React.MutableRefObject<RAPIER.Collider>;
 }
 
+// 색상 ID → hex 매핑
+const COLOR_MAP: Record<string, string> = {
+  red: '#FF4444',
+  blue: '#4444FF',
+  yellow: '#FFFF00',
+  green: '#44FF44',
+  white: '#FFFFFF',
+  black: '#333333',
+  orange: '#FF8800',
+  purple: '#AA44FF',
+};
+
+// 색상을 적용할 material 이름들
+const COLOR_MATERIALS = ['Main.002', 'Grey.002', 'Helmet.002'];
+
 // Local player component
 const LocalPlayer = memo(function LocalPlayer({
   startPosition,
@@ -63,12 +78,14 @@ const LocalPlayer = memo(function LocalPlayer({
   finishPosition,
   checkpoints,
   killzones,
+  color,
 }: {
   startPosition: [number, number, number];
   physics: PhysicsContext;
   finishPosition: [number, number, number] | null;
   checkpoints: MapMarker[];
   killzones: MapMarker[];
+  color?: string;
 }) {
   const group = useRef<THREE.Group>(null!);
   const { scene, animations } = useGLTF('/Runtest.glb');
@@ -96,6 +113,23 @@ const LocalPlayer = memo(function LocalPlayer({
   const finish = useMultiplayerGameStore((state) => state.finish);
   const notifyDeath = useMultiplayerGameStore((state) => state.notifyDeath);
   const clearPendingTeleport = useMultiplayerGameStore((state) => state.clearPendingTeleport);
+
+  // 색상 적용
+  useEffect(() => {
+    if (!color || !scene) return;
+
+    const hexColor = COLOR_MAP[color] || '#FFFFFF';
+    const threeColor = new THREE.Color(hexColor);
+
+    scene.traverse((child) => {
+      if (child instanceof THREE.Mesh && child.material) {
+        const mat = child.material as THREE.MeshStandardMaterial;
+        if (COLOR_MATERIALS.includes(mat.name)) {
+          mat.color = threeColor;
+        }
+      }
+    });
+  }, [color, scene]);
 
   // Build animation map
   useEffect(() => {
@@ -816,6 +850,7 @@ const RemotePlayers = memo(function RemotePlayers() {
           key={player.id}
           id={player.id}
           nickname={player.nickname}
+          color={player.color}
           position={player.position}
           velocity={player.velocity}
           animation={player.animation}
@@ -910,6 +945,7 @@ const SceneContent = memo(function SceneContent({
   checkpoints,
   killzones,
   relaySegments,
+  myColor,
 }: {
   startPosition: [number, number, number];
   physics: PhysicsContext | null;
@@ -923,6 +959,7 @@ const SceneContent = memo(function SceneContent({
     spawnPosition: [number, number, number];
     region?: { startX: number; endX: number };
   }> | null;
+  myColor?: string;
 }) {
   if (!physics) return null;
 
@@ -957,6 +994,7 @@ const SceneContent = memo(function SceneContent({
         finishPosition={finishPosition}
         checkpoints={checkpoints}
         killzones={killzones}
+        color={myColor}
       />
       <RemotePlayers />
       <FollowCamera startPosition={startPosition} />
@@ -1391,9 +1429,17 @@ export function MultiplayerCanvas({
 
   const initGame = useMultiplayerGameStore((state) => state.initGame);
   const cleanupGame = useMultiplayerGameStore((state) => state.cleanupGame);
+  const players = useMultiplayerGameStore((state) => state.players);
   const currentRoom = useRoomStore((state) => state.currentRoom);
   const isRelayRace = useMultiplayerGameStore((state) => state.isRelayRace);
   const relayMapData = useMultiplayerGameStore((state) => state.relayMapData);
+
+  // 내 플레이어 색상
+  const myId = socketManager.getSocket()?.id;
+  const myColor = useMemo(() => {
+    const myPlayer = players.find(p => p.id === myId);
+    return myPlayer?.color;
+  }, [players, myId]);
 
   // 릴레이 레이스용 병합된 맵 데이터
   const mergedRelayMapData = useMemo((): MapData | null => {
@@ -1722,6 +1768,7 @@ export function MultiplayerCanvas({
           checkpoints={checkpoints}
           killzones={killzones}
           relaySegments={relaySegments}
+          myColor={myColor}
         />
       </Canvas>
       <MultiplayerUI onExit={onExit} onReturnToWaitingRoom={onReturnToWaitingRoom} totalCheckpoints={countableCheckpoints} finishPosition={finishPosition} />

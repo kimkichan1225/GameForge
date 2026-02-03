@@ -7,6 +7,7 @@ import * as THREE from 'three';
 interface RemotePlayerProps {
   id: string;
   nickname: string;
+  color?: string;  // 플레이어 색상 ID
   position: { x: number; y: number; z: number };
   velocity: { x: number; y: number; z: number };
   animation: string;
@@ -18,8 +19,24 @@ const _targetPos = new THREE.Vector3();
 const _yAxis = new THREE.Vector3(0, 1, 0);
 const _targetQuat = new THREE.Quaternion();
 
+// 색상 ID → hex 매핑
+const COLOR_MAP: Record<string, string> = {
+  red: '#FF4444',
+  blue: '#4444FF',
+  yellow: '#FFFF00',
+  green: '#44FF44',
+  white: '#FFFFFF',
+  black: '#333333',
+  orange: '#FF8800',
+  purple: '#AA44FF',
+};
+
+// 색상을 적용할 material 이름들
+const COLOR_MATERIALS = ['Main.002', 'Grey.002', 'Helmet.002'];
+
 export const RemotePlayer = memo(function RemotePlayer({
   nickname,
+  color,
   position,
   velocity,
   animation,
@@ -32,6 +49,26 @@ export const RemotePlayer = memo(function RemotePlayer({
     const clone = SkeletonUtils.clone(scene);
     return clone;
   }, [scene]);
+
+  // 색상 적용
+  useEffect(() => {
+    if (!color || !clonedScene) return;
+
+    const hexColor = COLOR_MAP[color] || '#FFFFFF';
+    const threeColor = new THREE.Color(hexColor);
+
+    clonedScene.traverse((child) => {
+      if (child instanceof THREE.Mesh && child.material) {
+        const mat = child.material as THREE.MeshStandardMaterial;
+        if (COLOR_MATERIALS.includes(mat.name)) {
+          // 기존 material을 복제해서 색상 변경 (다른 플레이어와 공유 방지)
+          const newMat = mat.clone();
+          newMat.color = threeColor;
+          child.material = newMat;
+        }
+      }
+    });
+  }, [color, clonedScene]);
 
   const { actions, names } = useAnimations(animations, clonedScene);
 

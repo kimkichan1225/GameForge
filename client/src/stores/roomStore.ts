@@ -1,11 +1,26 @@
 import { create } from 'zustand';
 import { socketManager } from '../lib/socket';
 
+// 8가지 플레이어 색상 (서버와 동일)
+export const PLAYER_COLORS = [
+  { id: 'red', hex: '#FF4444', name: '빨강' },
+  { id: 'blue', hex: '#4444FF', name: '파랑' },
+  { id: 'yellow', hex: '#FFFF00', name: '노랑' },
+  { id: 'green', hex: '#44FF44', name: '초록' },
+  { id: 'white', hex: '#FFFFFF', name: '흰색' },
+  { id: 'black', hex: '#333333', name: '검정' },
+  { id: 'orange', hex: '#FF8800', name: '주황' },
+  { id: 'purple', hex: '#AA44FF', name: '보라' },
+] as const;
+
+export type PlayerColorId = typeof PLAYER_COLORS[number]['id'];
+
 export interface Player {
   id: string;
   nickname: string;
   isHost: boolean;
   isReady: boolean;
+  color: PlayerColorId;
 }
 
 export type RoomType = 'create_map' | 'load_map';
@@ -71,6 +86,7 @@ interface RoomState {
   joinRoom: (nickname: string, roomId: string) => Promise<boolean>;
   leaveRoom: () => void;
   setReady: (ready: boolean) => void;
+  selectColor: (color: PlayerColorId) => Promise<boolean>;
   startGame: () => Promise<boolean>;
   returnToWaitingRoom: () => Promise<boolean>;
   updateRoomSettings: (settings: {
@@ -288,6 +304,23 @@ export const useRoomStore = create<RoomState>((set, get) => ({
     if (socket) {
       socket.emit('room:ready', { ready });
     }
+  },
+
+  selectColor: (color) => {
+    return new Promise((resolve) => {
+      const socket = socketManager.getSocket();
+      if (!socket) {
+        resolve(false);
+        return;
+      }
+
+      socket.emit('room:selectColor', { color }, (response: { success: boolean; error?: string }) => {
+        if (!response.success) {
+          console.error('색상 선택 실패:', response.error);
+        }
+        resolve(response.success);
+      });
+    });
   },
 
   startGame: () => {

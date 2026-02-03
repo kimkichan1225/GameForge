@@ -16,6 +16,7 @@ interface GameState {
 interface PlayerState {
   id: string;
   nickname: string;
+  color: string;  // 플레이어 색상 ID
   position: { x: number; y: number; z: number };
   velocity: { x: number; y: number; z: number };
   animation: string;
@@ -136,6 +137,7 @@ export class GameLoop {
       players.push({
         id: player.id,
         nickname: player.nickname,
+        color: player.color,
         position: player.position || { x: 0, y: 0, z: 0 },
         velocity: player.velocity || { x: 0, y: 0, z: 0 },
         animation: player.animation || 'Idle',

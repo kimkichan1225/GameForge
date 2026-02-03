@@ -3,11 +3,26 @@ import { BuildingPhase, RelayMapData } from './BuildingPhase.js';
 export type RoomType = 'create_map' | 'load_map';
 export type GameMode = 'race' | 'shooter';
 
+// 8가지 플레이어 색상 (최대 8인)
+export const PLAYER_COLORS = [
+  { id: 'red', hex: '#FF4444', name: '빨강' },
+  { id: 'blue', hex: '#4444FF', name: '파랑' },
+  { id: 'yellow', hex: '#FFFF00', name: '노랑' },
+  { id: 'green', hex: '#44FF44', name: '초록' },
+  { id: 'white', hex: '#FFFFFF', name: '흰색' },
+  { id: 'black', hex: '#333333', name: '검정' },
+  { id: 'orange', hex: '#FF8800', name: '주황' },
+  { id: 'purple', hex: '#AA44FF', name: '보라' },
+] as const;
+
+export type PlayerColorId = typeof PLAYER_COLORS[number]['id'];
+
 export interface Player {
   id: string;
   nickname: string;
   isHost: boolean;
   isReady: boolean;
+  color: PlayerColorId;  // 플레이어 색상
   position?: { x: number; y: number; z: number };
   velocity?: { x: number; y: number; z: number };
   animation?: string;
@@ -106,6 +121,22 @@ export class Room {
     return this.relayMapData;
   }
 
+  // 사용 중인 색상 목록 반환
+  getUsedColors(): PlayerColorId[] {
+    return Array.from(this.players.values()).map(p => p.color);
+  }
+
+  // 사용 가능한 첫 번째 색상 반환
+  getFirstAvailableColor(): PlayerColorId {
+    const usedColors = this.getUsedColors();
+    for (const color of PLAYER_COLORS) {
+      if (!usedColors.includes(color.id)) {
+        return color.id;
+      }
+    }
+    return 'red'; // fallback (8인 초과 시)
+  }
+
   addPlayer(playerId: string, nickname: string): Player | null {
     // 대기 상태가 아니면 참가 불가
     if (this.status !== 'waiting') {
@@ -118,11 +149,13 @@ export class Room {
     }
 
     const isHost = this.players.size === 0;
+    const color = this.getFirstAvailableColor();
     const player: Player = {
       id: playerId,
       nickname,
       isHost,
       isReady: false,
+      color,
       checkpoint: 0,
     };
 
@@ -132,6 +165,27 @@ export class Room {
 
     this.players.set(playerId, player);
     return player;
+  }
+
+  // 플레이어 색상 변경
+  setPlayerColor(playerId: string, color: PlayerColorId): boolean {
+    const player = this.players.get(playerId);
+    if (!player) return false;
+
+    // 대기 상태에서만 색상 변경 가능
+    if (this.status !== 'waiting') return false;
+
+    // 이미 다른 플레이어가 사용 중인 색상인지 확인
+    const usedColors = this.getUsedColors();
+    const isUsedByOther = usedColors.some((c, idx) => {
+      const players = Array.from(this.players.values());
+      return c === color && players[idx].id !== playerId;
+    });
+
+    if (isUsedByOther) return false;
+
+    player.color = color;
+    return true;
   }
 
   removePlayer(playerId: string): boolean {
