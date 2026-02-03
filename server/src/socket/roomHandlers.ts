@@ -66,10 +66,11 @@ export function registerRoomHandlers(io: Server, socket: Socket): void {
     const { room, player } = result;
     socket.join(room.id);
 
-    // Notify others in room
+    // Notify others in room (canStart도 함께 전송)
     socket.to(room.id).emit('room:playerJoined', {
       player,
       players: Array.from(room.players.values()),
+      canStart: room.canStart(),
     });
 
     callback({ success: true, room: room.toJSON() });
@@ -560,11 +561,12 @@ function handleLeaveRoom(io: Server, socket: Socket): void {
         }
       }
 
-      // Notify remaining players
+      // Notify remaining players (canStart도 함께 전송)
       io.to(room.id).emit('room:playerLeft', {
         playerId: socket.id,
         players: Array.from(room.players.values()),
         newHostId: room.hostId,
+        canStart: room.canStart(),
       });
 
       // 방 상태도 같이 전송

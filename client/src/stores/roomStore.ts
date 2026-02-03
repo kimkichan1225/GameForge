@@ -120,6 +120,9 @@ export const useRoomStore = create<RoomState>((set, get) => ({
   connect: () => {
     const socket = socketManager.connect();
 
+    // 소켓 재연결 시 이벤트 재등록을 위해 기존 등록 기록 초기화
+    registeredEvents.clear();
+
     // 이미 연결된 상태면 상태 업데이트
     if (socket.connected) {
       set({ isConnected: true });
@@ -139,7 +142,7 @@ export const useRoomStore = create<RoomState>((set, get) => ({
     });
 
     // Player joined current room
-    registerEvent(socket, 'room:playerJoined', (data: { player: Player; players: Player[] }) => {
+    registerEvent(socket, 'room:playerJoined', (data: { player: Player; players: Player[]; canStart: boolean }) => {
       const room = get().currentRoom;
       if (room) {
         set({
@@ -147,12 +150,13 @@ export const useRoomStore = create<RoomState>((set, get) => ({
             ...room,
             players: data.players,
           },
+          canStart: data.canStart,
         });
       }
     });
 
     // Player left current room
-    registerEvent(socket, 'room:playerLeft', (data: { playerId: string; players: Player[]; newHostId: string }) => {
+    registerEvent(socket, 'room:playerLeft', (data: { playerId: string; players: Player[]; newHostId: string; canStart: boolean }) => {
       const room = get().currentRoom;
       if (room) {
         set({
@@ -161,6 +165,7 @@ export const useRoomStore = create<RoomState>((set, get) => ({
             players: data.players,
             hostId: data.newHostId,
           },
+          canStart: data.canStart,
         });
       }
     });
@@ -252,9 +257,9 @@ export const useRoomStore = create<RoomState>((set, get) => ({
       socket.emit(
         'room:create',
         { nickname, roomName, mapId, mapName, mapThumbnailUrl, maxPlayers, gameMode, roomType, isPrivate, buildTimeLimit },
-        (response: { success: boolean; room?: RoomDetail; error?: string }) => {
+        (response: { success: boolean; room?: RoomDetail & { canStart?: boolean }; error?: string }) => {
           if (response.success && response.room) {
-            set({ currentRoom: response.room, canStart: false });
+            set({ currentRoom: response.room, canStart: response.room.canStart ?? false });
             resolve(true);
           } else {
             console.error('방 생성 실패:', response.error);
@@ -277,9 +282,9 @@ export const useRoomStore = create<RoomState>((set, get) => ({
       socket.emit(
         'room:join',
         { roomId, nickname },
-        (response: { success: boolean; room?: RoomDetail; error?: string }) => {
+        (response: { success: boolean; room?: RoomDetail & { canStart?: boolean }; error?: string }) => {
           if (response.success && response.room) {
-            set({ currentRoom: response.room, canStart: false });
+            set({ currentRoom: response.room, canStart: response.room.canStart ?? false });
             resolve(true);
           } else {
             console.error('방 참가 실패:', response.error);
@@ -348,9 +353,9 @@ export const useRoomStore = create<RoomState>((set, get) => ({
         return;
       }
 
-      socket.emit('room:returnToWaitingRoom', (response: { success: boolean; room?: RoomDetail; error?: string }) => {
+      socket.emit('room:returnToWaitingRoom', (response: { success: boolean; room?: RoomDetail & { canStart?: boolean }; error?: string }) => {
         if (response.success && response.room) {
-          set({ currentRoom: response.room, canStart: false });
+          set({ currentRoom: response.room, canStart: response.room.canStart ?? false });
           resolve(true);
         } else {
           console.error('대기방 복귀 실패:', response.error);

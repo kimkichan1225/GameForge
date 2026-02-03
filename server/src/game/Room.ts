@@ -310,6 +310,7 @@ export class Room {
       isPrivate: this.isPrivate,
       buildTimeLimit: this.buildTimeLimit,
       playerCount: this.players.size,
+      canStart: this.canStart(),
     };
   }
 
