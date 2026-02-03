@@ -203,6 +203,48 @@ export function loadMapObjects(world: RAPIER.World, objects: MapObject[]): RAPIE
   return colliders
 }
 
+// 빌딩 모드 영역 경계 콜라이더 생성
+export function createBoundaryColliders(
+  world: RAPIER.World,
+  region: { startX: number; endX: number }
+): RAPIER.Collider[] {
+  if (!rapierInstance) throw new Error('Rapier not initialized')
+
+  const colliders: RAPIER.Collider[] = []
+  const wallHeight = 25     // 벽 높이
+  const wallThickness = 1   // 벽 두께
+  const depth = 100         // Z축 범위
+  const regionWidth = region.endX - region.startX
+  const regionCenterX = (region.startX + region.endX) / 2
+
+  // 왼쪽 벽
+  const leftWall = rapierInstance.ColliderDesc.cuboid(wallThickness / 2, wallHeight / 2, depth / 2)
+    .setTranslation(region.startX - wallThickness / 2, wallHeight / 2, 0)
+  colliders.push(world.createCollider(leftWall))
+
+  // 오른쪽 벽
+  const rightWall = rapierInstance.ColliderDesc.cuboid(wallThickness / 2, wallHeight / 2, depth / 2)
+    .setTranslation(region.endX + wallThickness / 2, wallHeight / 2, 0)
+  colliders.push(world.createCollider(rightWall))
+
+  // 앞쪽 벽 (Z-)
+  const frontWall = rapierInstance.ColliderDesc.cuboid(regionWidth / 2 + wallThickness, wallHeight / 2, wallThickness / 2)
+    .setTranslation(regionCenterX, wallHeight / 2, -depth / 2 - wallThickness / 2)
+  colliders.push(world.createCollider(frontWall))
+
+  // 뒤쪽 벽 (Z+)
+  const backWall = rapierInstance.ColliderDesc.cuboid(regionWidth / 2 + wallThickness, wallHeight / 2, wallThickness / 2)
+    .setTranslation(regionCenterX, wallHeight / 2, depth / 2 + wallThickness / 2)
+  colliders.push(world.createCollider(backWall))
+
+  // 천장 (플레이어가 벽 위로 넘어가지 못하게)
+  const ceiling = rapierInstance.ColliderDesc.cuboid(regionWidth / 2 + wallThickness, 0.5, depth / 2 + wallThickness)
+    .setTranslation(regionCenterX, wallHeight, 0)
+  colliders.push(world.createCollider(ceiling))
+
+  return colliders
+}
+
 // 플레이어 이동 적용
 export function applyPlayerMovement(
   rigidBody: RAPIER.RigidBody,

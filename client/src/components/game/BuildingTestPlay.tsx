@@ -12,6 +12,7 @@ import {
   createGround,
   createPlayer,
   loadMapObjects,
+  createBoundaryColliders,
   checkGrounded,
   updatePlayerCollider,
   COLLIDER_CONFIG,
@@ -949,6 +950,7 @@ export function BuildingTestPlay({ objects, markers, region, onExit, color }: Bu
         localWorld = world
         createGround(world)
         loadMapObjects(world, objects)
+        createBoundaryColliders(world, region)  // 영역 경계 물리 콜라이더
         const { rigidBody, collider } = createPlayer(world, startPosition)
 
         if (!mounted) {
@@ -984,7 +986,7 @@ export function BuildingTestPlay({ objects, markers, region, onExit, color }: Bu
       }
       localWorld = null
     }
-  }, [objects, startPosition])
+  }, [objects, startPosition, region])
 
   useEffect(() => { useGameStore.getState().reset() }, [])
 
