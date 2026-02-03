@@ -6,7 +6,12 @@ import { useGameStore } from '../store/gameStore';
 // 카메라 설정
 const HEAD_OFFSET = new THREE.Vector3(0, 2, 0);
 const MOUSE_SENSITIVITY = 0.002;
+
+// 총게임 모드 카메라 오프셋 (캐릭터를 왼쪽 아래로 배치)
+const TPS_LOOK_OFFSET_RIGHT = -1.5;  // 왼쪽으로
+const TPS_LOOK_OFFSET_UP = 0.8;     // 아래로
 const CAMERA_LERP = 0.1;
+const AIM_DISTANCE = 3;  // 우클릭(조준) 시 카메라 거리
 const MIN_DISTANCE = 5;
 const MAX_DISTANCE = 50;
 const MIN_PITCH = -0.5;
@@ -29,6 +34,7 @@ export function Camera() {
   const initialized = useRef(false);
   const isLocked = useRef(false);
   const skipNextMove = useRef(false);
+  const isAiming = useRef(false);
 
   useEffect(() => {
     const canvas = gl.domElement;
@@ -96,16 +102,32 @@ export function Camera() {
       isLocked.current = locked;
     };
 
+    const onMouseDown = (e: MouseEvent) => {
+      if (e.button === 2) isAiming.current = true;
+    };
+
+    const onMouseUp = (e: MouseEvent) => {
+      if (e.button === 2) isAiming.current = false;
+    };
+
+    const onContextMenu = (e: MouseEvent) => e.preventDefault();
+
     canvas.addEventListener('click', onClick);
     document.addEventListener('mousemove', onMouseMove);
     document.addEventListener('pointerlockchange', onPointerLockChange);
     document.addEventListener('wheel', onWheel);
+    document.addEventListener('mousedown', onMouseDown);
+    document.addEventListener('mouseup', onMouseUp);
+    document.addEventListener('contextmenu', onContextMenu);
 
     return () => {
       canvas.removeEventListener('click', onClick);
       document.removeEventListener('mousemove', onMouseMove);
       document.removeEventListener('pointerlockchange', onPointerLockChange);
       document.removeEventListener('wheel', onWheel);
+      document.removeEventListener('mousedown', onMouseDown);
+      document.removeEventListener('mouseup', onMouseUp);
+      document.removeEventListener('contextmenu', onContextMenu);
     };
   }, [gl]);
 
@@ -115,9 +137,14 @@ export function Camera() {
     _targetPos.set(playerPos[0], playerPos[1], playerPos[2]);
 
     // 카메라 오프셋 계산
-    const distance = distanceRef.current;
     const pitch = pitchRef.current;
     const angle = angleRef.current;
+
+    // 총게임 모드에서 우클릭 시 카메라 거리 변경
+    let distance = distanceRef.current;
+    if (store.gameMode === 'gunGame' && isAiming.current) {
+      distance = AIM_DISTANCE;
+    }
 
     // 구면 좌표계로 카메라 위치 계산
     _offset.set(
@@ -137,6 +164,17 @@ export function Camera() {
     camera.position.copy(currentCamPos.current);
 
     _headPos.copy(_targetPos).add(HEAD_OFFSET);
+
+    // 총게임 모드: 카메라가 바라보는 지점을 오른쪽 위로 이동 (캐릭터가 왼쪽 아래에 위치)
+    if (store.gameMode === 'gunGame') {
+      // 오른쪽 방향 계산 (카메라 기준)
+      const rightX = Math.sin(angle - Math.PI / 2) * TPS_LOOK_OFFSET_RIGHT;
+      const rightZ = Math.cos(angle - Math.PI / 2) * TPS_LOOK_OFFSET_RIGHT;
+      _headPos.x += rightX;
+      _headPos.z += rightZ;
+      _headPos.y += TPS_LOOK_OFFSET_UP;
+    }
+
     camera.lookAt(_headPos);
   });
 
