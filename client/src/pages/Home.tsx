@@ -541,50 +541,14 @@ function Home() {
                           }`}
                         >
                           <div className="flex items-center gap-3 min-w-0">
-                            {/* 색상 아바타 - 내 플레이어만 클릭 가능 */}
-                            <div className="relative">
-                              <button
-                                onClick={() => isMe && setShowColorPicker(prev => !prev)}
-                                disabled={!isMe}
-                                className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 transition-all ${
-                                  isMe ? 'cursor-pointer hover:ring-2 hover:ring-white/50' : 'cursor-default'
-                                }`}
-                                style={{ backgroundColor: playerColor.hex }}
-                                title={isMe ? '클릭하여 색상 변경' : playerColor.name}
-                              >
-                                <span className={`font-bold ${playerColor.id === 'white' || playerColor.id === 'yellow' ? 'text-slate-800' : 'text-white'}`}>
-                                  {player.nickname[0]?.toUpperCase()}
-                                </span>
-                              </button>
-
-                              {/* 색상 선택 팝업 */}
-                              {isMe && showColorPicker && (
-                                <div ref={colorPickerRef} className="absolute top-12 left-0 z-50 bg-slate-800 rounded-xl p-2 border border-white/10 shadow-xl">
-                                  <div className="grid grid-cols-4 gap-1">
-                                    {PLAYER_COLORS.map((color) => {
-                                      const isUsed = usedColors.includes(color.id) && color.id !== player.color;
-                                      const isSelected = color.id === player.color;
-                                      return (
-                                        <button
-                                          key={color.id}
-                                          onClick={() => {
-                                            if (!isUsed) {
-                                              selectColor(color.id as PlayerColorId);
-                                              setShowColorPicker(false);
-                                            }
-                                          }}
-                                          disabled={isUsed}
-                                          className={`w-8 h-8 rounded-full transition-all ${
-                                            isSelected ? 'ring-2 ring-white scale-110' : ''
-                                          } ${isUsed ? 'opacity-30 cursor-not-allowed' : 'hover:scale-110'}`}
-                                          style={{ backgroundColor: color.hex }}
-                                          title={isUsed ? `${color.name} (사용 중)` : color.name}
-                                        />
-                                      );
-                                    })}
-                                  </div>
-                                </div>
-                              )}
+                            {/* 색상 아바타 */}
+                            <div
+                              className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0"
+                              style={{ backgroundColor: playerColor.hex }}
+                            >
+                              <span className={`font-bold ${playerColor.id === 'white' || playerColor.id === 'yellow' ? 'text-slate-800' : 'text-white'}`}>
+                                {player.nickname[0]?.toUpperCase()}
+                              </span>
                             </div>
 
                             <div className="min-w-0">
@@ -612,6 +576,47 @@ function Home() {
                               </div>
                             </div>
                           </div>
+
+                          {/* 색상 선택 버튼 (내 플레이어만) */}
+                          {isMe && (
+                            <div className="relative flex-shrink-0">
+                              <button
+                                onClick={() => setShowColorPicker(prev => !prev)}
+                                className="w-6 h-6 rounded-full border-2 border-white/30 hover:border-white/60 transition-all"
+                                style={{ backgroundColor: playerColor.hex }}
+                                title="색상 변경"
+                              />
+
+                              {/* 색상 선택 팝업 */}
+                              {showColorPicker && (
+                                <div ref={colorPickerRef} className="absolute top-8 right-0 z-50 bg-slate-800 rounded-xl p-2 border border-white/10 shadow-xl">
+                                  <div className="grid grid-cols-4 gap-1">
+                                    {PLAYER_COLORS.map((color) => {
+                                      const isUsed = usedColors.includes(color.id) && color.id !== player.color;
+                                      const isSelected = color.id === player.color;
+                                      return (
+                                        <button
+                                          key={color.id}
+                                          onClick={() => {
+                                            if (!isUsed) {
+                                              selectColor(color.id as PlayerColorId);
+                                              setShowColorPicker(false);
+                                            }
+                                          }}
+                                          disabled={isUsed}
+                                          className={`w-8 h-8 rounded-full transition-all ${
+                                            isSelected ? 'ring-2 ring-white scale-110' : ''
+                                          } ${isUsed ? 'opacity-30 cursor-not-allowed' : 'hover:scale-110'}`}
+                                          style={{ backgroundColor: color.hex }}
+                                          title={isUsed ? `${color.name} (사용 중)` : color.name}
+                                        />
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )}
                         </div>
                       );
                     })}
