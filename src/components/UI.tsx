@@ -30,17 +30,52 @@ export function UI() {
   });
 
   return (
-    <div style={{
-      position: 'absolute',
-      top: 20,
-      left: 20,
-      background: 'rgba(0,0,0,0.75)',
-      color: 'white',
-      padding: 15,
-      borderRadius: 8,
-      fontFamily: 'monospace',
-      fontSize: 13,
-    }}>
+    <>
+      {/* 조준점 (총게임 모드에서만) */}
+      {gameMode === 'gunGame' && (
+        <div style={{
+          position: 'absolute',
+          top: '50%',
+          left: '50%',
+          transform: 'translate(-50%, -50%)',
+          pointerEvents: 'none',
+        }}>
+          {/* 가로선 */}
+          <div style={{
+            position: 'absolute',
+            width: 20,
+            height: 2,
+            background: 'white',
+            left: '50%',
+            top: '50%',
+            transform: 'translate(-50%, -50%)',
+            boxShadow: '0 0 2px black',
+          }} />
+          {/* 세로선 */}
+          <div style={{
+            position: 'absolute',
+            width: 2,
+            height: 20,
+            background: 'white',
+            left: '50%',
+            top: '50%',
+            transform: 'translate(-50%, -50%)',
+            boxShadow: '0 0 2px black',
+          }} />
+        </div>
+      )}
+
+      <div style={{
+        position: 'absolute',
+        top: 20,
+        left: 20,
+        background: 'rgba(0,0,0,0.75)',
+        color: 'white',
+        padding: 15,
+        borderRadius: 8,
+        fontFamily: 'monospace',
+        fontSize: 13,
+      }}>
       <h3 style={{ margin: '0 0 10px' }}>3인칭 캐릭터 컨트롤러</h3>
 
       {/* 모드 전환 버튼 */}
@@ -147,6 +182,7 @@ export function UI() {
             : '자유: 마우스 상하로 시점 조절, 스크롤로 줌'}
         </div>
       )}
-    </div>
+      </div>
+    </>
   );
 }
