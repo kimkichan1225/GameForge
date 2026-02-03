@@ -1036,8 +1036,6 @@ export function BuildingCanvas({ currentPlaceable, currentMarker, onSetSelectMod
   const setBuildingSelectedIds = useMultiplayerGameStore(state => state.setBuildingSelectedIds)
   const toggleBuildingSelection = useMultiplayerGameStore(state => state.toggleBuildingSelection)
   const pushBuildingHistory = useMultiplayerGameStore(state => state.pushBuildingHistory)
-  const myObjects = useMultiplayerGameStore(state => state.myObjects)
-  const myMarkers = useMultiplayerGameStore(state => state.myMarkers)
 
   const handlePlaceObject = useCallback(async (data: Omit<MapObject, 'id'>) => {
     const result = await placeObject(data)

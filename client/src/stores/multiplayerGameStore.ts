@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { socketManager } from '../lib/socket';
-import type { MapObject, MapMarker, PlaceableType } from './editorStore';
+import type { MapObject, MapMarker } from './editorStore';
 
 // 빌딩 모드 히스토리 엔트리
 export interface BuildingHistoryEntry {
