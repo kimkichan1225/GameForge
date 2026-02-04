@@ -163,9 +163,9 @@ export function Camera() {
 
       // 카메라 위치: 플레이어 눈 위치
       _targetCamPos.set(
-        _targetPos.x - Math.sin(angle) * 0.3,
-        _targetPos.y + eyeHeight + 0.3,
-        _targetPos.z - Math.cos(angle) * 0.3
+        _targetPos.x - Math.sin(angle) * 0.4,
+        _targetPos.y + eyeHeight + 0.4,
+        _targetPos.z - Math.cos(angle) * 0.4
       );
 
       // 바라보는 방향 계산

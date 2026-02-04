@@ -130,6 +130,7 @@ export function GunPlayer() {
   const weaponRef = useRef<THREE.Group>(null);
   const muzzleFlashRef = useRef<THREE.PointLight>(null);
   const animMapRef = useRef<Record<string, string>>({});
+  const headMeshes = useRef<THREE.Object3D[]>([]);
 
   // State refs (useState 대신 ref 사용 - 리렌더 방지)
   const stateRef = useRef({
@@ -177,14 +178,27 @@ export function GunPlayer() {
     };
   }, []);
 
-  // 본 탐색 (한 번만)
+  // 본 탐색 및 머리 메쉬 찾기 (한 번만)
   useEffect(() => {
+    const meshes: THREE.Object3D[] = [];
     scene.traverse((obj) => {
       if (obj instanceof THREE.Bone) {
         if (obj.name === 'mixamorigHead') headBone.current = obj;
         else if (obj.name === 'mixamorigRightHand') rightHandBone.current = obj;
       }
+      // HeadSkin, Face, Helmet 머티리얼을 가진 메쉬 찾기
+      if ((obj as any).isMesh || (obj as any).isSkinnedMesh) {
+        const material = (obj as any).material;
+        if (material && material.name) {
+          if (material.name.includes('HeadSkin') ||
+              material.name.includes('Face') ||
+              material.name.includes('Helmet')) {
+            meshes.push(obj);
+          }
+        }
+      }
     });
+    headMeshes.current = meshes;
   }, [scene]);
 
   // 애니메이션 맵 빌드 및 초기 Idle 재생
@@ -288,6 +302,12 @@ export function GunPlayer() {
     const store = useGameStore.getState();
     const posture = store.posture;
     const lookDir = store.lookDirection;
+
+    // 1인칭 모드일 때 머리 메쉬 숨기기
+    const isFirstPerson = store.viewMode === 'firstPerson';
+    headMeshes.current.forEach(mesh => {
+      mesh.visible = !isFirstPerson;
+    });
 
     s.bodyAngle = store.bodyAngle;
 
