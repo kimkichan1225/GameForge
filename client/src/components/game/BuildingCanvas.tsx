@@ -1236,15 +1236,15 @@ export function BuildingCanvas({ currentPlaceable, currentMarker, onSetSelectMod
 
   const handlePlaceObject = useCallback(async (data: Omit<MapObject, 'id'>) => {
     const result = await placeObject(data)
-    if (result) {
-      pushBuildingHistory({ type: 'add', target: 'object', data: result })
+    if (result.success && result.object) {
+      pushBuildingHistory({ type: 'add', target: 'object', data: result.object })
     }
   }, [placeObject, pushBuildingHistory])
 
   const handlePlaceMarker = useCallback(async (data: { type: MarkerType; position: [number, number, number]; rotation: [number, number, number] }) => {
     const result = await placeMarker(data)
-    if (result) {
-      pushBuildingHistory({ type: 'add', target: 'marker', data: result })
+    if (result.success && result.marker) {
+      pushBuildingHistory({ type: 'add', target: 'marker', data: result.marker })
     }
   }, [placeMarker, pushBuildingHistory])
 
