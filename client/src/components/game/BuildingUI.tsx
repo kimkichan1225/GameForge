@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, memo, useMemo, useRef } from 'react'
 import { useMultiplayerGameStore, type PlayerBuildingStatus } from '../../stores/multiplayerGameStore'
 import type { PlaceableType } from '../../stores/editorStore'
+import { PointerLockMessage } from '../ui/PointerLockMessage'
 
 // 시간 포맷
 function formatTime(seconds: number): string {
@@ -364,6 +365,11 @@ const PropertiesPanel = memo(function PropertiesPanel({
   // 다중 선택 여부
   const isMultiSelect = selectedIds.length > 1
 
+  // 선택된 항목 중 오브젝트가 있는지 확인 (마커는 색상 변경 불가)
+  const hasSelectedObjects = useMemo(() => {
+    return selectedIds.some(id => !id.startsWith('marker_'))
+  }, [selectedIds])
+
   // 다중 선택 이동용 오프셋 상태
   const [moveOffset, setMoveOffset] = useState<[number, number, number]>([0, 0, 0])
   // 이미 적용된 오프셋 (실시간 이동용)
@@ -547,21 +553,29 @@ const PropertiesPanel = memo(function PropertiesPanel({
                   type="color"
                   value={multiColor}
                   onChange={(e) => setMultiColor(e.target.value)}
-                  className="w-10 h-8 rounded cursor-pointer border-0"
+                  disabled={!hasSelectedObjects}
+                  className="w-10 h-8 rounded cursor-pointer border-0 disabled:opacity-50 disabled:cursor-not-allowed"
                 />
                 <input
                   type="text"
                   value={multiColor}
                   onChange={(e) => setMultiColor(e.target.value)}
-                  className="flex-1 px-2 py-1 bg-white/5 border border-white/10 rounded text-white text-xs focus:outline-none focus:border-sky-400 uppercase"
+                  disabled={!hasSelectedObjects}
+                  className="flex-1 px-2 py-1 bg-white/5 border border-white/10 rounded text-white text-xs focus:outline-none focus:border-sky-400 uppercase disabled:opacity-50"
                 />
                 <button
                   onClick={() => setBuildingSelectedObjectsColor(multiColor)}
-                  className="px-3 py-1 bg-sky-500 hover:bg-sky-400 text-white text-xs rounded"
+                  disabled={!hasSelectedObjects}
+                  className="px-3 py-1 bg-sky-500 hover:bg-sky-400 text-white text-xs rounded disabled:bg-slate-600 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   적용
                 </button>
               </div>
+              {!hasSelectedObjects && (
+                <div className="text-yellow-400/80 text-[10px] mt-1">
+                  ⚠️ 마커는 색상을 변경할 수 없습니다
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -761,7 +775,7 @@ const BuildingPauseMenu = memo(function BuildingPauseMenu({
           </button>
         </div>
         <div className="mt-4 text-white/50 text-sm">
-          ESC를 눌러 계속하기
+          화면을 클릭하여 게임 재개
         </div>
       </div>
     </div>
@@ -823,7 +837,7 @@ export function BuildingUI({
 
   // ESC 키 처리
   // - 포인터 락 해제 상태 + 메뉴 닫혀있음 → 메뉴 열기
-  // - 메뉴 열려있음 → 닫고 포인터락 재요청
+  // - 메뉴 열려있음 → 메뉴만 닫기 (화면 클릭 시 포인터락 시도)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return
@@ -832,13 +846,8 @@ export function BuildingUI({
       const isPointerLocked = document.pointerLockElement !== null
 
       if (showPauseMenuRef.current) {
-        // 메뉴가 열려있으면 닫고 포인터락 재요청
+        // 메뉴가 열려있으면 닫기만 (화면 클릭 시 포인터락)
         setShowPauseMenu(false)
-        const canvas = document.querySelector('canvas') as HTMLCanvasElement
-        if (canvas) {
-          // Promise rejection 무시 (사용자가 빠르게 ESC 다시 누르면 발생)
-          Promise.resolve(canvas.requestPointerLock()).catch(() => {})
-        }
       } else if (!isPointerLocked) {
         // 포인터락이 해제된 상태에서 ESC → 메뉴 열기
         setShowPauseMenu(true)
@@ -853,10 +862,7 @@ export function BuildingUI({
   // 일시정지 메뉴 핸들러
   const handleResume = useCallback(() => {
     setShowPauseMenu(false)
-    const canvas = document.querySelector('canvas') as HTMLCanvasElement
-    if (canvas) {
-      Promise.resolve(canvas.requestPointerLock()).catch(() => {})
-    }
+    // 포인터락은 화면 클릭 시 시도됨
   }, [])
 
   const handleLeaveRoom = useCallback(() => {
@@ -1108,6 +1114,9 @@ export function BuildingUI({
           onLeave={handleLeaveRoom}
         />
       )}
+
+      {/* 포인터 락 실패 메시지 */}
+      <PointerLockMessage visible={!showPauseMenu} />
     </>
   )
 }

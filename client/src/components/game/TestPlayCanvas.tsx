@@ -5,6 +5,7 @@ import * as THREE from 'three'
 import { useInput } from '../../hooks/useInput'
 import { useGameStore } from '../../stores/gameStore'
 import { useEditorStore } from '../../stores/editorStore'
+import { PointerLockMessage } from '../ui/PointerLockMessage'
 import type { MapObject, MapMarker } from '../../stores/editorStore'
 import {
   initRapier,
@@ -17,6 +18,7 @@ import {
   COLLIDER_CONFIG,
   RAPIER,
 } from '../../lib/physics'
+import { requestPointerLock } from '../../lib/pointerLock'
 import type { Posture } from '../../stores/gameStore'
 
 // ============ 상수 ============
@@ -534,7 +536,7 @@ const FollowCamera = memo(function FollowCamera() {
   useEffect(() => {
     const canvas = gl.domElement
 
-    const onClick = () => Promise.resolve(canvas.requestPointerLock()).catch(() => {})
+    const onClick = () => requestPointerLock(canvas)
 
     const onMouseMove = (e: MouseEvent) => {
       if (!isLocked.current) return
@@ -895,11 +897,7 @@ const TestPlayUI = memo(function TestPlayUI({
     if (canvas) {
       // 약간의 지연 후 포인터 락 요청
       const timer = setTimeout(async () => {
-        try {
-          await canvas.requestPointerLock()
-        } catch {
-          // 포인터 락 요청이 취소된 경우 무시
-        }
+        await requestPointerLock(canvas)
       }, 200)
       return () => clearTimeout(timer)
     }
@@ -937,18 +935,14 @@ const TestPlayUI = memo(function TestPlayUI({
             )}
             <div className="flex gap-4 justify-center">
               <button
-                onClick={async () => {
+                onClick={() => {
                   useGameStore.getState().reset()
                   useGameStore.getState().requestRestart()
                   // 다시 시도 시 포인터 락
                   const canvas = document.querySelector('canvas') as HTMLCanvasElement | null
                   if (canvas) {
-                    setTimeout(async () => {
-                      try {
-                        await canvas.requestPointerLock()
-                      } catch (e) {
-                        // 무시
-                      }
+                    setTimeout(() => {
+                      requestPointerLock(canvas)
                     }, 200)
                   }
                 }}
@@ -1161,6 +1155,7 @@ export function TestPlayCanvas({ onExit }: { onExit: () => void }) {
         />
       </Canvas>
       <TestPlayUI onExit={onExit} showDebug={showDebug} onToggleDebug={toggleDebug} hasFinish={hasFinish} totalCheckpoints={checkpoints.length} />
+      <PointerLockMessage />
     </div>
   )
 }

@@ -20,6 +20,8 @@ import {
   COLLIDER_CONFIG,
   RAPIER,
 } from '../../lib/physics';
+import { requestPointerLock } from '../../lib/pointerLock';
+import { PointerLockMessage } from '../ui/PointerLockMessage';
 import type { Posture } from '../../stores/gameStore';
 import type { MapObject, MapMarker, MapData } from '../../stores/editorStore';
 
@@ -529,12 +531,8 @@ const FollowCamera = memo(function FollowCamera({ startPosition }: { startPositi
   useEffect(() => {
     const canvas = gl.domElement;
     // 약간의 지연 후 포인터락 요청
-    const timer = setTimeout(async () => {
-      try {
-        await canvas.requestPointerLock();
-      } catch {
-        // 포인터 락 요청이 취소된 경우 무시
-      }
+    const timer = setTimeout(() => {
+      requestPointerLock(canvas);
     }, 300);
     return () => clearTimeout(timer);
   }, [gl]);
@@ -542,12 +540,8 @@ const FollowCamera = memo(function FollowCamera({ startPosition }: { startPositi
   useEffect(() => {
     const canvas = gl.domElement;
 
-    const onClick = async () => {
-      try {
-        await canvas.requestPointerLock();
-      } catch (e) {
-        // 무시
-      }
+    const onClick = () => {
+      requestPointerLock(canvas);
     };
 
     const onMouseMove = (e: MouseEvent) => {
@@ -1068,20 +1062,12 @@ const MultiplayerUI = memo(function MultiplayerUI({
     return () => document.removeEventListener('pointerlockchange', handlePointerLockChange);
   }, []);
 
-  // ESC 키 처리 - 메뉴가 열려있을 때 닫고 포인터락 재요청
+  // ESC 키 처리 - 메뉴가 열려있을 때 닫기 (포인터락은 화면 클릭 시)
   useEffect(() => {
-    const handleKeyDown = async (e: KeyboardEvent) => {
+    const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && showPauseMenuRef.current) {
-        // 메뉴가 열려있으면 닫고 포인터락 재요청
+        // 메뉴가 열려있으면 닫기 (포인터락은 화면 클릭 시 시도)
         setShowPauseMenu(false);
-        try {
-          const canvas = document.querySelector('#game-canvas canvas') as HTMLCanvasElement;
-          if (canvas) {
-            await canvas.requestPointerLock();
-          }
-        } catch {
-          // 무시
-        }
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -1798,6 +1784,7 @@ export function MultiplayerCanvas({
         />
       </Canvas>
       <MultiplayerUI onExit={onExit} onReturnToWaitingRoom={onReturnToWaitingRoom} totalCheckpoints={countableCheckpoints} finishPosition={finishPosition} />
+      <PointerLockMessage />
     </div>
   );
 }

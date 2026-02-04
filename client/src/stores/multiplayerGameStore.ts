@@ -97,6 +97,7 @@ interface GameState {
   buildingRedoStack: BuildingHistoryEntry[];
   buildingClipboard: BuildingClipboardItem[];
   isBuildingPasteMode: boolean;  // 붙여넣기 모드
+  pointerLockMessage: string | null;  // 포인터 락 실패 메시지
 }
 
 interface MultiplayerGameStore extends GameState {
@@ -114,12 +115,12 @@ interface MultiplayerGameStore extends GameState {
   // 빌딩 페이즈 액션
   initBuilding: () => void;
   cleanupBuilding: () => void;
-  placeObject: (data: Omit<MapObject, 'id'>) => Promise<MapObject | null>;
-  removeObject: (objectId: string) => Promise<boolean>;
-  updateObject: (objectId: string, updates: Partial<MapObject>) => Promise<MapObject | null>;
-  placeMarker: (data: { type: 'spawn' | 'finish' | 'checkpoint' | 'killzone'; position: [number, number, number]; rotation: [number, number, number] }) => Promise<MapMarker | null>;
-  removeMarker: (markerId: string) => Promise<boolean>;
-  updateMarker: (markerId: string, updates: Partial<MapMarker>) => Promise<MapMarker | null>;
+  placeObject: (data: Omit<MapObject, 'id'>) => Promise<{ success: boolean; object?: MapObject; error?: string }>;
+  removeObject: (objectId: string) => Promise<{ success: boolean; error?: string }>;
+  updateObject: (objectId: string, updates: Partial<MapObject>) => Promise<{ success: boolean; object?: MapObject; error?: string }>;
+  placeMarker: (data: { type: 'spawn' | 'finish' | 'checkpoint' | 'killzone'; position: [number, number, number]; rotation: [number, number, number] }) => Promise<{ success: boolean; marker?: MapMarker; error?: string }>;
+  removeMarker: (markerId: string) => Promise<{ success: boolean; error?: string }>;
+  updateMarker: (markerId: string, updates: Partial<MapMarker>) => Promise<{ success: boolean; marker?: MapMarker; error?: string }>;
   startTest: () => Promise<{ success: boolean; error?: string; segment?: { objects: MapObject[]; markers: MapMarker[]; region: BuildingRegion } }>;
   finishTest: (success: boolean) => Promise<void>;
   voteKick: (targetPlayerId: string) => Promise<{ success: boolean; error?: string; kicked?: boolean }>;
@@ -136,8 +137,9 @@ interface MultiplayerGameStore extends GameState {
   exitBuildingPasteMode: () => void;  // 붙여넣기 모드 종료
   buildingPasteAtPosition: (position: [number, number, number]) => Promise<void>;  // 특정 위치에 붙여넣기
   buildingDeleteSelected: () => Promise<void>;
-  setBuildingSelectedObjectsColor: (color: string) => Promise<void>;
+  setBuildingSelectedObjectsColor: (color: string) => Promise<{ success: boolean; error?: string }>;
   pushBuildingHistory: (entry: BuildingHistoryEntry) => void;
+  setPointerLockMessage: (message: string | null) => void;
 }
 
 export const useMultiplayerGameStore = create<MultiplayerGameStore>((set, get) => ({
@@ -175,6 +177,7 @@ export const useMultiplayerGameStore = create<MultiplayerGameStore>((set, get) =
   buildingRedoStack: [],
   buildingClipboard: [],
   isBuildingPasteMode: false,
+  pointerLockMessage: null,
 
   initGame: () => {
     const socket = socketManager.getSocket();
@@ -643,15 +646,15 @@ export const useMultiplayerGameStore = create<MultiplayerGameStore>((set, get) =
     return new Promise((resolve) => {
       const socket = socketManager.getSocket();
       if (!socket) {
-        resolve(null);
+        resolve({ success: false, error: '서버에 연결되지 않음' });
         return;
       }
 
-      socket.emit('build:placeObject', data, (response: { success: boolean; object?: MapObject }) => {
+      socket.emit('build:placeObject', data, (response: { success: boolean; object?: MapObject; error?: string }) => {
         if (response.success && response.object) {
-          resolve(response.object);
+          resolve({ success: true, object: response.object });
         } else {
-          resolve(null);
+          resolve({ success: false, error: response.error || '오브젝트 배치 실패' });
         }
       });
     });
@@ -661,12 +664,16 @@ export const useMultiplayerGameStore = create<MultiplayerGameStore>((set, get) =
     return new Promise((resolve) => {
       const socket = socketManager.getSocket();
       if (!socket) {
-        resolve(false);
+        resolve({ success: false, error: '서버에 연결되지 않음' });
         return;
       }
 
-      socket.emit('build:removeObject', { objectId }, (response: { success: boolean }) => {
-        resolve(response.success);
+      socket.emit('build:removeObject', { objectId }, (response: { success: boolean; error?: string }) => {
+        if (response.success) {
+          resolve({ success: true });
+        } else {
+          resolve({ success: false, error: response.error || '오브젝트 삭제 실패' });
+        }
       });
     });
   },
@@ -675,15 +682,15 @@ export const useMultiplayerGameStore = create<MultiplayerGameStore>((set, get) =
     return new Promise((resolve) => {
       const socket = socketManager.getSocket();
       if (!socket) {
-        resolve(null);
+        resolve({ success: false, error: '서버에 연결되지 않음' });
         return;
       }
 
-      socket.emit('build:updateObject', { objectId, updates }, (response: { success: boolean; object?: MapObject }) => {
+      socket.emit('build:updateObject', { objectId, updates }, (response: { success: boolean; object?: MapObject; error?: string }) => {
         if (response.success && response.object) {
-          resolve(response.object);
+          resolve({ success: true, object: response.object });
         } else {
-          resolve(null);
+          resolve({ success: false, error: response.error || '오브젝트 수정 실패' });
         }
       });
     });
@@ -693,15 +700,15 @@ export const useMultiplayerGameStore = create<MultiplayerGameStore>((set, get) =
     return new Promise((resolve) => {
       const socket = socketManager.getSocket();
       if (!socket) {
-        resolve(null);
+        resolve({ success: false, error: '서버에 연결되지 않음' });
         return;
       }
 
-      socket.emit('build:placeMarker', data, (response: { success: boolean; marker?: MapMarker }) => {
+      socket.emit('build:placeMarker', data, (response: { success: boolean; marker?: MapMarker; error?: string }) => {
         if (response.success && response.marker) {
-          resolve(response.marker);
+          resolve({ success: true, marker: response.marker });
         } else {
-          resolve(null);
+          resolve({ success: false, error: response.error || '마커 배치 실패' });
         }
       });
     });
@@ -711,12 +718,16 @@ export const useMultiplayerGameStore = create<MultiplayerGameStore>((set, get) =
     return new Promise((resolve) => {
       const socket = socketManager.getSocket();
       if (!socket) {
-        resolve(false);
+        resolve({ success: false, error: '서버에 연결되지 않음' });
         return;
       }
 
-      socket.emit('build:removeMarker', { markerId }, (response: { success: boolean }) => {
-        resolve(response.success);
+      socket.emit('build:removeMarker', { markerId }, (response: { success: boolean; error?: string }) => {
+        if (response.success) {
+          resolve({ success: true });
+        } else {
+          resolve({ success: false, error: response.error || '마커 삭제 실패' });
+        }
       });
     });
   },
@@ -725,15 +736,15 @@ export const useMultiplayerGameStore = create<MultiplayerGameStore>((set, get) =
     return new Promise((resolve) => {
       const socket = socketManager.getSocket();
       if (!socket) {
-        resolve(null);
+        resolve({ success: false, error: '서버에 연결되지 않음' });
         return;
       }
 
-      socket.emit('build:updateMarker', { markerId, updates }, (response: { success: boolean; marker?: MapMarker }) => {
+      socket.emit('build:updateMarker', { markerId, updates }, (response: { success: boolean; marker?: MapMarker; error?: string }) => {
         if (response.success && response.marker) {
-          resolve(response.marker);
+          resolve({ success: true, marker: response.marker });
         } else {
-          resolve(null);
+          resolve({ success: false, error: response.error || '마커 수정 실패' });
         }
       });
     });
@@ -870,17 +881,23 @@ export const useMultiplayerGameStore = create<MultiplayerGameStore>((set, get) =
       historyEntries.push({ type: 'update', target: 'marker', data: newMarker, previousData })
     }
 
-    // 히스토리 저장
-    set(state => ({
-      buildingUndoStack: [...state.buildingUndoStack, ...historyEntries],
-      buildingRedoStack: [],
-    }))
+    // 히스토리 저장 (최대 50개 제한)
+    set(state => {
+      const newUndoStack = [...state.buildingUndoStack, ...historyEntries]
+      return {
+        buildingUndoStack: newUndoStack.slice(-50),
+        buildingRedoStack: [],
+      }
+    })
   },
 
-  pushBuildingHistory: (entry) => set(state => ({
-    buildingUndoStack: [...state.buildingUndoStack, entry],
-    buildingRedoStack: [],
-  })),
+  pushBuildingHistory: (entry) => set(state => {
+    const newUndoStack = [...state.buildingUndoStack, entry]
+    return {
+      buildingUndoStack: newUndoStack.slice(-50),  // 최대 50개 제한
+      buildingRedoStack: [],
+    }
+  }),
 
   buildingUndo: async () => {
     const state = get()
@@ -953,7 +970,7 @@ export const useMultiplayerGameStore = create<MultiplayerGameStore>((set, get) =
 
     set({
       buildingUndoStack: newUndoStack,
-      buildingRedoStack: [...state.buildingRedoStack, entry],
+      buildingRedoStack: [...state.buildingRedoStack, entry].slice(-50),  // 최대 50개 제한
     })
   },
 
@@ -1027,7 +1044,7 @@ export const useMultiplayerGameStore = create<MultiplayerGameStore>((set, get) =
     }
 
     set({
-      buildingUndoStack: [...state.buildingUndoStack, entry],
+      buildingUndoStack: [...state.buildingUndoStack, entry].slice(-50),  // 최대 50개 제한
       buildingRedoStack: newRedoStack,
     })
   },
@@ -1141,11 +1158,14 @@ export const useMultiplayerGameStore = create<MultiplayerGameStore>((set, get) =
     }
 
     if (historyEntries.length > 0) {
-      set(state => ({
-        buildingUndoStack: [...state.buildingUndoStack, ...historyEntries],
-        buildingRedoStack: [],
-        // 붙여넣기 모드 유지 (여러 번 붙여넣기 가능)
-      }))
+      set(state => {
+        const newUndoStack = [...state.buildingUndoStack, ...historyEntries]
+        return {
+          buildingUndoStack: newUndoStack.slice(-50),  // 최대 50개 제한
+          buildingRedoStack: [],
+          // 붙여넣기 모드 유지 (여러 번 붙여넣기 가능)
+        }
+      })
     }
   },
 
@@ -1180,25 +1200,36 @@ export const useMultiplayerGameStore = create<MultiplayerGameStore>((set, get) =
       }
     }
 
-    set(state => ({
-      buildingSelectedIds: [],
-      buildingUndoStack: [...state.buildingUndoStack, ...historyEntries],
-      buildingRedoStack: [],
-    }))
+    set(state => {
+      const newUndoStack = [...state.buildingUndoStack, ...historyEntries]
+      return {
+        buildingSelectedIds: [],
+        buildingUndoStack: newUndoStack.slice(-50),  // 최대 50개 제한
+        buildingRedoStack: [],
+      }
+    })
   },
 
   // 다중 선택 색상 일괄 변경
   setBuildingSelectedObjectsColor: async (color: string) => {
     const state = get()
-    if (state.buildingSelectedIds.length === 0) return
-    if (state.myVerified) return  // 검증 완료 후 수정 불가
+    if (state.buildingSelectedIds.length === 0) {
+      return { success: false, error: '선택된 항목이 없습니다' }
+    }
+    if (state.myVerified) {
+      return { success: false, error: '검증 완료 후에는 수정할 수 없습니다' }
+    }
 
     const socket = socketManager.getSocket()
-    if (!socket) return
+    if (!socket) {
+      return { success: false, error: '서버에 연결되지 않음' }
+    }
 
     // 선택된 오브젝트만 필터 (마커는 색상 없음)
     const selectedObjectIds = state.buildingSelectedIds.filter(id => !id.startsWith('marker_'))
-    if (selectedObjectIds.length === 0) return
+    if (selectedObjectIds.length === 0) {
+      return { success: false, error: '마커는 색상을 변경할 수 없습니다' }
+    }
 
     const historyEntries: BuildingHistoryEntry[] = []
 
@@ -1219,10 +1250,18 @@ export const useMultiplayerGameStore = create<MultiplayerGameStore>((set, get) =
     }
 
     if (historyEntries.length > 0) {
-      set(state => ({
-        buildingUndoStack: [...state.buildingUndoStack, ...historyEntries],
-        buildingRedoStack: [],
-      }))
+      set(state => {
+        const newUndoStack = [...state.buildingUndoStack, ...historyEntries]
+        // 히스토리 최대 50개 제한
+        return {
+          buildingUndoStack: newUndoStack.slice(-50),
+          buildingRedoStack: [],
+        }
+      })
     }
+
+    return { success: true }
   },
+
+  setPointerLockMessage: (message) => set({ pointerLockMessage: message }),
 }));

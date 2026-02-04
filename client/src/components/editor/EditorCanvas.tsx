@@ -4,6 +4,8 @@ import { Grid } from '@react-three/drei'
 import * as THREE from 'three'
 import { useEditorStore } from '../../stores/editorStore'
 import type { MapObject, MapMarker, MarkerType, PlaceableType } from '../../stores/editorStore'
+import { requestPointerLock } from '../../lib/pointerLock'
+import { PointerLockMessage } from '../ui/PointerLockMessage'
 
 // ============ 전역 캐시 ============
 let cachedWedgeGeometry: THREE.BufferGeometry | null = null
@@ -181,7 +183,7 @@ function FPSCamera() {
 
     const handleClick = () => {
       if (document.pointerLockElement !== gl.domElement) {
-        Promise.resolve(gl.domElement.requestPointerLock()).catch(() => {})
+        requestPointerLock(gl.domElement)
       }
     }
 
@@ -1105,11 +1107,7 @@ const ThumbnailCaptureOverlay = memo(function ThumbnailCaptureOverlay() {
     const timer = setTimeout(async () => {
       // 자동 포인터 락
       if (canvas) {
-        try {
-          await canvas.requestPointerLock()
-        } catch {
-          // 포인터 락 요청 취소됨 (무시)
-        }
+        await requestPointerLock(canvas)
       }
       window.addEventListener('click', handleClick, true)
       window.addEventListener('keydown', handleKeyDown)
@@ -1154,6 +1152,7 @@ export function EditorCanvas() {
       </Canvas>
       <Crosshair />
       <ThumbnailCaptureOverlay />
+      <PointerLockMessage />
     </div>
   )
 }

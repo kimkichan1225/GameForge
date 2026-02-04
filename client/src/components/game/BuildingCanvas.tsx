@@ -4,6 +4,7 @@ import { Grid } from '@react-three/drei'
 import * as THREE from 'three'
 import { useMultiplayerGameStore, type BuildingRegion } from '../../stores/multiplayerGameStore'
 import type { MapObject, MapMarker, PlaceableType } from '../../stores/editorStore'
+import { requestPointerLock } from '../../lib/pointerLock'
 
 // ============ 전역 캐시 ============
 let cachedWedgeGeometry: THREE.BufferGeometry | null = null
@@ -222,7 +223,7 @@ function FPSCamera({ region }: { region: BuildingRegion | null }) {
 
     const handleClick = () => {
       if (document.pointerLockElement !== gl.domElement) {
-        Promise.resolve(gl.domElement.requestPointerLock()).catch(() => {})
+        requestPointerLock(gl.domElement)
       }
     }
 
@@ -555,8 +556,8 @@ function RaycastPlacer({
             return
           }
 
-          // Y축: 높이 제한 (오브젝트가 minHeight ~ maxHeight 범위 내에 있어야 함)
-          if (snappedPos[1] - halfHeight < minHeight || snappedPos[1] + halfHeight > maxHeight) {
+          // Y축: 높이 제한 (오브젝트 중심이 minHeight ~ maxHeight 범위 내, 상단이 maxHeight 이하)
+          if (snappedPos[1] < minHeight || snappedPos[1] + halfHeight > maxHeight) {
             return
           }
 
@@ -661,8 +662,8 @@ function PlacementPreview({
       return false
     }
 
-    // Y축 높이 제한
-    if (pos[1] - halfHeight < minHeight || pos[1] + halfHeight > maxHeight) {
+    // Y축 높이 제한 (중심이 minHeight 이상, 상단이 maxHeight 이하)
+    if (pos[1] < minHeight || pos[1] + halfHeight > maxHeight) {
       return false
     }
 

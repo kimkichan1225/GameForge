@@ -4,6 +4,8 @@ import { useGLTF, useAnimations, Grid } from '@react-three/drei'
 import * as THREE from 'three'
 import { useInput } from '../../hooks/useInput'
 import { useGameStore } from '../../stores/gameStore'
+import { requestPointerLock } from '../../lib/pointerLock'
+import { PointerLockMessage } from '../ui/PointerLockMessage'
 import type { BuildingRegion } from '../../stores/multiplayerGameStore'
 import type { MapObject, MapMarker } from '../../stores/editorStore'
 import {
@@ -540,13 +542,9 @@ const FollowCamera = memo(function FollowCamera() {
   useEffect(() => {
     const canvas = gl.domElement
 
-    const onClick = async () => {
-      try {
-        if (document.contains(canvas) && document.hasFocus()) {
-          await canvas.requestPointerLock()
-        }
-      } catch {
-        // 포인터 락 실패 시 무시 (사용자가 빠르게 다른 동작을 한 경우)
+    const onClick = () => {
+      if (document.contains(canvas) && document.hasFocus()) {
+        requestPointerLock(canvas)
       }
     }
 
@@ -814,15 +812,10 @@ const TestPlayUI = memo(function TestPlayUI({
     let mounted = true
     const canvas = document.querySelector('canvas') as HTMLCanvasElement | null
     if (canvas) {
-      const timeoutId = setTimeout(async () => {
+      const timeoutId = setTimeout(() => {
         if (!mounted) return
-        try {
-          // 캔버스가 여전히 DOM에 있고 문서가 포커스되어 있는지 확인
-          if (document.contains(canvas) && document.hasFocus()) {
-            await canvas.requestPointerLock()
-          }
-        } catch {
-          // 사용자가 포인터 락 요청 전에 다른 동작을 한 경우 무시
+        if (document.contains(canvas) && document.hasFocus()) {
+          requestPointerLock(canvas)
         }
       }, 200)
       return () => {
@@ -1024,6 +1017,7 @@ export function BuildingTestPlay({ objects, markers, region, onExit, color }: Bu
         />
       </Canvas>
       <TestPlayUI onExit={handleExit} />
+      <PointerLockMessage />
     </div>
   )
 }
