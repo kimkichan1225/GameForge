@@ -166,20 +166,27 @@ GameForge/
 │       │   │   └── EditorUI.tsx
 │       │   ├── game/           # 게임 플레이
 │       │   │   ├── TestPlayCanvas.tsx
-│       │   │   └── MultiplayerCanvas.tsx
-│       │   └── map/            # 맵 브라우저
-│       │       ├── MapBrowser.tsx
-│       │       └── MapCard.tsx
+│       │   │   ├── MultiplayerCanvas.tsx
+│       │   │   ├── BuildingCanvas.tsx
+│       │   │   ├── BuildingUI.tsx
+│       │   │   └── BuildingTestPlay.tsx
+│       │   ├── map/            # 맵 브라우저
+│       │   │   ├── MapBrowser.tsx
+│       │   │   └── MapCard.tsx
+│       │   └── ui/             # 공통 UI 컴포넌트
+│       │       └── PointerLockMessage.tsx
 │       ├── stores/             # Zustand 스토어
 │       │   ├── authStore.ts
 │       │   ├── editorStore.ts
 │       │   ├── gameStore.ts
-│       │   └── roomStore.ts
+│       │   ├── roomStore.ts
+│       │   └── multiplayerGameStore.ts
 │       ├── lib/                # 유틸리티
 │       │   ├── supabase.ts
 │       │   ├── socket.ts
 │       │   ├── physics.ts
-│       │   └── mapService.ts
+│       │   ├── mapService.ts
+│       │   └── pointerLock.ts
 │       └── pages/
 │           ├── Landing.tsx
 │           ├── Home.tsx        # 로비/방 목록
@@ -239,6 +246,19 @@ GameForge/
 - [ ] Phase 4: 총게임 모드 (Shooter)
 
 ## 최근 업데이트
+
+### 2026-02-04 (Update 6)
+- **포인터 락 실패 피드백**
+  - 포인터 락 요청 실패 시 "잠시 후 다시 클릭해주세요" 메시지 2초간 표시
+  - 모든 캔버스(에디터, 테스트 플레이, 멀티플레이어, 빌딩 모드)에서 동작
+  - 공통 컴포넌트로 추출하여 코드 중복 제거
+- **빌딩 모드 개선**
+  - y=0 위치에 오브젝트 설치 가능 (바닥에 plane 배치 가능)
+  - 마커만 선택 시 색상 컨트롤 비활성화 및 안내 메시지
+- **안정성 개선**
+  - 소켓 응답에 error 필드 추가로 에러 처리 개선
+  - Undo/Redo 히스토리 50개 제한 (메모리 누수 방지)
+  - 포인터 락 유틸리티 타이머 중복 방지 최적화
 
 ### 2026-02-04 (Update 5)
 - **빌딩 모드 일시정지 메뉴**
