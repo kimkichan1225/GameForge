@@ -3,6 +3,7 @@ import { create } from 'zustand';
 type Posture = 'standing' | 'sitting' | 'crawling';
 type GameMode = 'running' | 'gunGame';
 type CameraMode = 'follow' | 'free';
+type ViewMode = 'firstPerson' | 'thirdPerson';
 type WeaponType = 'rifle' | 'shotgun' | 'sniper';
 
 interface GameStore {
@@ -14,6 +15,7 @@ interface GameStore {
   bodyAngle: number;
   lookDirection: number;
   cameraMode: CameraMode;
+  viewMode: ViewMode;
   cameraPitch: number;
   cameraDistance: number;
   weaponType: WeaponType;
@@ -25,6 +27,7 @@ interface GameStore {
   setBodyAngle: (a: number) => void;
   setLookDirection: (a: number) => void;
   setCameraMode: (m: CameraMode) => void;
+  setViewMode: (m: ViewMode) => void;
   setCameraPitch: (p: number) => void;
   setCameraDistance: (d: number) => void;
   setWeaponType: (w: WeaponType) => void;
@@ -39,6 +42,7 @@ export const useGameStore = create<GameStore>((set) => ({
   bodyAngle: 4.715,
   lookDirection: 4.715,
   cameraMode: 'follow',
+  viewMode: 'thirdPerson',
   cameraPitch: 0.3,
   cameraDistance: 8,
   weaponType: 'rifle',
@@ -50,6 +54,7 @@ export const useGameStore = create<GameStore>((set) => ({
   setBodyAngle: (bodyAngle) => set({ bodyAngle }),
   setLookDirection: (lookDirection) => set({ lookDirection }),
   setCameraMode: (cameraMode) => set({ cameraMode }),
+  setViewMode: (viewMode) => set({ viewMode }),
   setCameraPitch: (cameraPitch) => set({ cameraPitch }),
   setCameraDistance: (cameraDistance) => set({ cameraDistance }),
   setWeaponType: (weaponType) => set({ weaponType }),

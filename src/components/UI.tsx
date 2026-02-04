@@ -1,7 +1,7 @@
 import { useGameStore } from '../store/gameStore';
 
 export function UI() {
-  const { posture, animation, gameMode, setGameMode, setBodyAngle, setLookDirection, cameraMode, setCameraMode, weaponType, setWeaponType } = useGameStore();
+  const { posture, animation, gameMode, setGameMode, setBodyAngle, setLookDirection, cameraMode, setCameraMode, viewMode, setViewMode, weaponType, setWeaponType } = useGameStore();
 
   const handleModeChange = (mode: 'running' | 'gunGame') => {
     setGameMode(mode);
@@ -99,14 +99,14 @@ export function UI() {
         <div style={{ marginBottom: 8 }}>
           <span style={{ fontSize: 11, marginRight: 8 }}>시점:</span>
           <button
-            style={{...buttonStyle(false), padding: '4px 10px', fontSize: 11}}
-            onClick={() => {}}
+            style={{...buttonStyle(viewMode === 'firstPerson'), padding: '4px 10px', fontSize: 11}}
+            onClick={() => setViewMode('firstPerson')}
           >
             1인칭
           </button>
           <button
-            style={{...buttonStyle(true), padding: '4px 10px', fontSize: 11}}
-            onClick={() => {}}
+            style={{...buttonStyle(viewMode === 'thirdPerson'), padding: '4px 10px', fontSize: 11}}
+            onClick={() => setViewMode('thirdPerson')}
           >
             3인칭
           </button>

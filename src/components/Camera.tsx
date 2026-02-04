@@ -17,6 +17,11 @@ const AIM_DISTANCE = 3;  // 우클릭(조준) 시 카메라 거리
 const AIM_HEIGHT_STANDING = 2;
 const AIM_HEIGHT_SITTING = 1.2;
 const AIM_HEIGHT_CRAWLING = 0.5;
+
+// 1인칭 자세별 눈 높이
+const FPS_EYE_HEIGHT_STANDING = 1.7;
+const FPS_EYE_HEIGHT_SITTING = 1.0;
+const FPS_EYE_HEIGHT_CRAWLING = 0.3;
 const MIN_DISTANCE = 5;
 const MAX_DISTANCE = 50;
 const MIN_PITCH = -0.5;
@@ -142,10 +147,42 @@ export function Camera() {
     const playerPos = store.playerPos;
     _targetPos.set(playerPos[0], playerPos[1], playerPos[2]);
 
-    // 카메라 오프셋 계산
     const pitch = pitchRef.current;
     const angle = angleRef.current;
 
+    // 1인칭 모드
+    if (store.gameMode === 'gunGame' && store.viewMode === 'firstPerson') {
+      // 자세별 눈 높이 계산
+      let eyeHeight = FPS_EYE_HEIGHT_STANDING;
+      const posture = store.posture;
+      if (posture === 'sitting') {
+        eyeHeight = FPS_EYE_HEIGHT_SITTING;
+      } else if (posture === 'crawling') {
+        eyeHeight = FPS_EYE_HEIGHT_CRAWLING;
+      }
+
+      // 카메라 위치: 플레이어 눈 위치
+      _targetCamPos.set(
+        _targetPos.x - Math.sin(angle) * 0.3,
+        _targetPos.y + eyeHeight + 0.3,
+        _targetPos.z - Math.cos(angle) * 0.3
+      );
+
+      // 바라보는 방향 계산
+      const lookDistance = 10;
+      _headPos.set(
+        _targetPos.x - Math.sin(angle) * Math.cos(pitch) * lookDistance,
+        _targetPos.y + eyeHeight - Math.sin(pitch) * lookDistance,
+        _targetPos.z - Math.cos(angle) * Math.cos(pitch) * lookDistance
+      );
+
+      // 1인칭은 lerp 없이 즉시 따라감
+      camera.position.copy(_targetCamPos);
+      camera.lookAt(_headPos);
+      return;
+    }
+
+    // 3인칭 모드
     // 총게임 모드에서 우클릭 시 카메라 거리 변경
     let distance = distanceRef.current;
     if (store.gameMode === 'gunGame' && isAiming.current) {
