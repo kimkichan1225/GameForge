@@ -27,7 +27,7 @@ type AnimMap = Record<string, string>;
 
 export function Player() {
   const group = useRef<THREE.Group>(null!);
-  const { scene, animations } = useGLTF('/Untitled.glb');
+  const { scene, animations } = useGLTF('/Untitled1.glb');
   const { actions, names } = useAnimations(animations, scene);
 
   const [animMap, setAnimMap] = useState<AnimMap>({});
@@ -42,8 +42,28 @@ export function Player() {
   const currentAnim = useRef('');
   const prev = useRef({ space: false, c: false, z: false, v: false });
   const lastPos = useRef({ x: 0, y: 0, z: 0 });
+  const headMeshes = useRef<THREE.Object3D[]>([]);
 
   const input = useInput();
+
+  // 머리 메쉬 찾기
+  useEffect(() => {
+    const meshes: THREE.Object3D[] = [];
+    scene.traverse((child) => {
+      // HeadSkin, Face, Helmet 머티리얼을 가진 메쉬 찾기
+      if ((child as any).isMesh || (child as any).isSkinnedMesh) {
+        const material = (child as any).material;
+        if (material && material.name) {
+          if (material.name.includes('HeadSkin') ||
+              material.name.includes('Face') ||
+              material.name.includes('Helmet')) {
+            meshes.push(child);
+          }
+        }
+      }
+    });
+    headMeshes.current = meshes;
+  }, [scene]);
 
   // Build animation map on mount
   useEffect(() => {
