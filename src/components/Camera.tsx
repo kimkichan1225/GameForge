@@ -12,6 +12,11 @@ const TPS_LOOK_OFFSET_RIGHT = -1.5;  // 왼쪽으로
 const TPS_LOOK_OFFSET_UP = 0.8;     // 아래로
 const CAMERA_LERP = 0.1;
 const AIM_DISTANCE = 3;  // 우클릭(조준) 시 카메라 거리
+
+// 조준 시 자세별 카메라 높이
+const AIM_HEIGHT_STANDING = 2;
+const AIM_HEIGHT_SITTING = 1.2;
+const AIM_HEIGHT_CRAWLING = 0.5;
 const MIN_DISTANCE = 5;
 const MAX_DISTANCE = 50;
 const MIN_PITCH = -0.5;
@@ -35,6 +40,7 @@ export function Camera() {
   const isLocked = useRef(false);
   const skipNextMove = useRef(false);
   const isAiming = useRef(false);
+  const currentLookPos = useRef(new THREE.Vector3());
 
   useEffect(() => {
     const canvas = gl.domElement;
@@ -146,10 +152,23 @@ export function Camera() {
       distance = AIM_DISTANCE;
     }
 
+    // 조준 시 자세별 카메라 높이 계산
+    let cameraHeight = 2;
+    if (store.gameMode === 'gunGame' && isAiming.current) {
+      const posture = store.posture;
+      if (posture === 'sitting') {
+        cameraHeight = AIM_HEIGHT_SITTING;
+      } else if (posture === 'crawling') {
+        cameraHeight = AIM_HEIGHT_CRAWLING;
+      } else {
+        cameraHeight = AIM_HEIGHT_STANDING;
+      }
+    }
+
     // 구면 좌표계로 카메라 위치 계산
     _offset.set(
       Math.sin(angle) * Math.cos(pitch) * distance,
-      Math.sin(pitch) * distance + 2,
+      Math.sin(pitch) * distance + cameraHeight,
       Math.cos(angle) * Math.cos(pitch) * distance
     );
 
@@ -158,6 +177,7 @@ export function Camera() {
     if (!initialized.current) {
       initialized.current = true;
       currentCamPos.current.copy(_targetCamPos);
+      currentLookPos.current.copy(_headPos);
     }
 
     currentCamPos.current.lerp(_targetCamPos, CAMERA_LERP);
@@ -167,6 +187,18 @@ export function Camera() {
 
     // 총게임 모드: 카메라가 바라보는 지점을 오른쪽 위로 이동 (캐릭터가 왼쪽 아래에 위치)
     if (store.gameMode === 'gunGame') {
+      // 조준 시 자세별 바라보는 높이도 적용
+      if (isAiming.current) {
+        const posture = store.posture;
+        if (posture === 'sitting') {
+          _headPos.y = _targetPos.y + AIM_HEIGHT_SITTING;
+        } else if (posture === 'crawling') {
+          _headPos.y = _targetPos.y + AIM_HEIGHT_CRAWLING;
+        } else {
+          _headPos.y = _targetPos.y + AIM_HEIGHT_STANDING;
+        }
+      }
+
       // 오른쪽 방향 계산 (카메라 기준)
       const rightX = Math.sin(angle - Math.PI / 2) * TPS_LOOK_OFFSET_RIGHT;
       const rightZ = Math.cos(angle - Math.PI / 2) * TPS_LOOK_OFFSET_RIGHT;
@@ -175,7 +207,9 @@ export function Camera() {
       _headPos.y += TPS_LOOK_OFFSET_UP;
     }
 
-    camera.lookAt(_headPos);
+    // 바라보는 위치도 부드럽게 전환
+    currentLookPos.current.lerp(_headPos, CAMERA_LERP);
+    camera.lookAt(currentLookPos.current);
   });
 
   return null;
