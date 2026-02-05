@@ -32,7 +32,9 @@ const ARMS_OFFSET_Z = 0;    // 약간 앞으로
 // 1인칭 시점에서 풀암 모델 애니메이션 매핑 (메인 애니메이션 → 풀암 애니메이션)
 const FPS_ARMS_ANIM_MAP: Record<string, string> = {
   'Idle': 'IdleAiming',
+  'IdleAiming': 'IdleAiming',
   'WalkFront': 'WalkAiming',
+  'WalkAiming': 'WalkAiming',
 };
 
 // 총 재질 (싱글톤)
@@ -265,6 +267,7 @@ export function GunPlayer() {
       const action = armsActions[idleClip];
       action.reset().fadeIn(0).play();
       action.setLoop(THREE.LoopRepeat, Infinity);
+      stateRef.current.currentArmsAnim = initAnim;  // 초기 애니메이션 상태 저장
     }
   }, [armsNames, armsActions]);
 
@@ -288,23 +291,29 @@ export function GunPlayer() {
     // 풀암 모델 애니메이션 재생 (1인칭 시점에서는 다른 애니메이션 사용)
     const isFirstPerson = useGameStore.getState().viewMode === 'firstPerson';
     const armsAnimName = isFirstPerson ? (FPS_ARMS_ANIM_MAP[name] || name) : name;
-    const armsClipName = armsMap[armsAnimName];
-    if (armsClipName && armsActions[armsClipName]) {
-      // 이전 애니메이션 fadeOut
-      if (s.currentArmsAnim && armsMap[s.currentArmsAnim]) {
-        armsActions[armsMap[s.currentArmsAnim]]?.fadeOut(0.2);
-      }
 
-      const armsAction = armsActions[armsClipName];
-      armsAction.reset().fadeIn(0.2).play();
+    // 풀암 애니메이션이 같으면 다시 재생하지 않음
+    if (s.currentArmsAnim === armsAnimName) {
+      // 메인 캐릭터만 애니메이션 변경, 풀암은 유지
+    } else {
+      const armsClipName = armsMap[armsAnimName];
+      if (armsClipName && armsActions[armsClipName]) {
+        // 이전 애니메이션 fadeOut
+        if (s.currentArmsAnim && armsMap[s.currentArmsAnim]) {
+          armsActions[armsMap[s.currentArmsAnim]]?.fadeOut(0.2);
+        }
 
-      if (armsAnimName === 'Jump' || armsAnimName === 'SitDown' || armsAnimName === 'StandUp') {
-        armsAction.setLoop(THREE.LoopOnce, 1);
-        armsAction.clampWhenFinished = true;
-      } else {
-        armsAction.setLoop(THREE.LoopRepeat, Infinity);
+        const armsAction = armsActions[armsClipName];
+        armsAction.reset().fadeIn(0.2).play();
+
+        if (armsAnimName === 'Jump' || armsAnimName === 'SitDown' || armsAnimName === 'StandUp') {
+          armsAction.setLoop(THREE.LoopOnce, 1);
+          armsAction.clampWhenFinished = true;
+        } else {
+          armsAction.setLoop(THREE.LoopRepeat, Infinity);
+        }
+        s.currentArmsAnim = armsAnimName;
       }
-      s.currentArmsAnim = armsAnimName;
     }
 
     if (name === 'Jump' || name === 'SitDown' || name === 'StandUp') {
