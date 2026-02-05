@@ -25,6 +25,7 @@ const _armsRotation = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(
 const _aimWeaponTarget = new THREE.Vector3();
 const _aimWeaponQuat = new THREE.Quaternion();
 const _aimRotationOffset = new THREE.Quaternion();
+const _muzzleWorldPos = new THREE.Vector3();
 
 // 풀암 모델 오프셋 (카메라 로컬 좌표 기준)
 // x: 오른쪽(+)/왼쪽(-), y: 위(+)/아래(-), z: 뒤(+)/앞(-)
@@ -786,6 +787,13 @@ export function GunPlayer() {
       if (fpsMuzzleSpriteRef.current) fpsMuzzleSpriteRef.current.scale.set(0, 0, 1);
       if (tpsMuzzleSpriteRef.current) tpsMuzzleSpriteRef.current.scale.set(0, 0, 1);
       s.muzzleTimer = 0;
+    }
+
+    // 총구 월드 위치 업데이트 (BulletEffects에서 사용)
+    const muzzleSprite = showFpsView ? fpsMuzzleSpriteRef.current : tpsMuzzleSpriteRef.current;
+    if (muzzleSprite) {
+      muzzleSprite.getWorldPosition(_muzzleWorldPos);
+      store.setMuzzleWorldPos([_muzzleWorldPos.x, _muzzleWorldPos.y, _muzzleWorldPos.z]);
     }
   });
 

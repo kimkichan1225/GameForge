@@ -94,6 +94,10 @@ export function BulletEffects() {
     const intersects = _raycaster.intersectObjects(raycastTargets, false);
     const hit = intersects[0];
 
+    // 총구 월드 위치 (GunPlayer에서 업데이트)
+    const muzzlePos = store.muzzleWorldPos;
+    _muzzleWorldPos.set(muzzlePos[0], muzzlePos[1], muzzlePos[2]);
+
     if (hit) {
       // 충돌 지점 및 법선
       _hitPoint.copy(hit.point);
@@ -104,12 +108,6 @@ export function BulletEffects() {
       } else {
         _hitNormal.set(0, 1, 0);  // 기본값: 위 방향
       }
-
-      // 총구 위치 계산 (카메라 앞 약간 아래)
-      _muzzleWorldPos.copy(camera.position);
-      const muzzleOffset = new THREE.Vector3(0.1, -0.1, -0.3);
-      muzzleOffset.applyQuaternion(camera.quaternion);
-      _muzzleWorldPos.add(muzzleOffset);
 
       // 이펙트 생성
       if (tracerRef.current) {
@@ -124,11 +122,6 @@ export function BulletEffects() {
     } else {
       // 충돌 없음: 최대 거리 지점에 트레이서만 생성
       _hitPoint.copy(_rayOrigin).addScaledVector(_rayDirection, MAX_RAYCAST_DISTANCE);
-
-      _muzzleWorldPos.copy(camera.position);
-      const muzzleOffset = new THREE.Vector3(0.1, -0.1, -0.3);
-      muzzleOffset.applyQuaternion(camera.quaternion);
-      _muzzleWorldPos.add(muzzleOffset);
 
       if (tracerRef.current) {
         tracerRef.current.spawn(_muzzleWorldPos.clone(), _hitPoint.clone());

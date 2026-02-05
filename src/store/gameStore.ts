@@ -20,6 +20,7 @@ interface GameStore {
   cameraDistance: number;
   weaponType: WeaponType;
   isToggleAiming: boolean;  // 토글 조준 상태 (1인칭/3인칭 공통)
+  muzzleWorldPos: [number, number, number];  // 총구 월드 위치
   setPosture: (p: Posture) => void;
   setAnimation: (a: string) => void;
   setCameraAngle: (a: number) => void;
@@ -33,6 +34,7 @@ interface GameStore {
   setCameraDistance: (d: number) => void;
   setWeaponType: (w: WeaponType) => void;
   setIsToggleAiming: (b: boolean) => void;
+  setMuzzleWorldPos: (p: [number, number, number]) => void;
 }
 
 export const useGameStore = create<GameStore>((set) => ({
@@ -49,6 +51,7 @@ export const useGameStore = create<GameStore>((set) => ({
   cameraDistance: 8,
   weaponType: 'rifle',
   isToggleAiming: false,
+  muzzleWorldPos: [0, 0, 0],
   setPosture: (posture) => set({ posture }),
   setAnimation: (animation) => set({ animation }),
   setCameraAngle: (cameraAngle) => set({ cameraAngle }),
@@ -62,4 +65,5 @@ export const useGameStore = create<GameStore>((set) => ({
   setCameraDistance: (cameraDistance) => set({ cameraDistance }),
   setWeaponType: (weaponType) => set({ weaponType }),
   setIsToggleAiming: (isToggleAiming) => set({ isToggleAiming }),
+  setMuzzleWorldPos: (muzzleWorldPos) => set({ muzzleWorldPos }),
 }));

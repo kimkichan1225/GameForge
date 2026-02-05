@@ -4,7 +4,7 @@ import * as THREE from 'three';
 
 // 총알 풀 크기
 const POOL_SIZE = 20;
-const BULLET_SPEED = 300;       // 총알 속도 (m/s)
+const BULLET_SPEED = 100;       // 총알 속도 (m/s)
 const BULLET_LENGTH = 0.3;      // 총알 길이
 const BULLET_RADIUS = 0.015;    // 총알 반지름
 
