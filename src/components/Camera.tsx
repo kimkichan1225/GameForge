@@ -9,9 +9,13 @@ const MOUSE_SENSITIVITY = 0.002;
 
 // 총게임 모드 카메라 오프셋 (캐릭터를 왼쪽 아래로 배치)
 const TPS_LOOK_OFFSET_RIGHT = -1.5;  // 왼쪽으로
-const TPS_LOOK_OFFSET_UP = 0.8;     // 아래로
+const TPS_LOOK_OFFSET_UP = 0.8;     // 위로
 const CAMERA_LERP = 0.1;
 const AIM_DISTANCE = 3;  // 우클릭(조준) 시 카메라 거리
+
+// 홀드 조준 시 오프셋 (더 정밀한 조준)
+const AIM_LOOK_OFFSET_RIGHT = -1.0;  // 덜 왼쪽으로
+const AIM_LOOK_OFFSET_UP = 0.4;      // 덜 위로
 
 // 조준 시 자세별 카메라 높이
 const AIM_HEIGHT_STANDING = 2;
@@ -244,12 +248,16 @@ export function Camera() {
         }
       }
 
+      // 조준 여부에 따라 다른 오프셋 사용
+      const lookOffsetRight = isAiming.current ? AIM_LOOK_OFFSET_RIGHT : TPS_LOOK_OFFSET_RIGHT;
+      const lookOffsetUp = isAiming.current ? AIM_LOOK_OFFSET_UP : TPS_LOOK_OFFSET_UP;
+
       // 오른쪽 방향 계산 (카메라 기준)
-      const rightX = Math.sin(angle - Math.PI / 2) * TPS_LOOK_OFFSET_RIGHT;
-      const rightZ = Math.cos(angle - Math.PI / 2) * TPS_LOOK_OFFSET_RIGHT;
+      const rightX = Math.sin(angle - Math.PI / 2) * lookOffsetRight;
+      const rightZ = Math.cos(angle - Math.PI / 2) * lookOffsetRight;
       _headPos.x += rightX;
       _headPos.z += rightZ;
-      _headPos.y += TPS_LOOK_OFFSET_UP;
+      _headPos.y += lookOffsetUp;
     }
 
     // 바라보는 위치도 부드럽게 전환
