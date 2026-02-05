@@ -43,6 +43,11 @@ const AIM_WEAPON_ROT_X = Math.PI / 22;          // 위아래 기울기
 const AIM_WEAPON_ROT_Y = -Math.PI /2;    // 좌우 회전 (180도 = 카메라 방향)
 const AIM_WEAPON_ROT_Z = Math.PI /2; // 롤 회전 (90도)
 
+// 1인칭 토글 조준 시 풀암 모델 오프셋 (기본 오프셋에 더해짐)
+const AIM_ARMS_OFFSET_X = -0.35;   // 왼쪽으로
+const AIM_ARMS_OFFSET_Y = 0;      // 위아래
+const AIM_ARMS_OFFSET_Z = 0;      // 앞뒤
+
 // 1인칭 시점에서 풀암 모델 애니메이션 매핑 (메인 애니메이션 → 풀암 애니메이션)
 const FPS_ARMS_ANIM_MAP: Record<string, string> = {
   'Idle': 'IdleAiming',
@@ -469,8 +474,16 @@ export function GunPlayer() {
     // 1인칭 모드: 풀암 모델을 카메라에 고정
     if (isFirstPerson && armsGroup.current) {
       const camera = state.camera;
-      // 카메라 로컬 좌표계 기준 오프셋 적용
-      _armsOffset.set(ARMS_OFFSET_X, ARMS_OFFSET_Y, ARMS_OFFSET_Z);
+      // 카메라 로컬 좌표계 기준 오프셋 적용 (토글 조준 시 추가 오프셋)
+      if (mouse.aimingToggle) {
+        _armsOffset.set(
+          ARMS_OFFSET_X + AIM_ARMS_OFFSET_X,
+          ARMS_OFFSET_Y + AIM_ARMS_OFFSET_Y,
+          ARMS_OFFSET_Z + AIM_ARMS_OFFSET_Z
+        );
+      } else {
+        _armsOffset.set(ARMS_OFFSET_X, ARMS_OFFSET_Y, ARMS_OFFSET_Z);
+      }
       _armsOffset.applyQuaternion(camera.quaternion);
       armsGroup.current.position.copy(camera.position).add(_armsOffset);
       // 카메라 회전 + Y축 180도 회전 (모델이 카메라와 같은 방향 보도록)
