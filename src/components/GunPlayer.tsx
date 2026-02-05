@@ -75,6 +75,35 @@ const GUN_MATERIAL = new THREE.MeshStandardMaterial({
   roughness: 0.3
 });
 
+// 총구 플래시 스프라이트 텍스처 생성
+const createMuzzleFlashTexture = () => {
+  const canvas = document.createElement('canvas');
+  canvas.width = 128;
+  canvas.height = 128;
+  const ctx = canvas.getContext('2d')!;
+
+  // 방사형 그라데이션 (중심이 밝고 바깥이 투명)
+  const gradient = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
+  gradient.addColorStop(0, 'rgba(255, 255, 200, 1)');
+  gradient.addColorStop(0.2, 'rgba(255, 200, 50, 1)');
+  gradient.addColorStop(0.5, 'rgba(255, 100, 0, 0.8)');
+  gradient.addColorStop(1, 'rgba(255, 50, 0, 0)');
+
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, 128, 128);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  return texture;
+};
+
+const MUZZLE_FLASH_TEXTURE = createMuzzleFlashTexture();
+const MUZZLE_FLASH_MATERIAL = new THREE.SpriteMaterial({
+  map: MUZZLE_FLASH_TEXTURE,
+  transparent: true,
+  blending: THREE.AdditiveBlending,
+  depthWrite: false,
+});
+
 // 무기별 설정 (라디안으로 미리 변환)
 const deg = THREE.MathUtils.degToRad;
 type WeaponConfig = {
@@ -180,7 +209,10 @@ export function GunPlayer() {
   const armsRightHandBone = useRef<THREE.Bone | null>(null);
   const tpsWeaponRef = useRef<THREE.Group>(null);  // 3인칭용 (전체 캐릭터 손, 다른 플레이어가 봄)
   const fpsWeaponRef = useRef<THREE.Group>(null);  // 1인칭용 (풀암 손, 나만 봄)
-  const muzzleFlashRef = useRef<THREE.PointLight>(null);
+  const muzzleFlashRef = useRef<THREE.PointLight>(null);      // 1인칭용 조명
+  const tpsMuzzleFlashRef = useRef<THREE.PointLight>(null);   // 3인칭용 조명
+  const fpsMuzzleSpriteRef = useRef<THREE.Sprite>(null);      // 1인칭용 스프라이트
+  const tpsMuzzleSpriteRef = useRef<THREE.Sprite>(null);      // 3인칭용 스프라이트
   const animMapRef = useRef<Record<string, string>>({});
   const armsAnimMapRef = useRef<Record<string, string>>({});
 
@@ -435,6 +467,13 @@ export function GunPlayer() {
       mouse.aimTransitionTimer = 0;
     }
 
+    // 점프 중(공중)이면 토글/홀드 조준 해제
+    if (!s.grounded && (mouse.aimingToggle || mouse.aimingHold)) {
+      mouse.aimingToggle = false;
+      mouse.aimingHold = false;
+      mouse.aimTransitionTimer = 0;
+    }
+
     if (isFirstPerson) {
       if (mouse.aiming) {
         // 우클릭 시작
@@ -443,9 +482,9 @@ export function GunPlayer() {
           mouse.rightClickHandled = false;
         }
 
-        // 홀드 판정 (길게 누르고 있음) - Run 상태에서는 홀드 안 됨
+        // 홀드 판정 (길게 누르고 있음) - Run/점프 상태에서는 홀드 안 됨
         const holdTime = (performance.now() / 1000) - mouse.rightClickStartTime;
-        if (holdTime >= holdThreshold && !mouse.rightClickHandled && !isRunning) {
+        if (holdTime >= holdThreshold && !mouse.rightClickHandled && !isRunning && s.grounded) {
           mouse.aimingHold = true;
           mouse.rightClickHandled = true;  // 이번 클릭은 홀드로 처리됨
         }
@@ -454,8 +493,8 @@ export function GunPlayer() {
         if (mouse.rightClickStartTime > 0) {
           const holdTime = (performance.now() / 1000) - mouse.rightClickStartTime;
 
-          // 짧게 눌렀다 뗌 → 토글 (Run 상태에서는 토글 안 됨)
-          if (!mouse.rightClickHandled && holdTime < holdThreshold && !isRunning) {
+          // 짧게 눌렀다 뗌 → 토글 (Run/점프 상태에서는 토글 안 됨)
+          if (!mouse.rightClickHandled && holdTime < holdThreshold && !isRunning && s.grounded) {
             mouse.aimingToggle = !mouse.aimingToggle;
             mouse.aimTransitionTimer = 0;
           }
@@ -713,16 +752,39 @@ export function GunPlayer() {
       fpsWeaponRef.current.visible = isFirstPerson;  // 3인칭이면 숨김
     }
 
-    // 총구 플래시
-    if (muzzleFlashRef.current) {
-      if (mouse.firing) {
-        s.muzzleTimer += dt;
-        const cfg = WEAPON_CONFIGS[store.weaponType];
-        muzzleFlashRef.current.intensity = Math.sin(s.muzzleTimer * cfg.flashSpeed) > 0 ? 5 : 0;
-      } else {
-        muzzleFlashRef.current.intensity = 0;
-        s.muzzleTimer = 0;
+    // 총구 플래시 (1인칭/3인칭 모두)
+    if (mouse.firing) {
+      s.muzzleTimer += dt;
+      const cfg = WEAPON_CONFIGS[store.weaponType];
+      const flashOn = Math.sin(s.muzzleTimer * cfg.flashSpeed) > 0;
+      const flashIntensity = flashOn ? 5 : 0;
+      const spriteScale = flashOn ? 30 + Math.random() * 10 : 0;  // 랜덤 크기로 자연스럽게
+
+      // 현재 시점에 맞는 플래시만 활성화
+      if (muzzleFlashRef.current) {
+        muzzleFlashRef.current.intensity = isFirstPerson ? flashIntensity : 0;
       }
+      if (tpsMuzzleFlashRef.current) {
+        tpsMuzzleFlashRef.current.intensity = isFirstPerson ? 0 : flashIntensity;
+      }
+
+      // 스프라이트 (시각적 플래시)
+      if (fpsMuzzleSpriteRef.current) {
+        const scale = isFirstPerson ? spriteScale : 0;
+        fpsMuzzleSpriteRef.current.scale.set(scale, scale, 1);
+        fpsMuzzleSpriteRef.current.material.rotation = Math.random() * Math.PI * 2;  // 랜덤 회전
+      }
+      if (tpsMuzzleSpriteRef.current) {
+        const scale = isFirstPerson ? 0 : spriteScale;
+        tpsMuzzleSpriteRef.current.scale.set(scale, scale, 1);
+        tpsMuzzleSpriteRef.current.material.rotation = Math.random() * Math.PI * 2;
+      }
+    } else {
+      if (muzzleFlashRef.current) muzzleFlashRef.current.intensity = 0;
+      if (tpsMuzzleFlashRef.current) tpsMuzzleFlashRef.current.intensity = 0;
+      if (fpsMuzzleSpriteRef.current) fpsMuzzleSpriteRef.current.scale.set(0, 0, 1);
+      if (tpsMuzzleSpriteRef.current) tpsMuzzleSpriteRef.current.scale.set(0, 0, 1);
+      s.muzzleTimer = 0;
     }
   });
 
@@ -771,6 +833,16 @@ export function GunPlayer() {
       {/* 3인칭용 무기 (전체 캐릭터 손, 다른 플레이어가 봄) */}
       <group ref={tpsWeaponRef} scale={0.01}>
         <primitive object={tpsWeaponModel} />
+        <pointLight
+          ref={tpsMuzzleFlashRef}
+          position={flashPos}
+          color={0xffaa00}
+          intensity={0}
+          distance={3}
+        />
+        <sprite ref={tpsMuzzleSpriteRef} position={flashPos} scale={[0, 0, 1]}>
+          <primitive object={MUZZLE_FLASH_MATERIAL.clone()} attach="material" />
+        </sprite>
       </group>
       {/* 1인칭용 무기 (풀암 손, 나만 봄) */}
       <group ref={fpsWeaponRef} scale={0.01}>
@@ -782,6 +854,9 @@ export function GunPlayer() {
           intensity={0}
           distance={3}
         />
+        <sprite ref={fpsMuzzleSpriteRef} position={flashPos} scale={[0, 0, 1]}>
+          <primitive object={MUZZLE_FLASH_MATERIAL.clone()} attach="material" />
+        </sprite>
       </group>
     </>
   );
