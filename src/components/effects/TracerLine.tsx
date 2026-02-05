@@ -2,142 +2,119 @@ import { useRef, useMemo } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 
-// 트레이서 라인 풀 크기
+// 총알 풀 크기
 const POOL_SIZE = 20;
-const TRACER_LIFETIME = 0.05;  // 빠른 페이드 (초)
-const TRACER_WIDTH = 0.02;
+const BULLET_SPEED = 300;       // 총알 속도 (m/s)
+const BULLET_LENGTH = 0.3;      // 총알 길이
+const BULLET_RADIUS = 0.015;    // 총알 반지름
 
 // GC 방지 재사용 객체
-const _direction = new THREE.Vector3();
-const _up = new THREE.Vector3(0, 1, 0);
-const _right = new THREE.Vector3();
+const _position = new THREE.Vector3();
+const _quaternion = new THREE.Quaternion();
+const _scale = new THREE.Vector3(1, 1, 1);
+const _matrix = new THREE.Matrix4();
+const _lookTarget = new THREE.Vector3();
 
-interface TracerInstance {
+interface BulletInstance {
   active: boolean;
-  age: number;
-  start: THREE.Vector3;
-  end: THREE.Vector3;
+  position: THREE.Vector3;
+  direction: THREE.Vector3;
+  distance: number;      // 이동한 거리
+  maxDistance: number;   // 최대 거리 (충돌 지점까지)
 }
 
-// 트레이서 라인 컴포넌트
+// 총알 트레이서 컴포넌트
 export function TracerLine({ tracerRef }: { tracerRef: React.MutableRefObject<{ spawn: (start: THREE.Vector3, end: THREE.Vector3) => void } | null> }) {
   const meshRef = useRef<THREE.InstancedMesh>(null);
 
   // 풀 상태
-  const poolRef = useRef<TracerInstance[]>([]);
+  const poolRef = useRef<BulletInstance[]>([]);
 
   // 풀 초기화
   useMemo(() => {
     poolRef.current = Array.from({ length: POOL_SIZE }, () => ({
       active: false,
-      age: 0,
-      start: new THREE.Vector3(),
-      end: new THREE.Vector3(),
+      position: new THREE.Vector3(),
+      direction: new THREE.Vector3(),
+      distance: 0,
+      maxDistance: 0,
     }));
   }, []);
 
-  // 트레이서 생성 함수 노출
+  // 총알 생성 함수 노출
   useMemo(() => {
     tracerRef.current = {
       spawn: (start: THREE.Vector3, end: THREE.Vector3) => {
         const pool = poolRef.current;
-        const tracer = pool.find(t => !t.active);
-        if (!tracer) return;
+        const bullet = pool.find(b => !b.active);
+        if (!bullet) return;
 
-        tracer.active = true;
-        tracer.age = 0;
-        tracer.start.copy(start);
-        tracer.end.copy(end);
+        bullet.active = true;
+        bullet.position.copy(start);
+        bullet.direction.subVectors(end, start).normalize();
+        bullet.distance = 0;
+        bullet.maxDistance = start.distanceTo(end);
       }
     };
   }, [tracerRef]);
 
-  // Geometry: 긴 사각형 (1x1 단위, 인스턴스에서 스케일)
+  // Geometry: 원기둥 (Y축 방향, 나중에 회전)
   const geometry = useMemo(() => {
-    const geo = new THREE.PlaneGeometry(1, TRACER_WIDTH);
+    const geo = new THREE.CylinderGeometry(BULLET_RADIUS, BULLET_RADIUS, BULLET_LENGTH, 6);
+    // Y축 → Z축 방향으로 회전 (총알이 앞으로 나가도록)
+    geo.rotateX(Math.PI / 2);
     return geo;
   }, []);
 
-  // Material: Additive 블렌딩
+  // Material: 밝은 노란색
   const material = useMemo(() => {
     return new THREE.MeshBasicMaterial({
-      color: 0xffffaa,
-      transparent: true,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-      side: THREE.DoubleSide,
+      color: 0xffdd44,
     });
   }, []);
 
   // 매 프레임 업데이트
-  useFrame((state, dt) => {
+  useFrame((_, dt) => {
     if (!meshRef.current) return;
 
     const pool = poolRef.current;
     const mesh = meshRef.current;
-    const camera = state.camera;
-    const matrix = new THREE.Matrix4();
-
-    let visibleCount = 0;
+    const moveDistance = BULLET_SPEED * dt;
 
     for (let i = 0; i < POOL_SIZE; i++) {
-      const tracer = pool[i];
+      const bullet = pool[i];
 
-      if (tracer.active) {
-        tracer.age += dt;
+      if (bullet.active) {
+        // 총알 이동
+        bullet.distance += moveDistance;
 
-        if (tracer.age >= TRACER_LIFETIME) {
-          tracer.active = false;
-          // 숨김 처리
-          matrix.makeScale(0, 0, 0);
-          mesh.setMatrixAt(i, matrix);
+        // 최대 거리 도달 시 비활성화
+        if (bullet.distance >= bullet.maxDistance) {
+          bullet.active = false;
+          _matrix.makeScale(0, 0, 0);
+          mesh.setMatrixAt(i, _matrix);
         } else {
-          // 트레이서 위치 및 방향 계산
-          _direction.subVectors(tracer.end, tracer.start);
-          const length = _direction.length();
-          _direction.normalize();
+          // 현재 위치 계산
+          _position.copy(bullet.position).addScaledVector(bullet.direction, bullet.distance);
 
-          // 중앙 위치
-          const center = new THREE.Vector3()
-            .addVectors(tracer.start, tracer.end)
-            .multiplyScalar(0.5);
+          // 총알 방향으로 회전
+          _lookTarget.copy(_position).add(bullet.direction);
+          _matrix.lookAt(_position, _lookTarget, new THREE.Vector3(0, 1, 0));
+          _quaternion.setFromRotationMatrix(_matrix);
 
-          // Billboard: 카메라를 향하도록 회전
-          const cameraDir = new THREE.Vector3()
-            .subVectors(camera.position, center)
-            .normalize();
-          _right.crossVectors(_direction, cameraDir).normalize();
-          _up.crossVectors(_right, _direction).normalize();
-
-          // 회전 행렬 구성
-          const rotationMatrix = new THREE.Matrix4().makeBasis(_direction, _up, _right);
-
-          // 페이드 아웃 (opacity 대신 스케일 축소로 구현)
-          const fadeProgress = tracer.age / TRACER_LIFETIME;
-          const scale = 1 - fadeProgress * 0.5;
-
-          // 변환 행렬 구성
-          matrix.identity();
-          matrix.makeTranslation(center.x, center.y, center.z);
-          matrix.multiply(rotationMatrix);
-          matrix.scale(new THREE.Vector3(length, TRACER_WIDTH * scale, 1));
-
-          mesh.setMatrixAt(i, matrix);
-          visibleCount++;
+          // 행렬 구성
+          _scale.set(1, 1, 1);
+          _matrix.compose(_position, _quaternion, _scale);
+          mesh.setMatrixAt(i, _matrix);
         }
       } else {
         // 비활성: 숨김
-        matrix.makeScale(0, 0, 0);
-        mesh.setMatrixAt(i, matrix);
+        _matrix.makeScale(0, 0, 0);
+        mesh.setMatrixAt(i, _matrix);
       }
     }
 
     mesh.instanceMatrix.needsUpdate = true;
-
-    // Material opacity 업데이트 (전체 페이드)
-    if (material.opacity !== undefined) {
-      material.opacity = 0.8;
-    }
   });
 
   return (
