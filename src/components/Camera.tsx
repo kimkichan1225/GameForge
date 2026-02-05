@@ -17,6 +17,15 @@ const AIM_DISTANCE = 3;  // 우클릭(조준) 시 카메라 거리
 const AIM_LOOK_OFFSET_RIGHT = -1.0;  // 덜 왼쪽으로
 const AIM_LOOK_OFFSET_UP = 0.4;      // 덜 위로
 
+// 3인칭 → 토글 조준 시 카메라 오프셋 (1인칭과 별도)
+const TPS_TOGGLE_AIM_OFFSET_BACK = 0.4;    // 뒤로 (0 = 눈 위치)
+const TPS_TOGGLE_AIM_OFFSET_UP = 0.5;      // 위로
+const TPS_TOGGLE_AIM_OFFSET_RIGHT = 0;     // 오른쪽으로
+
+// 3인칭 → 토글 조준 시 바라보는 지점 오프셋 (+를 이동)
+const TPS_TOGGLE_AIM_LOOK_RIGHT = -3.2;   // +를 오른쪽으로
+const TPS_TOGGLE_AIM_LOOK_UP = 2.1;      // +를 위로
+
 // 조준 시 자세별 카메라 높이
 const AIM_HEIGHT_STANDING = 2;
 const AIM_HEIGHT_SITTING = 1.2;
@@ -157,6 +166,9 @@ export function Camera() {
 
     // 1인칭 모드 또는 토글 조준 시 1인칭 카메라 사용
     const useFpsCamera = store.viewMode === 'firstPerson' || store.isToggleAiming;
+    // 3인칭에서 토글 조준 시 별도 처리
+    const isTpsToggleAim = store.viewMode === 'thirdPerson' && store.isToggleAiming;
+
     if (store.gameMode === 'gunGame' && useFpsCamera) {
       // 자세별 목표 눈 높이
       let targetEyeHeight = FPS_EYE_HEIGHT_STANDING;
@@ -173,11 +185,16 @@ export function Camera() {
 
       const eyeHeight = currentEyeHeight.current;
 
-      // 카메라 위치: 플레이어 눈 위치
+      // 3인칭 토글 조준 vs 1인칭: 다른 오프셋 사용
+      const offsetBack = isTpsToggleAim ? TPS_TOGGLE_AIM_OFFSET_BACK : 0.4;
+      const offsetUp = isTpsToggleAim ? TPS_TOGGLE_AIM_OFFSET_UP : 0.5;
+      const offsetRight = isTpsToggleAim ? TPS_TOGGLE_AIM_OFFSET_RIGHT : 0;
+
+      // 카메라 위치: 플레이어 눈 위치 + 오프셋
       _targetCamPos.set(
-        _targetPos.x - Math.sin(angle) * 0.4,
-        _targetPos.y + eyeHeight + 0.5,
-        _targetPos.z - Math.cos(angle) * 0.4
+        _targetPos.x - Math.sin(angle) * offsetBack + Math.sin(angle - Math.PI / 2) * offsetRight,
+        _targetPos.y + eyeHeight + offsetUp,
+        _targetPos.z - Math.cos(angle) * offsetBack + Math.cos(angle - Math.PI / 2) * offsetRight
       );
 
       // 바라보는 방향 계산
@@ -187,6 +204,15 @@ export function Camera() {
         _targetPos.y + eyeHeight - Math.sin(pitch) * lookDistance,
         _targetPos.z - Math.cos(angle) * Math.cos(pitch) * lookDistance
       );
+
+      // 3인칭 토글 조준 시 바라보는 지점 오프셋 적용
+      if (isTpsToggleAim) {
+        // 오른쪽 방향으로 오프셋
+        _headPos.x += Math.sin(angle - Math.PI / 2) * TPS_TOGGLE_AIM_LOOK_RIGHT;
+        _headPos.z += Math.cos(angle - Math.PI / 2) * TPS_TOGGLE_AIM_LOOK_RIGHT;
+        // 위로 오프셋
+        _headPos.y += TPS_TOGGLE_AIM_LOOK_UP;
+      }
 
       // 1인칭은 lerp 없이 즉시 따라감
       camera.position.copy(_targetCamPos);
