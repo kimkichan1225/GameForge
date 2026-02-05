@@ -22,12 +22,26 @@ const _targetQuat = new THREE.Quaternion();
 const _weaponOffset = new THREE.Vector3();
 const _armsOffset = new THREE.Vector3();
 const _armsRotation = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI);
+const _aimWeaponPos = new THREE.Vector3();
+const _aimWeaponTarget = new THREE.Vector3();
+const _aimWeaponQuat = new THREE.Quaternion();
+const _aimRotationOffset = new THREE.Quaternion();
 
 // 풀암 모델 오프셋 (카메라 로컬 좌표 기준)
 // x: 오른쪽(+)/왼쪽(-), y: 위(+)/아래(-), z: 뒤(+)/앞(-)
 const ARMS_OFFSET_X = 0;      // 좌우
 const ARMS_OFFSET_Y = -2.2;   // 아래로
 const ARMS_OFFSET_Z = 0;    // 약간 앞으로
+
+// 1인칭 토글 조준 시 총 위치 오프셋 (카메라 로컬 좌표 기준)
+const AIM_WEAPON_OFFSET_X = 0;       // 화면 중앙
+const AIM_WEAPON_OFFSET_Y = -0.4;   // 약간 아래
+const AIM_WEAPON_OFFSET_Z = -0.5;    // 카메라 앞쪽
+
+// 1인칭 토글 조준 시 총 각도 오프셋 (라디안)
+const AIM_WEAPON_ROT_X = Math.PI / 22;          // 위아래 기울기
+const AIM_WEAPON_ROT_Y = -Math.PI /2;    // 좌우 회전 (180도 = 카메라 방향)
+const AIM_WEAPON_ROT_Z = Math.PI /2; // 롤 회전 (90도)
 
 // 1인칭 시점에서 풀암 모델 애니메이션 매핑 (메인 애니메이션 → 풀암 애니메이션)
 const FPS_ARMS_ANIM_MAP: Record<string, string> = {
@@ -173,7 +187,7 @@ export function GunPlayer() {
     transitioning: false,
   });
 
-  const mouseRef = useRef({ firing: false, aiming: false });
+  const mouseRef = useRef({ firing: false, aiming: false, aimingToggle: false, prevRightClick: false });
   const input = useInput();
 
   // Store selectors (개별 구독으로 최적화)
@@ -381,6 +395,16 @@ export function GunPlayer() {
     scene.visible = !isFirstPerson;  // 3인칭: 전체 캐릭터 표시
     armsScene.visible = isFirstPerson;  // 1인칭: 풀암 모델만 표시
 
+    // 1인칭 토글 조준 처리 (우클릭 한 번으로 ON/OFF)
+    if (isFirstPerson && mouse.aiming && !mouse.prevRightClick) {
+      mouse.aimingToggle = !mouse.aimingToggle;
+    }
+    // 3인칭으로 전환하면 토글 해제
+    if (!isFirstPerson) {
+      mouse.aimingToggle = false;
+    }
+    mouse.prevRightClick = mouse.aiming;
+
     // 시점 변경 감지 시 풀암 애니메이션 업데이트
     if (s.prevViewMode !== store.viewMode && s.currentAnim) {
       s.prevViewMode = store.viewMode;
@@ -521,11 +545,29 @@ export function GunPlayer() {
 
     // 1인칭용 총 (풀암 손에 붙음, 나만 봄)
     if (fpsWeaponRef.current && armsRightHandBone.current) {
-      armsRightHandBone.current.getWorldPosition(fpsWeaponRef.current.position);
-      armsRightHandBone.current.getWorldQuaternion(fpsWeaponRef.current.quaternion);
-      _weaponOffset.set(cfg.position[0], cfg.position[1], cfg.position[2]);
-      _weaponOffset.applyQuaternion(fpsWeaponRef.current.quaternion);
-      fpsWeaponRef.current.position.add(_weaponOffset);
+      // 토글 조준 중일 때: 카메라에 고정
+      if (isFirstPerson && mouse.aimingToggle) {
+        const camera = state.camera;
+        // 카메라 로컬 좌표계 기준으로 총 위치 계산
+        _aimWeaponTarget.set(AIM_WEAPON_OFFSET_X, AIM_WEAPON_OFFSET_Y, AIM_WEAPON_OFFSET_Z);
+        _aimWeaponTarget.applyQuaternion(camera.quaternion);
+        _aimWeaponTarget.add(camera.position);
+
+        // 총 각도 계산 (카메라 회전 + 오프셋 회전)
+        _aimRotationOffset.setFromEuler(new THREE.Euler(AIM_WEAPON_ROT_X, AIM_WEAPON_ROT_Y, AIM_WEAPON_ROT_Z));
+        _aimWeaponQuat.copy(camera.quaternion).multiply(_aimRotationOffset);
+
+        // 카메라에 고정 (즉시 따라감)
+        fpsWeaponRef.current.position.copy(_aimWeaponTarget);
+        fpsWeaponRef.current.quaternion.copy(_aimWeaponQuat);
+      } else {
+        // 일반 상태: 풀암 손에 붙음
+        armsRightHandBone.current.getWorldPosition(fpsWeaponRef.current.position);
+        armsRightHandBone.current.getWorldQuaternion(fpsWeaponRef.current.quaternion);
+        _weaponOffset.set(cfg.position[0], cfg.position[1], cfg.position[2]);
+        _weaponOffset.applyQuaternion(fpsWeaponRef.current.quaternion);
+        fpsWeaponRef.current.position.add(_weaponOffset);
+      }
       fpsWeaponRef.current.visible = isFirstPerson;  // 3인칭이면 숨김
     }
 
