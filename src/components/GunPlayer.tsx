@@ -118,7 +118,7 @@ const WEAPON_CONFIGS: Record<string, WeaponConfig> = {
     rotation: new THREE.Euler(deg(0), deg(180), deg(80)),
     position: [0, 0.15, 0],
     flashPosition: [0, 145, 0],
-    flashSpeed: 30,
+    flashSpeed: 60,
   },
   shotgun: {
     rotation: new THREE.Euler(deg(0), deg(180), deg(80)),
