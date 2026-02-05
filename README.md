@@ -1,73 +1,102 @@
-# React + TypeScript + Vite
+# GameForge - 3D FPS/TPS 게임
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+React Three Fiber 기반의 3D 슈팅 게임 프로젝트입니다.
 
-Currently, two official plugins are available:
+## 기술 스택
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+- **React 18** + **TypeScript**
+- **Three.js** / **React Three Fiber** - 3D 렌더링
+- **Zustand** - 상태 관리
+- **Vite** - 빌드 도구
 
-## React Compiler
+## 주요 기능
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+### 캐릭터 시스템
+- **1인칭 / 3인칭 시점 전환**
+- **자세 변경**: 서기, 앉기(C), 엎드리기(Z)
+- **이동**: WASD 이동, Shift 달리기
+- **점프**: Space
 
-## Expanding the ESLint configuration
+### 조준 시스템
+- **토글 조준**: 우클릭 짧게 → 조준 상태 유지 (달리기/점프 시 자동 해제)
+- **홀드 조준**: 우클릭 길게 누르기 → 누르는 동안만 조준
+- **3인칭 토글 조준**: 3인칭에서 토글 조준 시 1인칭 시야로 전환
+- **시점별 독립 오프셋**: 1인칭/3인칭 각각 다른 카메라 설정
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+### 무기 시스템
+- **무기 종류**: 라이플, 샷건, 스나이퍼
+- **무기별 발사 속도**: 라이플(20발/초), 샷건(2발/초), 스나이퍼(1발/초)
+- **총 반동 효과**: 토글 조준 시 발사 반동 적용
+- **총구 플래시**: PointLight + Sprite 기반 시각 효과
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+### 발사 이펙트 시스템
+- **투사체 시스템**: 실제 총알이 총구에서 발사되어 비행
+- **충돌 감지**: 총알 비행 중 실시간 레이캐스트 충돌 감지
+- **히트 스파크**: 충돌 지점에 파티클 이펙트
+- **탄흔 데칼**: 충돌 표면에 탄흔 텍스처 (8초 후 페이드 아웃)
+- **조준점 보정**: 크로스헤어(+) 위치로 정확히 발사
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+### 카메라 시스템
+- **3인칭 팔로우 카메라**: 캐릭터 뒤에서 부드럽게 따라감
+- **3인칭 자유 카메라**: 마우스 휠로 거리 조절
+- **1인칭 카메라**: 캐릭터 눈 높이에서 시점
+- **자세별 카메라 높이**: 서기/앉기/엎드리기 각각 다른 눈 높이
+- **이동 방향 보정**: 크로스헤어 방향으로 WASD 이동
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+### 성능 최적화
+- **오브젝트 풀링**: 총알(20), 탄흔(50), 스파크(30) 재사용
+- **GC 방지**: 재사용 가능한 THREE.js 객체 (Vector3, Quaternion 등)
+- **삼각함수 캐싱**: 동일 angle에 대한 sin/cos 재계산 방지
+- **레이캐스트 타겟 캐싱**: 500ms 간격으로 씬 순회
+- **조건부 업데이트**: 활성 객체가 없을 때 로직 스킵
+
+## 조작법
+
+| 키 | 동작 |
+|---|---|
+| W/A/S/D | 이동 |
+| Shift | 달리기 |
+| Space | 점프 |
+| C | 앉기/서기 |
+| Z | 엎드리기/서기 |
+| 좌클릭 | 발사 |
+| 우클릭 (짧게) | 토글 조준 |
+| 우클릭 (길게) | 홀드 조준 |
+| 마우스 휠 | 카메라 거리 조절 (자유 모드) |
+
+## 프로젝트 구조
+
+```
+src/
+├── components/
+│   ├── Camera.tsx          # 카메라 컨트롤
+│   ├── GunPlayer.tsx       # 플레이어 캐릭터 및 무기
+│   ├── Ground.tsx          # 지형
+│   └── effects/
+│       ├── BulletEffects.tsx   # 이펙트 매니저
+│       ├── TracerLine.tsx      # 총알 투사체
+│       ├── BulletDecal.tsx     # 탄흔 데칼
+│       └── HitSpark.tsx        # 히트 스파크 파티클
+├── hooks/
+│   └── useInput.ts         # 키보드 입력 훅
+├── store/
+│   └── gameStore.ts        # Zustand 상태 관리
+└── App.tsx                 # 메인 앱
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+## 실행 방법
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+```bash
+# 의존성 설치
+npm install
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+# 개발 서버 실행
+npm run dev
+
+# 프로덕션 빌드
+npm run build
 ```
+
+## 라이선스
+
+MIT License
