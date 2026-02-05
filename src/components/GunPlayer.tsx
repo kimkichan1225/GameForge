@@ -22,7 +22,6 @@ const _targetQuat = new THREE.Quaternion();
 const _weaponOffset = new THREE.Vector3();
 const _armsOffset = new THREE.Vector3();
 const _armsRotation = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI);
-const _aimWeaponPos = new THREE.Vector3();
 const _aimWeaponTarget = new THREE.Vector3();
 const _aimWeaponQuat = new THREE.Quaternion();
 const _aimRotationOffset = new THREE.Quaternion();
@@ -118,7 +117,7 @@ const WEAPON_CONFIGS: Record<string, WeaponConfig> = {
     rotation: new THREE.Euler(deg(0), deg(180), deg(80)),
     position: [0, 0.15, 0],
     flashPosition: [0, 145, 0],
-    flashSpeed: 60,
+    flashSpeed: 30,
   },
   shotgun: {
     rotation: new THREE.Euler(deg(0), deg(180), deg(80)),
@@ -277,17 +276,19 @@ export function GunPlayer() {
     };
   }, []);
 
-  // 본 탐색 (한 번만)
+  // 본 탐색 및 플레이어 마킹 (한 번만)
   useEffect(() => {
-    // 메인 캐릭터 본 탐색
+    // 메인 캐릭터 본 탐색 및 isPlayer 마킹
     scene.traverse((obj) => {
+      obj.userData.isPlayer = true;  // 레이캐스트 제외용
       if (obj instanceof THREE.Bone) {
         if (obj.name === 'mixamorigHead') headBone.current = obj;
         else if (obj.name === 'mixamorigRightHand') rightHandBone.current = obj;
       }
     });
-    // 풀암 모델 본 탐색
+    // 풀암 모델 본 탐색 및 isPlayer 마킹
     armsScene.traverse((obj) => {
+      obj.userData.isPlayer = true;  // 레이캐스트 제외용
       if (obj instanceof THREE.Bone) {
         if (obj.name === 'mixamorigRightHand') armsRightHandBone.current = obj;
       }
@@ -801,6 +802,7 @@ export function GunPlayer() {
     const cfg = WEAPON_CONFIGS[weaponType];
     const model = fbx.clone();
     model.traverse((child) => {
+      child.userData.isPlayer = true;  // 레이캐스트 제외용
       if (child instanceof THREE.Mesh) child.material = GUN_MATERIAL;
     });
     model.rotation.copy(cfg.rotation);
@@ -813,6 +815,7 @@ export function GunPlayer() {
     const cfg = WEAPON_CONFIGS[weaponType];
     const model = fbx.clone();
     model.traverse((child) => {
+      child.userData.isPlayer = true;  // 레이캐스트 제외용
       if (child instanceof THREE.Mesh) child.material = GUN_MATERIAL;
     });
     model.rotation.copy(cfg.rotation);

@@ -5,6 +5,7 @@ import { GunPlayer } from './components/GunPlayer';
 import { Camera } from './components/Camera';
 import { Ground } from './components/Ground';
 import { UI } from './components/UI';
+import { BulletEffects } from './components/effects/BulletEffects';
 import { useGameStore } from './store/gameStore';
 import './index.css';
 
@@ -31,6 +32,7 @@ function Scene() {
       <Suspense fallback={null}>
         <PlayerSelector />
         <Camera />
+        <BulletEffects />
       </Suspense>
     </>
   );
