@@ -51,6 +51,24 @@ const _offset = new THREE.Vector3();
 const _targetCamPos = new THREE.Vector3();
 const _headPos = new THREE.Vector3();
 
+// 삼각함수 캐시 (angle 기반)
+let _cachedAngle = 0;
+let _sinAngle = 0;
+let _cosAngle = 0;
+let _sinAngleRight = 0;  // angle - PI/2
+let _cosAngleRight = 0;
+
+function updateTrigCache(angle: number) {
+  if (angle !== _cachedAngle) {
+    _cachedAngle = angle;
+    _sinAngle = Math.sin(angle);
+    _cosAngle = Math.cos(angle);
+    const rightAngle = angle - Math.PI / 2;
+    _sinAngleRight = Math.sin(rightAngle);
+    _cosAngleRight = Math.cos(rightAngle);
+  }
+}
+
 export function Camera() {
   const { camera, gl } = useThree();
 
@@ -181,6 +199,9 @@ export function Camera() {
     const pitch = pitchRef.current;
     const angle = angleRef.current;
 
+    // 삼각함수 캐시 업데이트
+    updateTrigCache(angle);
+
     // 1인칭 모드 또는 토글 조준 시 1인칭 카메라 사용
     const useFpsCamera = store.viewMode === 'firstPerson' || store.isToggleAiming;
     // 3인칭에서 토글 조준 시 별도 처리
@@ -197,8 +218,7 @@ export function Camera() {
       }
 
       // 눈 높이 부드럽게 전환 (lerp)
-      const eyeHeightLerpSpeed = 0.08;
-      currentEyeHeight.current += (targetEyeHeight - currentEyeHeight.current) * eyeHeightLerpSpeed;
+      currentEyeHeight.current += (targetEyeHeight - currentEyeHeight.current) * 0.08;
 
       const eyeHeight = currentEyeHeight.current;
 
@@ -207,27 +227,27 @@ export function Camera() {
       const offsetUp = isTpsToggleAim ? TPS_TOGGLE_AIM_OFFSET_UP : 0.5;
       const offsetRight = isTpsToggleAim ? TPS_TOGGLE_AIM_OFFSET_RIGHT : 0;
 
-      // 카메라 위치: 플레이어 눈 위치 + 오프셋
+      // 카메라 위치: 플레이어 눈 위치 + 오프셋 (캐시된 삼각함수 사용)
       _targetCamPos.set(
-        _targetPos.x - Math.sin(angle) * offsetBack + Math.sin(angle - Math.PI / 2) * offsetRight,
+        _targetPos.x - _sinAngle * offsetBack + _sinAngleRight * offsetRight,
         _targetPos.y + eyeHeight + offsetUp,
-        _targetPos.z - Math.cos(angle) * offsetBack + Math.cos(angle - Math.PI / 2) * offsetRight
+        _targetPos.z - _cosAngle * offsetBack + _cosAngleRight * offsetRight
       );
 
       // 바라보는 방향 계산
+      const cosPitch = Math.cos(pitch);
+      const sinPitch = Math.sin(pitch);
       const lookDistance = 10;
       _headPos.set(
-        _targetPos.x - Math.sin(angle) * Math.cos(pitch) * lookDistance,
-        _targetPos.y + eyeHeight - Math.sin(pitch) * lookDistance,
-        _targetPos.z - Math.cos(angle) * Math.cos(pitch) * lookDistance
+        _targetPos.x - _sinAngle * cosPitch * lookDistance,
+        _targetPos.y + eyeHeight - sinPitch * lookDistance,
+        _targetPos.z - _cosAngle * cosPitch * lookDistance
       );
 
       // 3인칭 토글 조준 시 바라보는 지점 오프셋 적용
       if (isTpsToggleAim) {
-        // 오른쪽 방향으로 오프셋
-        _headPos.x += Math.sin(angle - Math.PI / 2) * TPS_TOGGLE_AIM_LOOK_RIGHT;
-        _headPos.z += Math.cos(angle - Math.PI / 2) * TPS_TOGGLE_AIM_LOOK_RIGHT;
-        // 위로 오프셋
+        _headPos.x += _sinAngleRight * TPS_TOGGLE_AIM_LOOK_RIGHT;
+        _headPos.z += _cosAngleRight * TPS_TOGGLE_AIM_LOOK_RIGHT;
         _headPos.y += TPS_TOGGLE_AIM_LOOK_UP;
       }
 
@@ -257,11 +277,13 @@ export function Camera() {
       }
     }
 
-    // 구면 좌표계로 카메라 위치 계산
+    // 구면 좌표계로 카메라 위치 계산 (캐시된 삼각함수 사용)
+    const cosPitch = Math.cos(pitch);
+    const sinPitch = Math.sin(pitch);
     _offset.set(
-      Math.sin(angle) * Math.cos(pitch) * distance,
-      Math.sin(pitch) * distance + cameraHeight,
-      Math.cos(angle) * Math.cos(pitch) * distance
+      _sinAngle * cosPitch * distance,
+      sinPitch * distance + cameraHeight,
+      _cosAngle * cosPitch * distance
     );
 
     _targetCamPos.copy(_targetPos).add(_offset);
@@ -295,11 +317,9 @@ export function Camera() {
       const lookOffsetRight = isAiming.current ? AIM_LOOK_OFFSET_RIGHT : TPS_LOOK_OFFSET_RIGHT;
       const lookOffsetUp = isAiming.current ? AIM_LOOK_OFFSET_UP : TPS_LOOK_OFFSET_UP;
 
-      // 오른쪽 방향 계산 (카메라 기준)
-      const rightX = Math.sin(angle - Math.PI / 2) * lookOffsetRight;
-      const rightZ = Math.cos(angle - Math.PI / 2) * lookOffsetRight;
-      _headPos.x += rightX;
-      _headPos.z += rightZ;
+      // 오른쪽 방향 계산 (캐시된 삼각함수 사용)
+      _headPos.x += _sinAngleRight * lookOffsetRight;
+      _headPos.z += _cosAngleRight * lookOffsetRight;
       _headPos.y += lookOffsetUp;
     }
 

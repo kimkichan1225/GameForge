@@ -26,6 +26,9 @@ const _aimWeaponTarget = new THREE.Vector3();
 const _aimWeaponQuat = new THREE.Quaternion();
 const _aimRotationOffset = new THREE.Quaternion();
 const _muzzleWorldPos = new THREE.Vector3();
+const _armsTargetPos = new THREE.Vector3();
+const _armsTargetQuat = new THREE.Quaternion();
+const _recoilEuler = new THREE.Euler();
 
 // 풀암 모델 오프셋 (카메라 로컬 좌표 기준)
 // x: 오른쪽(+)/왼쪽(-), y: 위(+)/아래(-), z: 뒤(+)/앞(-)
@@ -561,13 +564,13 @@ export function GunPlayer() {
       const targetOffsetY = mouse.aimingToggle ? baseOffsetY + AIM_ARMS_OFFSET_Y : baseOffsetY;
       const targetOffsetZ = mouse.aimingToggle ? baseOffsetZ + AIM_ARMS_OFFSET_Z : baseOffsetZ;
 
-      // 목표 위치 계산
+      // 목표 위치 계산 (재사용 객체 사용)
       _armsOffset.set(targetOffsetX, targetOffsetY, targetOffsetZ);
       _armsOffset.applyQuaternion(camera.quaternion);
-      const targetPos = camera.position.clone().add(_armsOffset);
+      _armsTargetPos.copy(camera.position).add(_armsOffset);
 
-      // 목표 회전 계산
-      const targetQuat = camera.quaternion.clone().multiply(_armsRotation);
+      // 목표 회전 계산 (재사용 객체 사용)
+      _armsTargetQuat.copy(camera.quaternion).multiply(_armsRotation);
 
       // 토글 전환 중일 때만 부드럽게, 그 외에는 즉시 따라감
       const isTransitioning = mouse.aimTransitionTimer < transitionDuration && mouse.aimTransitionTimer > 0;
@@ -575,12 +578,12 @@ export function GunPlayer() {
       if (isTransitioning) {
         // 전환 중: 부드럽게 이동
         const t = mouse.aimTransitionTimer / transitionDuration;
-        armsGroup.current.position.lerp(targetPos, t * 0.3 + 0.1);
-        armsGroup.current.quaternion.slerp(targetQuat, t * 0.3 + 0.1);
+        armsGroup.current.position.lerp(_armsTargetPos, t * 0.3 + 0.1);
+        armsGroup.current.quaternion.slerp(_armsTargetQuat, t * 0.3 + 0.1);
       } else {
         // 평상시/전환 완료: 카메라에 고정 (즉시 따라감)
-        armsGroup.current.position.copy(targetPos);
-        armsGroup.current.quaternion.copy(targetQuat);
+        armsGroup.current.position.copy(_armsTargetPos);
+        armsGroup.current.quaternion.copy(_armsTargetQuat);
       }
     }
 
@@ -726,7 +729,8 @@ export function GunPlayer() {
 
         // 총 각도 계산 (카메라 회전 + 오프셋 회전 + 반동 회전)
         const recoilRotX = AIM_WEAPON_ROT_X - mouse.recoilY * 2;  // 위로 튀면 총구가 위로
-        _aimRotationOffset.setFromEuler(new THREE.Euler(recoilRotX, AIM_WEAPON_ROT_Y, AIM_WEAPON_ROT_Z));
+        _recoilEuler.set(recoilRotX, AIM_WEAPON_ROT_Y, AIM_WEAPON_ROT_Z);
+        _aimRotationOffset.setFromEuler(_recoilEuler);
         _aimWeaponQuat.copy(camera.quaternion).multiply(_aimRotationOffset);
 
         // 전환 타이머 업데이트
