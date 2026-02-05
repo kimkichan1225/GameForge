@@ -212,6 +212,10 @@ export function GunPlayer() {
     rightClickStartTime: 0,   // 우클릭 시작 시간
     rightClickHandled: false, // 이번 클릭 처리 완료 여부
     aimTransitionTimer: 0,
+    recoilX: 0,               // 반동 X (좌우)
+    recoilY: 0,               // 반동 Y (위아래)
+    recoilZ: 0,               // 반동 Z (앞뒤)
+    lastFireTime: 0,          // 마지막 발사 시간
   });
   const input = useInput();
 
@@ -653,13 +657,35 @@ export function GunPlayer() {
       // 토글 조준 중일 때: 부드럽게 이동 후 카메라에 고정
       if (isFirstPerson && mouse.aimingToggle) {
         const camera = state.camera;
-        // 카메라 로컬 좌표계 기준으로 총 위치 계산
-        _aimWeaponTarget.set(AIM_WEAPON_OFFSET_X, AIM_WEAPON_OFFSET_Y, AIM_WEAPON_OFFSET_Z);
+
+        // 반동 처리 (좌클릭 시)
+        const now = performance.now();
+        const fireInterval = 1000 / (cfg.flashSpeed / 2);  // 발사 간격
+        if (mouse.firing && now - mouse.lastFireTime > fireInterval) {
+          // 반동 추가 (위로 튀고 랜덤 좌우 흔들림)
+          mouse.recoilY = Math.random() * 0.02;
+          mouse.recoilX = (Math.random() - 0.5) * 0.02;
+          mouse.recoilZ = 0.05 + Math.random() * 0.02;
+          mouse.lastFireTime = now;
+        }
+
+        // 반동 감쇠 (부드럽게 원위치로)
+        mouse.recoilX *= 0.85;
+        mouse.recoilY *= 0.85;
+        mouse.recoilZ *= 0.85;
+
+        // 카메라 로컬 좌표계 기준으로 총 위치 계산 (반동 적용)
+        _aimWeaponTarget.set(
+          AIM_WEAPON_OFFSET_X + mouse.recoilX,
+          AIM_WEAPON_OFFSET_Y + mouse.recoilY,
+          AIM_WEAPON_OFFSET_Z + mouse.recoilZ
+        );
         _aimWeaponTarget.applyQuaternion(camera.quaternion);
         _aimWeaponTarget.add(camera.position);
 
-        // 총 각도 계산 (카메라 회전 + 오프셋 회전)
-        _aimRotationOffset.setFromEuler(new THREE.Euler(AIM_WEAPON_ROT_X, AIM_WEAPON_ROT_Y, AIM_WEAPON_ROT_Z));
+        // 총 각도 계산 (카메라 회전 + 오프셋 회전 + 반동 회전)
+        const recoilRotX = AIM_WEAPON_ROT_X - mouse.recoilY * 2;  // 위로 튀면 총구가 위로
+        _aimRotationOffset.setFromEuler(new THREE.Euler(recoilRotX, AIM_WEAPON_ROT_Y, AIM_WEAPON_ROT_Z));
         _aimWeaponQuat.copy(camera.quaternion).multiply(_aimRotationOffset);
 
         // 전환 타이머 업데이트
