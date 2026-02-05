@@ -187,7 +187,15 @@ export function GunPlayer() {
     transitioning: false,
   });
 
-  const mouseRef = useRef({ firing: false, aiming: false, aimingToggle: false, prevRightClick: false, aimTransitionTimer: 0 });
+  const mouseRef = useRef({
+    firing: false,
+    aiming: false,
+    aimingToggle: false,      // 토글 조준 상태
+    aimingHold: false,        // 홀드 조준 상태
+    rightClickStartTime: 0,   // 우클릭 시작 시간
+    rightClickHandled: false, // 이번 클릭 처리 완료 여부
+    aimTransitionTimer: 0,
+  });
   const input = useInput();
 
   // Store selectors (개별 구독으로 최적화)
@@ -395,17 +403,50 @@ export function GunPlayer() {
     scene.visible = !isFirstPerson;  // 3인칭: 전체 캐릭터 표시
     armsScene.visible = isFirstPerson;  // 1인칭: 풀암 모델만 표시
 
-    // 1인칭 토글 조준 처리 (우클릭 한 번으로 ON/OFF)
-    if (isFirstPerson && mouse.aiming && !mouse.prevRightClick) {
-      mouse.aimingToggle = !mouse.aimingToggle;
-      mouse.aimTransitionTimer = 0;  // 토글 시 전환 시작
+    // 1인칭 조준 처리 (짧게 = 토글, 길게 = 홀드)
+    const holdThreshold = 0.2;  // 홀드 판정 시간 (초)
+
+    if (isFirstPerson) {
+      if (mouse.aiming) {
+        // 우클릭 시작
+        if (mouse.rightClickStartTime === 0) {
+          mouse.rightClickStartTime = performance.now() / 1000;
+          mouse.rightClickHandled = false;
+        }
+
+        // 홀드 판정 (길게 누르고 있음)
+        const holdTime = (performance.now() / 1000) - mouse.rightClickStartTime;
+        if (holdTime >= holdThreshold && !mouse.rightClickHandled) {
+          mouse.aimingHold = true;
+          mouse.rightClickHandled = true;  // 이번 클릭은 홀드로 처리됨
+        }
+      } else {
+        // 우클릭 뗌
+        if (mouse.rightClickStartTime > 0) {
+          const holdTime = (performance.now() / 1000) - mouse.rightClickStartTime;
+
+          if (!mouse.rightClickHandled && holdTime < holdThreshold) {
+            // 짧게 눌렀다 뗌 → 토글
+            mouse.aimingToggle = !mouse.aimingToggle;
+            mouse.aimTransitionTimer = 0;
+          }
+
+          // 홀드 해제
+          mouse.aimingHold = false;
+          mouse.rightClickStartTime = 0;
+          mouse.rightClickHandled = false;
+        }
+      }
     }
-    // 3인칭으로 전환하면 토글 해제
+
+    // 3인칭으로 전환하면 조준 해제
     if (!isFirstPerson) {
       mouse.aimingToggle = false;
+      mouse.aimingHold = false;
       mouse.aimTransitionTimer = 0;
+      mouse.rightClickStartTime = 0;
+      mouse.rightClickHandled = false;
     }
-    mouse.prevRightClick = mouse.aiming;
 
     // 시점 변경 감지 시 풀암 애니메이션 업데이트
     if (s.prevViewMode !== store.viewMode && s.currentAnim) {
