@@ -151,8 +151,9 @@ export function Camera() {
     const pitch = pitchRef.current;
     const angle = angleRef.current;
 
-    // 1인칭 모드
-    if (store.gameMode === 'gunGame' && store.viewMode === 'firstPerson') {
+    // 1인칭 모드 또는 토글 조준 시 1인칭 카메라 사용
+    const useFpsCamera = store.viewMode === 'firstPerson' || store.isToggleAiming;
+    if (store.gameMode === 'gunGame' && useFpsCamera) {
       // 자세별 목표 눈 높이
       let targetEyeHeight = FPS_EYE_HEIGHT_STANDING;
       const posture = store.posture;

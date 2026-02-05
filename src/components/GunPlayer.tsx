@@ -223,6 +223,7 @@ export function GunPlayer() {
     currentAnim: '',
     currentArmsAnim: '',
     prevViewMode: useGameStore.getState().viewMode,
+    prevToggleAiming: false,  // 이전 토글 조준 상태
     prevSpace: false,
     prevC: false,
     prevZ: false,
@@ -364,9 +365,10 @@ export function GunPlayer() {
 
     action.reset().fadeIn(0.2).play();
 
-    // 풀암 모델 애니메이션 재생 (1인칭 시점에서는 다른 애니메이션 사용)
-    const isFirstPerson = useGameStore.getState().viewMode === 'firstPerson';
-    const armsAnimName = isFirstPerson ? (FPS_ARMS_ANIM_MAP[name] || name) : name;
+    // 풀암 모델 애니메이션 재생 (1인칭 또는 토글 조준 시점에서는 다른 애니메이션 사용)
+    const store = useGameStore.getState();
+    const useFpsAnim = store.viewMode === 'firstPerson' || store.isToggleAiming;
+    const armsAnimName = useFpsAnim ? (FPS_ARMS_ANIM_MAP[name] || name) : name;
 
     // 풀암 애니메이션이 같으면 다시 재생하지 않음
     if (s.currentArmsAnim === armsAnimName) {
@@ -453,8 +455,10 @@ export function GunPlayer() {
 
     // 1인칭/3인칭 모드에 따라 모델 전환
     const isFirstPerson = store.viewMode === 'firstPerson';
-    scene.visible = !isFirstPerson;  // 3인칭: 전체 캐릭터 표시
-    armsScene.visible = isFirstPerson;  // 1인칭: 풀암 모델만 표시
+    // 토글 조준 시에는 3인칭이어도 1인칭처럼 보임
+    const showFpsView = isFirstPerson || mouse.aimingToggle;
+    scene.visible = !showFpsView;  // 토글 조준 또는 1인칭이면 전체 캐릭터 숨김
+    armsScene.visible = showFpsView;  // 토글 조준 또는 1인칭이면 풀암 모델 표시
 
     // 1인칭 조준 처리 (짧게 = 토글, 길게 = 홀드)
     const holdThreshold = 0.2;  // 홀드 판정 시간 (초)
@@ -465,6 +469,7 @@ export function GunPlayer() {
     if (isRunning && mouse.aimingToggle) {
       mouse.aimingToggle = false;
       mouse.aimTransitionTimer = 0;
+      store.setIsToggleAiming(false);
     }
 
     // 점프 중(공중)이면 토글/홀드 조준 해제
@@ -472,55 +477,50 @@ export function GunPlayer() {
       mouse.aimingToggle = false;
       mouse.aimingHold = false;
       mouse.aimTransitionTimer = 0;
+      store.setIsToggleAiming(false);
     }
 
-    if (isFirstPerson) {
-      if (mouse.aiming) {
-        // 우클릭 시작
-        if (mouse.rightClickStartTime === 0) {
-          mouse.rightClickStartTime = performance.now() / 1000;
-          mouse.rightClickHandled = false;
-        }
+    // 조준 처리 (1인칭/3인칭 공통 - 짧게 = 토글, 길게 = 홀드)
+    if (mouse.aiming) {
+      // 우클릭 시작
+      if (mouse.rightClickStartTime === 0) {
+        mouse.rightClickStartTime = performance.now() / 1000;
+        mouse.rightClickHandled = false;
+      }
 
-        // 홀드 판정 (길게 누르고 있음) - Run/점프 상태에서는 홀드 안 됨
+      // 홀드 판정 (길게 누르고 있음) - Run/점프 상태에서는 홀드 안 됨
+      const holdTime = (performance.now() / 1000) - mouse.rightClickStartTime;
+      if (holdTime >= holdThreshold && !mouse.rightClickHandled && !isRunning && s.grounded) {
+        mouse.aimingHold = true;
+        mouse.rightClickHandled = true;  // 이번 클릭은 홀드로 처리됨
+      }
+    } else {
+      // 우클릭 뗌
+      if (mouse.rightClickStartTime > 0) {
         const holdTime = (performance.now() / 1000) - mouse.rightClickStartTime;
-        if (holdTime >= holdThreshold && !mouse.rightClickHandled && !isRunning && s.grounded) {
-          mouse.aimingHold = true;
-          mouse.rightClickHandled = true;  // 이번 클릭은 홀드로 처리됨
-        }
-      } else {
-        // 우클릭 뗌
-        if (mouse.rightClickStartTime > 0) {
-          const holdTime = (performance.now() / 1000) - mouse.rightClickStartTime;
 
-          // 짧게 눌렀다 뗌 → 토글 (Run/점프 상태에서는 토글 안 됨)
-          if (!mouse.rightClickHandled && holdTime < holdThreshold && !isRunning && s.grounded) {
-            mouse.aimingToggle = !mouse.aimingToggle;
-            mouse.aimTransitionTimer = 0;
-          }
-
-          // 홀드 해제
-          mouse.aimingHold = false;
-          mouse.rightClickStartTime = 0;
-          mouse.rightClickHandled = false;
+        // 짧게 눌렀다 뗌 → 토글 (Run/점프 상태에서는 토글 안 됨)
+        if (!mouse.rightClickHandled && holdTime < holdThreshold && !isRunning && s.grounded) {
+          mouse.aimingToggle = !mouse.aimingToggle;
+          mouse.aimTransitionTimer = 0;
+          // 토글 상태를 store에 공유 (Camera에서 사용)
+          store.setIsToggleAiming(mouse.aimingToggle);
         }
+
+        // 홀드 해제
+        mouse.aimingHold = false;
+        mouse.rightClickStartTime = 0;
+        mouse.rightClickHandled = false;
       }
     }
 
-    // 3인칭으로 전환하면 조준 해제
-    if (!isFirstPerson) {
-      mouse.aimingToggle = false;
-      mouse.aimingHold = false;
-      mouse.aimTransitionTimer = 0;
-      mouse.rightClickStartTime = 0;
-      mouse.rightClickHandled = false;
-    }
-
-    // 시점 변경 감지 시 풀암 애니메이션 업데이트
-    if (s.prevViewMode !== store.viewMode && s.currentAnim) {
+    // 시점 변경 또는 토글 조준 상태 변경 시 풀암 애니메이션 업데이트
+    const viewOrAimChanged = s.prevViewMode !== store.viewMode || s.prevToggleAiming !== mouse.aimingToggle;
+    if (viewOrAimChanged && s.currentAnim) {
       s.prevViewMode = store.viewMode;
+      s.prevToggleAiming = mouse.aimingToggle;
       const armsMap = armsAnimMapRef.current;
-      const armsAnimName = isFirstPerson ? (FPS_ARMS_ANIM_MAP[s.currentAnim] || s.currentAnim) : s.currentAnim;
+      const armsAnimName = showFpsView ? (FPS_ARMS_ANIM_MAP[s.currentAnim] || s.currentAnim) : s.currentAnim;
       const armsClipName = armsMap[armsAnimName];
       if (armsClipName && armsActions[armsClipName]) {
         // 이전 풀암 애니메이션 fadeOut
@@ -534,8 +534,8 @@ export function GunPlayer() {
       }
     }
 
-    // 1인칭 모드: 풀암 모델을 카메라에 고정
-    if (isFirstPerson && armsGroup.current) {
+    // 1인칭 모드 또는 토글 조준 시: 풀암 모델을 카메라에 고정
+    if (showFpsView && armsGroup.current) {
       const camera = state.camera;
       const transitionDuration = 0.2;  // 전환 시간 (총과 동일)
 
@@ -688,13 +688,13 @@ export function GunPlayer() {
       _weaponOffset.set(cfg.position[0], cfg.position[1], cfg.position[2]);
       _weaponOffset.applyQuaternion(tpsWeaponRef.current.quaternion);
       tpsWeaponRef.current.position.add(_weaponOffset);
-      tpsWeaponRef.current.visible = !isFirstPerson;  // 1인칭이면 숨김
+      tpsWeaponRef.current.visible = !showFpsView;  // 토글 조준 또는 1인칭이면 숨김
     }
 
     // 1인칭용 총 (풀암 손에 붙음, 나만 봄)
     if (fpsWeaponRef.current && armsRightHandBone.current) {
       // 토글 조준 중일 때: 부드럽게 이동 후 카메라에 고정
-      if (isFirstPerson && mouse.aimingToggle) {
+      if (showFpsView && mouse.aimingToggle) {
         const camera = state.camera;
 
         // 반동 처리 (좌클릭 시)
@@ -749,7 +749,7 @@ export function GunPlayer() {
         _weaponOffset.applyQuaternion(fpsWeaponRef.current.quaternion);
         fpsWeaponRef.current.position.add(_weaponOffset);
       }
-      fpsWeaponRef.current.visible = isFirstPerson;  // 3인칭이면 숨김
+      fpsWeaponRef.current.visible = showFpsView;  // 토글 조준 또는 1인칭이면 표시
     }
 
     // 총구 플래시 (1인칭/3인칭 모두)
@@ -762,20 +762,20 @@ export function GunPlayer() {
 
       // 현재 시점에 맞는 플래시만 활성화
       if (muzzleFlashRef.current) {
-        muzzleFlashRef.current.intensity = isFirstPerson ? flashIntensity : 0;
+        muzzleFlashRef.current.intensity = showFpsView ? flashIntensity : 0;
       }
       if (tpsMuzzleFlashRef.current) {
-        tpsMuzzleFlashRef.current.intensity = isFirstPerson ? 0 : flashIntensity;
+        tpsMuzzleFlashRef.current.intensity = showFpsView ? 0 : flashIntensity;
       }
 
       // 스프라이트 (시각적 플래시)
       if (fpsMuzzleSpriteRef.current) {
-        const scale = isFirstPerson ? spriteScale : 0;
+        const scale = showFpsView ? spriteScale : 0;
         fpsMuzzleSpriteRef.current.scale.set(scale, scale, 1);
         fpsMuzzleSpriteRef.current.material.rotation = Math.random() * Math.PI * 2;  // 랜덤 회전
       }
       if (tpsMuzzleSpriteRef.current) {
-        const scale = isFirstPerson ? 0 : spriteScale;
+        const scale = showFpsView ? 0 : spriteScale;
         tpsMuzzleSpriteRef.current.scale.set(scale, scale, 1);
         tpsMuzzleSpriteRef.current.material.rotation = Math.random() * Math.PI * 2;
       }
