@@ -29,9 +29,21 @@ const _aimRotationOffset = new THREE.Quaternion();
 
 // 풀암 모델 오프셋 (카메라 로컬 좌표 기준)
 // x: 오른쪽(+)/왼쪽(-), y: 위(+)/아래(-), z: 뒤(+)/앞(-)
-const ARMS_OFFSET_X = 0;      // 좌우
-const ARMS_OFFSET_Y = -2.2;   // 아래로
-const ARMS_OFFSET_Z = 0;    // 약간 앞으로
+
+// 서있을 때
+const ARMS_OFFSET_STANDING_X = 0;
+const ARMS_OFFSET_STANDING_Y = -2.2;
+const ARMS_OFFSET_STANDING_Z = 0;
+
+// 앉을 때
+const ARMS_OFFSET_SITTING_X = -0.3;
+const ARMS_OFFSET_SITTING_Y = -1.4;
+const ARMS_OFFSET_SITTING_Z = 0.4;
+
+// 엎드릴 때
+const ARMS_OFFSET_CRAWLING_X = 0;
+const ARMS_OFFSET_CRAWLING_Y = -0.7;
+const ARMS_OFFSET_CRAWLING_Z = 0;
 
 // 1인칭 토글 조준 시 총 위치 오프셋 (카메라 로컬 좌표 기준)
 const AIM_WEAPON_OFFSET_X = 0;       // 화면 중앙
@@ -484,10 +496,25 @@ export function GunPlayer() {
       const camera = state.camera;
       const transitionDuration = 0.2;  // 전환 시간 (총과 동일)
 
+      // 자세별 기본 오프셋 선택
+      let baseOffsetX = ARMS_OFFSET_STANDING_X;
+      let baseOffsetY = ARMS_OFFSET_STANDING_Y;
+      let baseOffsetZ = ARMS_OFFSET_STANDING_Z;
+
+      if (posture === 'sitting') {
+        baseOffsetX = ARMS_OFFSET_SITTING_X;
+        baseOffsetY = ARMS_OFFSET_SITTING_Y;
+        baseOffsetZ = ARMS_OFFSET_SITTING_Z;
+      } else if (posture === 'crawling') {
+        baseOffsetX = ARMS_OFFSET_CRAWLING_X;
+        baseOffsetY = ARMS_OFFSET_CRAWLING_Y;
+        baseOffsetZ = ARMS_OFFSET_CRAWLING_Z;
+      }
+
       // 목표 오프셋 계산 (토글 조준 시 추가 오프셋)
-      const targetOffsetX = mouse.aimingToggle ? ARMS_OFFSET_X + AIM_ARMS_OFFSET_X : ARMS_OFFSET_X;
-      const targetOffsetY = mouse.aimingToggle ? ARMS_OFFSET_Y + AIM_ARMS_OFFSET_Y : ARMS_OFFSET_Y;
-      const targetOffsetZ = mouse.aimingToggle ? ARMS_OFFSET_Z + AIM_ARMS_OFFSET_Z : ARMS_OFFSET_Z;
+      const targetOffsetX = mouse.aimingToggle ? baseOffsetX + AIM_ARMS_OFFSET_X : baseOffsetX;
+      const targetOffsetY = mouse.aimingToggle ? baseOffsetY + AIM_ARMS_OFFSET_Y : baseOffsetY;
+      const targetOffsetZ = mouse.aimingToggle ? baseOffsetZ + AIM_ARMS_OFFSET_Z : baseOffsetZ;
 
       // 목표 위치 계산
       _armsOffset.set(targetOffsetX, targetOffsetY, targetOffsetZ);

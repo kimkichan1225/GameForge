@@ -46,6 +46,7 @@ export function Camera() {
   const skipNextMove = useRef(false);
   const isAiming = useRef(false);
   const currentLookPos = useRef(new THREE.Vector3());
+  const currentEyeHeight = useRef(FPS_EYE_HEIGHT_STANDING);  // 현재 눈 높이 (부드러운 전환용)
 
   useEffect(() => {
     const canvas = gl.domElement;
@@ -152,14 +153,20 @@ export function Camera() {
 
     // 1인칭 모드
     if (store.gameMode === 'gunGame' && store.viewMode === 'firstPerson') {
-      // 자세별 눈 높이 계산
-      let eyeHeight = FPS_EYE_HEIGHT_STANDING;
+      // 자세별 목표 눈 높이
+      let targetEyeHeight = FPS_EYE_HEIGHT_STANDING;
       const posture = store.posture;
       if (posture === 'sitting') {
-        eyeHeight = FPS_EYE_HEIGHT_SITTING;
+        targetEyeHeight = FPS_EYE_HEIGHT_SITTING;
       } else if (posture === 'crawling') {
-        eyeHeight = FPS_EYE_HEIGHT_CRAWLING;
+        targetEyeHeight = FPS_EYE_HEIGHT_CRAWLING;
       }
+
+      // 눈 높이 부드럽게 전환 (lerp)
+      const eyeHeightLerpSpeed = 0.08;
+      currentEyeHeight.current += (targetEyeHeight - currentEyeHeight.current) * eyeHeightLerpSpeed;
+
+      const eyeHeight = currentEyeHeight.current;
 
       // 카메라 위치: 플레이어 눈 위치
       _targetCamPos.set(
