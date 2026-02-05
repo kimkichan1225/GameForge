@@ -187,7 +187,7 @@ export function GunPlayer() {
     transitioning: false,
   });
 
-  const mouseRef = useRef({ firing: false, aiming: false, aimingToggle: false, prevRightClick: false });
+  const mouseRef = useRef({ firing: false, aiming: false, aimingToggle: false, prevRightClick: false, aimTransitionTimer: 0 });
   const input = useInput();
 
   // Store selectors (개별 구독으로 최적화)
@@ -398,10 +398,12 @@ export function GunPlayer() {
     // 1인칭 토글 조준 처리 (우클릭 한 번으로 ON/OFF)
     if (isFirstPerson && mouse.aiming && !mouse.prevRightClick) {
       mouse.aimingToggle = !mouse.aimingToggle;
+      mouse.aimTransitionTimer = 0;  // 토글 시 전환 시작
     }
     // 3인칭으로 전환하면 토글 해제
     if (!isFirstPerson) {
       mouse.aimingToggle = false;
+      mouse.aimTransitionTimer = 0;
     }
     mouse.prevRightClick = mouse.aiming;
 
@@ -545,7 +547,7 @@ export function GunPlayer() {
 
     // 1인칭용 총 (풀암 손에 붙음, 나만 봄)
     if (fpsWeaponRef.current && armsRightHandBone.current) {
-      // 토글 조준 중일 때: 카메라에 고정
+      // 토글 조준 중일 때: 부드럽게 이동 후 카메라에 고정
       if (isFirstPerson && mouse.aimingToggle) {
         const camera = state.camera;
         // 카메라 로컬 좌표계 기준으로 총 위치 계산
@@ -557,9 +559,20 @@ export function GunPlayer() {
         _aimRotationOffset.setFromEuler(new THREE.Euler(AIM_WEAPON_ROT_X, AIM_WEAPON_ROT_Y, AIM_WEAPON_ROT_Z));
         _aimWeaponQuat.copy(camera.quaternion).multiply(_aimRotationOffset);
 
-        // 카메라에 고정 (즉시 따라감)
-        fpsWeaponRef.current.position.copy(_aimWeaponTarget);
-        fpsWeaponRef.current.quaternion.copy(_aimWeaponQuat);
+        // 전환 타이머 업데이트
+        mouse.aimTransitionTimer += dt;
+        const transitionDuration = 0.2;  // 전환 시간 (초)
+
+        if (mouse.aimTransitionTimer >= transitionDuration) {
+          // 전환 완료: 카메라에 고정 (즉시 따라감)
+          fpsWeaponRef.current.position.copy(_aimWeaponTarget);
+          fpsWeaponRef.current.quaternion.copy(_aimWeaponQuat);
+        } else {
+          // 전환 중: 부드럽게 이동
+          const t = mouse.aimTransitionTimer / transitionDuration;
+          fpsWeaponRef.current.position.lerp(_aimWeaponTarget, t * 0.3);
+          fpsWeaponRef.current.quaternion.slerp(_aimWeaponQuat, t * 0.3);
+        }
       } else {
         // 일반 상태: 풀암 손에 붙음
         armsRightHandBone.current.getWorldPosition(fpsWeaponRef.current.position);
