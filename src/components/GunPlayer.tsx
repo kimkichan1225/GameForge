@@ -20,6 +20,20 @@ const _move = new THREE.Vector3();
 const _yAxis = new THREE.Vector3(0, 1, 0);
 const _targetQuat = new THREE.Quaternion();
 const _weaponOffset = new THREE.Vector3();
+const _armsOffset = new THREE.Vector3();
+const _armsRotation = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI);
+
+// 풀암 모델 오프셋 (카메라 로컬 좌표 기준)
+// x: 오른쪽(+)/왼쪽(-), y: 위(+)/아래(-), z: 뒤(+)/앞(-)
+const ARMS_OFFSET_X = 0;      // 좌우
+const ARMS_OFFSET_Y = -2.2;   // 아래로
+const ARMS_OFFSET_Z = 0;    // 약간 앞으로
+
+// 1인칭 시점에서 풀암 모델 애니메이션 매핑 (메인 애니메이션 → 풀암 애니메이션)
+const FPS_ARMS_ANIM_MAP: Record<string, string> = {
+  'Idle': 'IdleAiming',
+  'WalkFront': 'WalkAiming',
+};
 
 // 총 재질 (싱글톤)
 const GUN_MATERIAL = new THREE.MeshStandardMaterial({
@@ -118,25 +132,31 @@ function getDirection(f: boolean, b: boolean, l: boolean, r: boolean): string {
 
 export function GunPlayer() {
   const group = useRef<THREE.Group>(null!);
+  const armsGroup = useRef<THREE.Group>(null!);
   const { scene, animations } = useGLTF('/Untitled1.glb');
+  const { scene: armsScene, animations: armsAnimations } = useGLTF('/Onlyarms.glb');
   const rifleFbx = useFBX('/Rifle.fbx');
   const shotgunFbx = useFBX('/Shotgun.fbx');
   const sniperFbx = useFBX('/Sniper.fbx');
   const { actions, names } = useAnimations(animations, scene);
+  const { actions: armsActions, names: armsNames } = useAnimations(armsAnimations, armsScene);
 
   // Refs
   const headBone = useRef<THREE.Bone | null>(null);
   const rightHandBone = useRef<THREE.Bone | null>(null);
+  const armsRightHandBone = useRef<THREE.Bone | null>(null);
   const weaponRef = useRef<THREE.Group>(null);
   const muzzleFlashRef = useRef<THREE.PointLight>(null);
   const animMapRef = useRef<Record<string, string>>({});
-  const headMeshes = useRef<THREE.Object3D[]>([]);
+  const armsAnimMapRef = useRef<Record<string, string>>({});
 
   // State refs (useState 대신 ref 사용 - 리렌더 방지)
   const stateRef = useRef({
     velocityY: 0,
     grounded: true,
     currentAnim: '',
+    currentArmsAnim: '',
+    prevViewMode: useGameStore.getState().viewMode,
     prevSpace: false,
     prevC: false,
     prevZ: false,
@@ -178,34 +198,28 @@ export function GunPlayer() {
     };
   }, []);
 
-  // 본 탐색 및 머리 메쉬 찾기 (한 번만)
+  // 본 탐색 (한 번만)
   useEffect(() => {
-    const meshes: THREE.Object3D[] = [];
+    // 메인 캐릭터 본 탐색
     scene.traverse((obj) => {
       if (obj instanceof THREE.Bone) {
         if (obj.name === 'mixamorigHead') headBone.current = obj;
         else if (obj.name === 'mixamorigRightHand') rightHandBone.current = obj;
       }
-      // HeadSkin, Face, Helmet 머티리얼을 가진 메쉬 찾기
-      if ((obj as any).isMesh || (obj as any).isSkinnedMesh) {
-        const material = (obj as any).material;
-        if (material && material.name) {
-          if (material.name.includes('HeadSkin') ||
-              material.name.includes('Face') ||
-              material.name.includes('Helmet')) {
-            meshes.push(obj);
-          }
-        }
+    });
+    // 풀암 모델 본 탐색
+    armsScene.traverse((obj) => {
+      if (obj instanceof THREE.Bone) {
+        if (obj.name === 'mixamorigRightHand') armsRightHandBone.current = obj;
       }
     });
-    headMeshes.current = meshes;
-  }, [scene]);
+  }, [scene, armsScene]);
 
   // 애니메이션 맵 빌드 및 초기 Idle 재생
   useEffect(() => {
     if (names.length === 0) return;
 
-    // 맵 빌드
+    // 메인 캐릭터 맵 빌드
     const map: Record<string, string> = {};
     for (const [key, term] of Object.entries(ANIM_TARGETS)) {
       const found = names.find(n => {
@@ -228,10 +242,37 @@ export function GunPlayer() {
     }
   }, [names, actions]);
 
-  // 애니메이션 재생
+  // 풀암 모델 애니메이션 맵 빌드 및 초기 Idle 재생
+  useEffect(() => {
+    if (armsNames.length === 0) return;
+
+    // 풀암 모델 맵 빌드
+    const map: Record<string, string> = {};
+    for (const [key, term] of Object.entries(ANIM_TARGETS)) {
+      const found = armsNames.find(n => {
+        const clipName = n.split('|').pop();
+        return clipName === term;
+      });
+      if (found) map[key] = found;
+    }
+    armsAnimMapRef.current = map;
+
+    // 풀암 모델 초기 애니메이션 (1인칭 시점이면 IdleAiming)
+    const isFirstPerson = useGameStore.getState().viewMode === 'firstPerson';
+    const initAnim = isFirstPerson ? 'IdleAiming' : 'Idle';
+    const idleClip = map[initAnim] || map['Idle'];
+    if (idleClip && armsActions[idleClip]) {
+      const action = armsActions[idleClip];
+      action.reset().fadeIn(0).play();
+      action.setLoop(THREE.LoopRepeat, Infinity);
+    }
+  }, [armsNames, armsActions]);
+
+  // 애니메이션 재생 (메인 캐릭터 + 풀암 모델 동시 재생)
   const playAnim = useCallback((name: string, onComplete?: () => void) => {
     const s = stateRef.current;
     const map = animMapRef.current;
+    const armsMap = armsAnimMapRef.current;
     if (s.currentAnim === name && !onComplete) return;
     if (!map[name]) return;
 
@@ -243,6 +284,28 @@ export function GunPlayer() {
     if (prevClip) actions[prevClip]?.fadeOut(0.2);
 
     action.reset().fadeIn(0.2).play();
+
+    // 풀암 모델 애니메이션 재생 (1인칭 시점에서는 다른 애니메이션 사용)
+    const isFirstPerson = useGameStore.getState().viewMode === 'firstPerson';
+    const armsAnimName = isFirstPerson ? (FPS_ARMS_ANIM_MAP[name] || name) : name;
+    const armsClipName = armsMap[armsAnimName];
+    if (armsClipName && armsActions[armsClipName]) {
+      // 이전 애니메이션 fadeOut
+      if (s.currentArmsAnim && armsMap[s.currentArmsAnim]) {
+        armsActions[armsMap[s.currentArmsAnim]]?.fadeOut(0.2);
+      }
+
+      const armsAction = armsActions[armsClipName];
+      armsAction.reset().fadeIn(0.2).play();
+
+      if (armsAnimName === 'Jump' || armsAnimName === 'SitDown' || armsAnimName === 'StandUp') {
+        armsAction.setLoop(THREE.LoopOnce, 1);
+        armsAction.clampWhenFinished = true;
+      } else {
+        armsAction.setLoop(THREE.LoopRepeat, Infinity);
+      }
+      s.currentArmsAnim = armsAnimName;
+    }
 
     if (name === 'Jump' || name === 'SitDown' || name === 'StandUp') {
       action.setLoop(THREE.LoopOnce, 1);
@@ -263,7 +326,7 @@ export function GunPlayer() {
 
     s.currentAnim = name;
     useGameStore.getState().setAnimation(name);
-  }, [actions]);
+  }, [actions, armsActions]);
 
   // 방향별 애니메이션 결정
   const getDirectionalAnim = useCallback((
@@ -293,7 +356,7 @@ export function GunPlayer() {
   }, []);
 
   // 메인 루프
-  useFrame((_, dt) => {
+  useFrame((state, dt) => {
     if (!group.current) return;
 
     const s = stateRef.current;
@@ -303,11 +366,39 @@ export function GunPlayer() {
     const posture = store.posture;
     const lookDir = store.lookDirection;
 
-    // 1인칭 모드일 때 머리 메쉬 숨기기
+    // 1인칭/3인칭 모드에 따라 모델 전환
     const isFirstPerson = store.viewMode === 'firstPerson';
-    headMeshes.current.forEach(mesh => {
-      mesh.visible = !isFirstPerson;
-    });
+    scene.visible = !isFirstPerson;  // 3인칭: 전체 캐릭터 표시
+    armsScene.visible = isFirstPerson;  // 1인칭: 풀암 모델만 표시
+
+    // 시점 변경 감지 시 풀암 애니메이션 업데이트
+    if (s.prevViewMode !== store.viewMode && s.currentAnim) {
+      s.prevViewMode = store.viewMode;
+      const armsMap = armsAnimMapRef.current;
+      const armsAnimName = isFirstPerson ? (FPS_ARMS_ANIM_MAP[s.currentAnim] || s.currentAnim) : s.currentAnim;
+      const armsClipName = armsMap[armsAnimName];
+      if (armsClipName && armsActions[armsClipName]) {
+        // 이전 풀암 애니메이션 fadeOut
+        if (s.currentArmsAnim && armsMap[s.currentArmsAnim]) {
+          armsActions[armsMap[s.currentArmsAnim]]?.fadeOut(0.2);
+        }
+        const armsAction = armsActions[armsClipName];
+        armsAction.reset().fadeIn(0.2).play();
+        armsAction.setLoop(THREE.LoopRepeat, Infinity);
+        s.currentArmsAnim = armsAnimName;
+      }
+    }
+
+    // 1인칭 모드: 풀암 모델을 카메라에 고정
+    if (isFirstPerson && armsGroup.current) {
+      const camera = state.camera;
+      // 카메라 로컬 좌표계 기준 오프셋 적용
+      _armsOffset.set(ARMS_OFFSET_X, ARMS_OFFSET_Y, ARMS_OFFSET_Z);
+      _armsOffset.applyQuaternion(camera.quaternion);
+      armsGroup.current.position.copy(camera.position).add(_armsOffset);
+      // 카메라 회전 + Y축 180도 회전 (모델이 카메라와 같은 방향 보도록)
+      armsGroup.current.quaternion.copy(camera.quaternion).multiply(_armsRotation);
+    }
 
     s.bodyAngle = store.bodyAngle;
 
@@ -405,10 +496,11 @@ export function GunPlayer() {
       store.setPlayerPos([pos.x, pos.y, pos.z]);
     }
 
-    // 무기 위치
-    if (weaponRef.current && rightHandBone.current) {
-      rightHandBone.current.getWorldPosition(weaponRef.current.position);
-      rightHandBone.current.getWorldQuaternion(weaponRef.current.quaternion);
+    // 무기 위치 (1인칭: 풀암 본, 3인칭: 메인 캐릭터 본)
+    const activeHandBone = isFirstPerson ? armsRightHandBone.current : rightHandBone.current;
+    if (weaponRef.current && activeHandBone) {
+      activeHandBone.getWorldPosition(weaponRef.current.position);
+      activeHandBone.getWorldQuaternion(weaponRef.current.quaternion);
 
       const cfg = WEAPON_CONFIGS[store.weaponType];
       _weaponOffset.set(cfg.position[0], cfg.position[1], cfg.position[2]);
@@ -454,6 +546,10 @@ export function GunPlayer() {
       <group ref={group}>
         <primitive object={scene} />
       </group>
+      {/* 풀암 모델: 카메라에 고정되므로 별도 그룹 */}
+      <group ref={armsGroup}>
+        <primitive object={armsScene} />
+      </group>
       <group ref={weaponRef} scale={0.01}>
         <primitive object={weaponModel} />
         <pointLight
@@ -469,6 +565,7 @@ export function GunPlayer() {
 }
 
 useGLTF.preload('/Untitled1.glb');
+useGLTF.preload('/Onlyarms.glb');
 useFBX.preload('/Rifle.fbx');
 useFBX.preload('/Shotgun.fbx');
 useFBX.preload('/Sniper.fbx');
