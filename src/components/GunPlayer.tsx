@@ -410,6 +410,14 @@ export function GunPlayer() {
 
     // 1인칭 조준 처리 (짧게 = 토글, 길게 = 홀드)
     const holdThreshold = 0.2;  // 홀드 판정 시간 (초)
+    const isMoving = keys.forward || keys.backward || keys.left || keys.right;
+    const isRunning = keys.shift && isMoving && posture === 'standing';
+
+    // Run 상태면 토글 조준 해제
+    if (isRunning && mouse.aimingToggle) {
+      mouse.aimingToggle = false;
+      mouse.aimTransitionTimer = 0;
+    }
 
     if (isFirstPerson) {
       if (mouse.aiming) {
@@ -419,9 +427,9 @@ export function GunPlayer() {
           mouse.rightClickHandled = false;
         }
 
-        // 홀드 판정 (길게 누르고 있음)
+        // 홀드 판정 (길게 누르고 있음) - Run 상태에서는 홀드 안 됨
         const holdTime = (performance.now() / 1000) - mouse.rightClickStartTime;
-        if (holdTime >= holdThreshold && !mouse.rightClickHandled) {
+        if (holdTime >= holdThreshold && !mouse.rightClickHandled && !isRunning) {
           mouse.aimingHold = true;
           mouse.rightClickHandled = true;  // 이번 클릭은 홀드로 처리됨
         }
@@ -430,8 +438,8 @@ export function GunPlayer() {
         if (mouse.rightClickStartTime > 0) {
           const holdTime = (performance.now() / 1000) - mouse.rightClickStartTime;
 
-          if (!mouse.rightClickHandled && holdTime < holdThreshold) {
-            // 짧게 눌렀다 뗌 → 토글
+          // 짧게 눌렀다 뗌 → 토글 (Run 상태에서는 토글 안 됨)
+          if (!mouse.rightClickHandled && holdTime < holdThreshold && !isRunning) {
             mouse.aimingToggle = !mouse.aimingToggle;
             mouse.aimTransitionTimer = 0;
           }
@@ -474,20 +482,34 @@ export function GunPlayer() {
     // 1인칭 모드: 풀암 모델을 카메라에 고정
     if (isFirstPerson && armsGroup.current) {
       const camera = state.camera;
-      // 카메라 로컬 좌표계 기준 오프셋 적용 (토글 조준 시 추가 오프셋)
-      if (mouse.aimingToggle) {
-        _armsOffset.set(
-          ARMS_OFFSET_X + AIM_ARMS_OFFSET_X,
-          ARMS_OFFSET_Y + AIM_ARMS_OFFSET_Y,
-          ARMS_OFFSET_Z + AIM_ARMS_OFFSET_Z
-        );
-      } else {
-        _armsOffset.set(ARMS_OFFSET_X, ARMS_OFFSET_Y, ARMS_OFFSET_Z);
-      }
+      const transitionDuration = 0.2;  // 전환 시간 (총과 동일)
+
+      // 목표 오프셋 계산 (토글 조준 시 추가 오프셋)
+      const targetOffsetX = mouse.aimingToggle ? ARMS_OFFSET_X + AIM_ARMS_OFFSET_X : ARMS_OFFSET_X;
+      const targetOffsetY = mouse.aimingToggle ? ARMS_OFFSET_Y + AIM_ARMS_OFFSET_Y : ARMS_OFFSET_Y;
+      const targetOffsetZ = mouse.aimingToggle ? ARMS_OFFSET_Z + AIM_ARMS_OFFSET_Z : ARMS_OFFSET_Z;
+
+      // 목표 위치 계산
+      _armsOffset.set(targetOffsetX, targetOffsetY, targetOffsetZ);
       _armsOffset.applyQuaternion(camera.quaternion);
-      armsGroup.current.position.copy(camera.position).add(_armsOffset);
-      // 카메라 회전 + Y축 180도 회전 (모델이 카메라와 같은 방향 보도록)
-      armsGroup.current.quaternion.copy(camera.quaternion).multiply(_armsRotation);
+      const targetPos = camera.position.clone().add(_armsOffset);
+
+      // 목표 회전 계산
+      const targetQuat = camera.quaternion.clone().multiply(_armsRotation);
+
+      // 토글 전환 중일 때만 부드럽게, 그 외에는 즉시 따라감
+      const isTransitioning = mouse.aimTransitionTimer < transitionDuration && mouse.aimTransitionTimer > 0;
+
+      if (isTransitioning) {
+        // 전환 중: 부드럽게 이동
+        const t = mouse.aimTransitionTimer / transitionDuration;
+        armsGroup.current.position.lerp(targetPos, t * 0.3 + 0.1);
+        armsGroup.current.quaternion.slerp(targetQuat, t * 0.3 + 0.1);
+      } else {
+        // 평상시/전환 완료: 카메라에 고정 (즉시 따라감)
+        armsGroup.current.position.copy(targetPos);
+        armsGroup.current.quaternion.copy(targetQuat);
+      }
     }
 
     s.bodyAngle = store.bodyAngle;
