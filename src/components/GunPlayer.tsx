@@ -147,7 +147,8 @@ export function GunPlayer() {
   const headBone = useRef<THREE.Bone | null>(null);
   const rightHandBone = useRef<THREE.Bone | null>(null);
   const armsRightHandBone = useRef<THREE.Bone | null>(null);
-  const weaponRef = useRef<THREE.Group>(null);
+  const tpsWeaponRef = useRef<THREE.Group>(null);  // 3인칭용 (전체 캐릭터 손, 다른 플레이어가 봄)
+  const fpsWeaponRef = useRef<THREE.Group>(null);  // 1인칭용 (풀암 손, 나만 봄)
   const muzzleFlashRef = useRef<THREE.PointLight>(null);
   const animMapRef = useRef<Record<string, string>>({});
   const armsAnimMapRef = useRef<Record<string, string>>({});
@@ -505,16 +506,27 @@ export function GunPlayer() {
       store.setPlayerPos([pos.x, pos.y, pos.z]);
     }
 
-    // 무기 위치 (1인칭: 풀암 본, 3인칭: 메인 캐릭터 본)
-    const activeHandBone = isFirstPerson ? armsRightHandBone.current : rightHandBone.current;
-    if (weaponRef.current && activeHandBone) {
-      activeHandBone.getWorldPosition(weaponRef.current.position);
-      activeHandBone.getWorldQuaternion(weaponRef.current.quaternion);
+    // 무기 위치 및 visibility 설정 (멀티플레이어 대응)
+    const cfg = WEAPON_CONFIGS[store.weaponType];
 
-      const cfg = WEAPON_CONFIGS[store.weaponType];
+    // 3인칭용 총 (전체 캐릭터 손에 항상 붙음, 다른 플레이어가 봄)
+    if (tpsWeaponRef.current && rightHandBone.current) {
+      rightHandBone.current.getWorldPosition(tpsWeaponRef.current.position);
+      rightHandBone.current.getWorldQuaternion(tpsWeaponRef.current.quaternion);
       _weaponOffset.set(cfg.position[0], cfg.position[1], cfg.position[2]);
-      _weaponOffset.applyQuaternion(weaponRef.current.quaternion);
-      weaponRef.current.position.add(_weaponOffset);
+      _weaponOffset.applyQuaternion(tpsWeaponRef.current.quaternion);
+      tpsWeaponRef.current.position.add(_weaponOffset);
+      tpsWeaponRef.current.visible = !isFirstPerson;  // 1인칭이면 숨김
+    }
+
+    // 1인칭용 총 (풀암 손에 붙음, 나만 봄)
+    if (fpsWeaponRef.current && armsRightHandBone.current) {
+      armsRightHandBone.current.getWorldPosition(fpsWeaponRef.current.position);
+      armsRightHandBone.current.getWorldQuaternion(fpsWeaponRef.current.quaternion);
+      _weaponOffset.set(cfg.position[0], cfg.position[1], cfg.position[2]);
+      _weaponOffset.applyQuaternion(fpsWeaponRef.current.quaternion);
+      fpsWeaponRef.current.position.add(_weaponOffset);
+      fpsWeaponRef.current.visible = isFirstPerson;  // 3인칭이면 숨김
     }
 
     // 총구 플래시
@@ -537,7 +549,20 @@ export function GunPlayer() {
     sniper: sniperFbx,
   }), [rifleFbx, shotgunFbx, sniperFbx]);
 
-  const weaponModel = useMemo(() => {
+  // 3인칭용 무기 모델 (다른 플레이어가 봄)
+  const tpsWeaponModel = useMemo(() => {
+    const fbx = weaponFbxMap[weaponType];
+    const cfg = WEAPON_CONFIGS[weaponType];
+    const model = fbx.clone();
+    model.traverse((child) => {
+      if (child instanceof THREE.Mesh) child.material = GUN_MATERIAL;
+    });
+    model.rotation.copy(cfg.rotation);
+    return model;
+  }, [weaponFbxMap, weaponType]);
+
+  // 1인칭용 무기 모델 (나만 봄)
+  const fpsWeaponModel = useMemo(() => {
     const fbx = weaponFbxMap[weaponType];
     const cfg = WEAPON_CONFIGS[weaponType];
     const model = fbx.clone();
@@ -559,8 +584,13 @@ export function GunPlayer() {
       <group ref={armsGroup}>
         <primitive object={armsScene} />
       </group>
-      <group ref={weaponRef} scale={0.01}>
-        <primitive object={weaponModel} />
+      {/* 3인칭용 무기 (전체 캐릭터 손, 다른 플레이어가 봄) */}
+      <group ref={tpsWeaponRef} scale={0.01}>
+        <primitive object={tpsWeaponModel} />
+      </group>
+      {/* 1인칭용 무기 (풀암 손, 나만 봄) */}
+      <group ref={fpsWeaponRef} scale={0.01}>
+        <primitive object={fpsWeaponModel} />
         <pointLight
           ref={muzzleFlashRef}
           position={flashPos}
