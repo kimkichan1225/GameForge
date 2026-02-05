@@ -26,6 +26,11 @@ const TPS_TOGGLE_AIM_OFFSET_RIGHT = 0;     // 오른쪽으로
 const TPS_TOGGLE_AIM_LOOK_RIGHT = -3.2;   // +를 오른쪽으로
 const TPS_TOGGLE_AIM_LOOK_UP = 2.1;      // +를 위로
 
+// 3인칭 모드별 이동 방향 보정 각도 (+위치 기준으로 이동)
+const TPS_NORMAL_ANGLE_OFFSET = Math.atan2(TPS_LOOK_OFFSET_RIGHT, 10);      // 일반 3인칭
+const TPS_HOLD_AIM_ANGLE_OFFSET = Math.atan2(AIM_LOOK_OFFSET_RIGHT, 5);     // 홀드 조준
+const TPS_TOGGLE_AIM_ANGLE_OFFSET = Math.atan2(TPS_TOGGLE_AIM_LOOK_RIGHT, 15); // 토글 조준
+
 // 조준 시 자세별 카메라 높이
 const AIM_HEIGHT_STANDING = 2;
 const AIM_HEIGHT_SITTING = 1.2;
@@ -101,7 +106,19 @@ export function Camera() {
           pitch = Math.max(MIN_PITCH, Math.min(MAX_PITCH, pitch));
           pitchRef.current = pitch;
           store.setCameraPitch(pitch);
-          store.setLookDirection(angle);
+
+          // 3인칭 모드: +위치 기준으로 이동 방향 보정
+          let adjustedAngle = angle;
+          if (store.viewMode === 'thirdPerson') {
+            if (store.isToggleAiming) {
+              adjustedAngle = angle + TPS_TOGGLE_AIM_ANGLE_OFFSET;
+            } else if (isAiming.current) {
+              adjustedAngle = angle + TPS_HOLD_AIM_ANGLE_OFFSET;
+            } else {
+              adjustedAngle = angle + TPS_NORMAL_ANGLE_OFFSET;
+            }
+          }
+          store.setLookDirection(adjustedAngle);
           store.setCameraAngle(angle);
         }
       } else {
