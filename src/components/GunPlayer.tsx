@@ -826,8 +826,9 @@ export function GunPlayer() {
       fpsWeaponRef.current.visible = showFpsView;  // 토글 조준 또는 1인칭이면 표시
     }
 
-    // 총구 플래시 (1인칭/3인칭 모두)
-    if (mouse.firing) {
+    // 총구 플래시 (1인칭/3인칭 모두) - 탄약 있고 재장전 중 아닐 때만
+    const canFire = mouse.firing && store.currentAmmo > 0 && !store.isReloading;
+    if (canFire) {
       s.muzzleTimer += dt;
       const cfg = WEAPON_CONFIGS[store.weaponType];
       const flashOn = Math.sin(s.muzzleTimer * cfg.flashSpeed) > 0;
