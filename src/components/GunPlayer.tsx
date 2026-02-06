@@ -16,7 +16,7 @@ const PI2 = Math.PI * 2;
 
 // 무기별 재장전 시간
 const RELOAD_TIME: Record<string, number> = {
-  rifle: 2.0,
+  rifle: 2.5,
   shotgun: 2.5,
   sniper: 3.0,
 };
