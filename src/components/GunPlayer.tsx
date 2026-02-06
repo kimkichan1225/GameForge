@@ -229,6 +229,7 @@ export function GunPlayer() {
     prevToggleAiming: false,  // 이전 토글 조준 상태
     prevSpace: false,
     prevC: false,
+    prevV: false,
     prevZ: false,
     lastX: 0,
     lastY: 0,
@@ -597,6 +598,11 @@ export function GunPlayer() {
       store.setPosture(posture === 'crawling' ? 'standing' : 'crawling');
     }
 
+    // 시점 전환 (V: 1인칭/3인칭 토글)
+    if (keys.v && !s.prevV) {
+      store.setViewMode(store.viewMode === 'firstPerson' ? 'thirdPerson' : 'firstPerson');
+    }
+
     // 점프
     if (keys.space && !s.prevSpace && s.grounded && posture === 'standing' && !s.transitioning) {
       s.velocityY = JUMP_POWER;
@@ -606,6 +612,7 @@ export function GunPlayer() {
 
     s.prevSpace = keys.space;
     s.prevC = keys.c;
+    s.prevV = keys.v;
     s.prevZ = keys.z;
 
     // 머리 회전
