@@ -203,6 +203,28 @@ function getDirection(f: boolean, b: boolean, l: boolean, r: boolean): string {
   return DIRS[idx] || '';
 }
 
+// 상체 본 이름 (재장전 애니메이션 마스킹용)
+const UPPER_BODY_BONES = new Set([
+  'mixamorigSpine', 'mixamorigSpine1', 'mixamorigSpine2',
+  'mixamorigNeck', 'mixamorigHead', 'mixamorigHeadTop_End',
+  'mixamorigLeftShoulder', 'mixamorigLeftArm', 'mixamorigLeftForeArm',
+  'mixamorigLeftHand', 'mixamorigLeftHandIndex1', 'mixamorigLeftHandIndex2',
+  'mixamorigLeftHandIndex3', 'mixamorigLeftHandIndex4',
+  'mixamorigRightShoulder', 'mixamorigRightArm', 'mixamorigRightForeArm',
+  'mixamorigRightHand', 'mixamorigRightHandIndex1', 'mixamorigRightHandIndex2',
+  'mixamorigRightHandIndex3', 'mixamorigRightHandIndex4',
+]);
+
+// 애니메이션 클립에서 상체 트랙만 추출
+function createUpperBodyClip(clip: THREE.AnimationClip): THREE.AnimationClip {
+  const tracks = clip.tracks.filter(track => {
+    // track.name 형식: "boneName.property" (예: "mixamorigSpine.quaternion")
+    const boneName = track.name.split('.')[0];
+    return UPPER_BODY_BONES.has(boneName);
+  });
+  return new THREE.AnimationClip(clip.name + '_upper', clip.duration, tracks);
+}
+
 export function GunPlayer() {
   const group = useRef<THREE.Group>(null!);
   const armsGroup = useRef<THREE.Group>(null!);
@@ -226,6 +248,9 @@ export function GunPlayer() {
   const tpsMuzzleSpriteRef = useRef<THREE.Sprite>(null);      // 3인칭용 스프라이트
   const animMapRef = useRef<Record<string, string>>({});
   const armsAnimMapRef = useRef<Record<string, string>>({});
+  const upperBodyActionsRef = useRef<Record<string, THREE.AnimationAction>>({});  // 3인칭 상체 전용 액션
+  const armsReloadActionRef = useRef<THREE.AnimationAction | null>(null);  // 1인칭 풀암 재장전 액션
+  const lowerBodyAnimRef = useRef<string>('');  // 재장전 중 하체 애니메이션
 
   // State refs (useState 대신 ref 사용 - 리렌더 방지)
   const stateRef = useRef({
@@ -335,6 +360,16 @@ export function GunPlayer() {
       stateRef.current.initialized = true;
       useGameStore.getState().setAnimation('Idle');
     }
+
+    // 상체 전용 애니메이션 클립 생성 (Reload)
+    const reloadClipName = map['Reload'];
+    if (reloadClipName && actions[reloadClipName]) {
+      const mixer = actions[reloadClipName].getMixer();
+      const originalClip = actions[reloadClipName].getClip();
+      const upperBodyClip = createUpperBodyClip(originalClip);
+      const upperBodyAction = mixer.clipAction(upperBodyClip);
+      upperBodyActionsRef.current['Reload'] = upperBodyAction;
+    }
   }, [names, actions]);
 
   // 풀암 모델 애니메이션 맵 빌드 및 초기 Idle 재생
@@ -361,6 +396,12 @@ export function GunPlayer() {
       action.reset().fadeIn(0).play();
       action.setLoop(THREE.LoopRepeat, Infinity);
       stateRef.current.currentArmsAnim = initAnim;  // 초기 애니메이션 상태 저장
+    }
+
+    // 풀암 모델 재장전 액션 저장
+    const armsReloadClip = map['Reload'];
+    if (armsReloadClip && armsActions[armsReloadClip]) {
+      armsReloadActionRef.current = armsActions[armsReloadClip];
     }
   }, [armsNames, armsActions]);
 
@@ -635,19 +676,78 @@ export function GunPlayer() {
 
     // 재장전 처리
     const reloadTime = RELOAD_TIME[store.weaponType];
+    const upperReloadAction = upperBodyActionsRef.current['Reload'];
+
     if (store.isReloading) {
       // 재장전 중: 타이머 진행
       s.reloadTimer += dt;
       store.setReloadProgress(Math.min(1, s.reloadTimer / reloadTime));
 
+      // 재장전 중에도 하체 애니메이션은 이동 상태에 따라 업데이트
+      const dir = getDirection(keys.forward, keys.backward, keys.left, keys.right);
+      const running = keys.shift && posture === 'standing';
+      const newLowerAnim = getDirectionalAnim(dir, running, posture, false, false);
+      if (newLowerAnim !== lowerBodyAnimRef.current) {
+        const map = animMapRef.current;
+        const prevClip = map[lowerBodyAnimRef.current];
+        const newClip = map[newLowerAnim];
+        if (prevClip && actions[prevClip]) actions[prevClip].fadeOut(0.2);
+        if (newClip && actions[newClip]) {
+          const action = actions[newClip];
+          action.reset().fadeIn(0.2).play();
+          action.setLoop(THREE.LoopRepeat, Infinity);
+        }
+        lowerBodyAnimRef.current = newLowerAnim;
+      }
+
       if (s.reloadTimer >= reloadTime) {
         // 재장전 완료
         store.reload();
         s.reloadTimer = 0;
-        // 이전 애니메이션으로 복귀
-        const dir = getDirection(keys.forward, keys.backward, keys.left, keys.right);
-        const running = keys.shift && posture === 'standing';
-        playAnim(getDirectionalAnim(dir, running, posture, canFire, mouse.aiming));
+
+        const map = animMapRef.current;
+
+        // 하체 애니메이션 즉시 정지
+        const lowerClip = map[lowerBodyAnimRef.current];
+        if (lowerClip && actions[lowerClip]) {
+          actions[lowerClip].stop();
+        }
+
+        // 3인칭 상체 전용 애니메이션 즉시 정지
+        if (upperReloadAction) {
+          upperReloadAction.stop();
+        }
+
+        // 1인칭 풀암 재장전 애니메이션 즉시 정지
+        const armsReloadAction = armsReloadActionRef.current;
+        if (armsReloadAction) {
+          armsReloadAction.stop();
+        }
+
+        lowerBodyAnimRef.current = '';
+
+        // 이전 애니메이션으로 복귀 (전체 애니메이션)
+        const nextAnim = getDirectionalAnim(dir, running, posture, canFire, mouse.aiming);
+        const nextClip = map[nextAnim];
+        if (nextClip && actions[nextClip]) {
+          const nextAction = actions[nextClip];
+          nextAction.reset().setEffectiveWeight(1).play();
+          nextAction.setLoop(THREE.LoopRepeat, Infinity);
+          s.currentAnim = nextAnim;
+          useGameStore.getState().setAnimation(nextAnim);
+        }
+
+        // 1인칭 풀암 애니메이션도 복귀
+        const armsMap = armsAnimMapRef.current;
+        const useFpsAnim = store.viewMode === 'firstPerson' || mouse.aimingToggle;
+        const armsAnimName = useFpsAnim ? (FPS_ARMS_ANIM_MAP[nextAnim] || nextAnim) : nextAnim;
+        const armsClip = armsMap[armsAnimName];
+        if (armsClip && armsActions[armsClip]) {
+          const armsAction = armsActions[armsClip];
+          armsAction.reset().setEffectiveWeight(1).play();
+          armsAction.setLoop(THREE.LoopRepeat, Infinity);
+          s.currentArmsAnim = armsAnimName;
+        }
       }
     } else {
       // 재장전 시작 조건: R키 또는 탄창 비었을 때
@@ -662,7 +762,53 @@ export function GunPlayer() {
           mouse.aimingToggle = false;
           store.setIsToggleAiming(false);
         }
-        playAnim('Reload');
+
+        // 항상 상체만 재장전 애니메이션 (하체는 현재 이동 상태 유지)
+        if (upperReloadAction) {
+          const dir = getDirection(keys.forward, keys.backward, keys.left, keys.right);
+          const running = keys.shift && posture === 'standing';
+          const lowerAnim = getDirectionalAnim(dir, running, posture, false, false);
+          lowerBodyAnimRef.current = lowerAnim;
+
+          const map = animMapRef.current;
+
+          // 이전 애니메이션 즉시 정지 (fadeOut 없이)
+          const prevClip = map[s.currentAnim];
+          if (prevClip && actions[prevClip]) {
+            actions[prevClip].stop();
+          }
+
+          // 하체 애니메이션 즉시 시작
+          const lowerClip = map[lowerAnim];
+          if (lowerClip && actions[lowerClip]) {
+            const lowerAction = actions[lowerClip];
+            lowerAction.reset().setEffectiveWeight(1).play();
+            lowerAction.setLoop(THREE.LoopRepeat, Infinity);
+          }
+
+          // 3인칭 상체는 재장전 - 즉시 시작
+          upperReloadAction.reset().setEffectiveWeight(1).play();
+          upperReloadAction.setLoop(THREE.LoopOnce, 1);
+          upperReloadAction.clampWhenFinished = true;
+
+          // 1인칭 풀암 모델도 재장전 애니메이션
+          const armsReloadAction = armsReloadActionRef.current;
+          if (armsReloadAction) {
+            // 이전 풀암 애니메이션 즉시 정지
+            const armsMap = armsAnimMapRef.current;
+            const prevArmsClip = armsMap[s.currentArmsAnim];
+            if (prevArmsClip && armsActions[prevArmsClip]) {
+              armsActions[prevArmsClip].stop();
+            }
+            armsReloadAction.reset().setEffectiveWeight(1).play();
+            armsReloadAction.setLoop(THREE.LoopOnce, 1);
+            armsReloadAction.clampWhenFinished = true;
+            s.currentArmsAnim = 'Reload';
+          }
+
+          s.currentAnim = 'Reload';
+          useGameStore.getState().setAnimation('Reload');
+        }
       }
     }
 
