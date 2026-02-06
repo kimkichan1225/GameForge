@@ -523,7 +523,7 @@ export function GunPlayer() {
     // 1인칭 조준 처리 (짧게 = 토글, 길게 = 홀드)
     const holdThreshold = 0.2;  // 홀드 판정 시간 (초)
     const isMoving = keys.forward || keys.backward || keys.left || keys.right;
-    const isRunning = keys.shift && isMoving && posture === 'standing';
+    const isRunning = keys.shift && isMoving && posture === 'standing' && !useGameStore.getState().isReloading;  // 재장전 중 달리기 불가
 
     // Run 상태면 토글 조준 해제
     if (isRunning && mouse.aimingToggle) {
@@ -683,9 +683,9 @@ export function GunPlayer() {
       s.reloadTimer += dt;
       store.setReloadProgress(Math.min(1, s.reloadTimer / reloadTime));
 
-      // 재장전 중에도 하체 애니메이션은 이동 상태에 따라 업데이트
+      // 재장전 중에도 하체 애니메이션은 이동 상태에 따라 업데이트 (달리기 불가)
       const dir = getDirection(keys.forward, keys.backward, keys.left, keys.right);
-      const running = keys.shift && posture === 'standing';
+      const running = false;  // 재장전 중 달리기 불가
       const newLowerAnim = getDirectionalAnim(dir, running, posture, false, false);
       if (newLowerAnim !== lowerBodyAnimRef.current) {
         const map = animMapRef.current;
@@ -812,8 +812,8 @@ export function GunPlayer() {
       }
     }
 
-    // 점프
-    if (keys.space && !s.prevSpace && s.grounded && posture === 'standing' && !s.transitioning) {
+    // 점프 (재장전 중 불가)
+    if (keys.space && !s.prevSpace && s.grounded && posture === 'standing' && !s.transitioning && !useGameStore.getState().isReloading) {
       s.velocityY = JUMP_POWER;
       s.grounded = false;
       playAnim('Jump');
@@ -854,7 +854,7 @@ export function GunPlayer() {
       if (keys.right) _move.x += 1;
 
       const moving = _move.lengthSq() > 0;
-      const running = keys.shift && posture === 'standing';
+      const running = keys.shift && posture === 'standing' && !useGameStore.getState().isReloading;  // 재장전 중 달리기 불가
 
       if (moving && posture !== 'crawling') {
         _move.normalize().applyAxisAngle(_yAxis, s.bodyAngle);
