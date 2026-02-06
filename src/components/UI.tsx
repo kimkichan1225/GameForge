@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import { useGameStore } from '../store/gameStore';
 
 // 탄퍼짐 설정 (BulletEffects.tsx와 동일)
@@ -10,12 +11,22 @@ const SPREAD_CONFIG = {
 
 // 크로스헤어 설정
 const CROSSHAIR_CONFIG = {
-  minGap: 4,       // 최소 간격 (px)
-  maxGap: 40,      // 최대 간격 (px)
   lineLength: 8,   // 선 길이 (px)
   lineWidth: 2,    // 선 두께 (px)
-  spreadScale: 8,  // 퍼짐 1도당 간격 증가량 (px)
+  minGap: 2,       // 최소 간격 (px)
 };
+
+// 카메라 FOV (Three.js 기본값)
+const CAMERA_FOV = 75;
+
+// 각도(도)를 화면 픽셀로 변환
+function spreadToPixels(spreadDegrees: number, screenHeight: number): number {
+  const spreadRad = spreadDegrees * (Math.PI / 180);
+  const fovRad = CAMERA_FOV * (Math.PI / 180);
+  // tan(spread) / tan(fov/2) * (screenHeight/2)
+  const pixels = Math.tan(spreadRad) / Math.tan(fovRad / 2) * (screenHeight / 2);
+  return Math.max(CROSSHAIR_CONFIG.minGap, pixels);
+}
 
 export function UI() {
   const {
@@ -23,6 +34,14 @@ export function UI() {
     cameraMode, setCameraMode, viewMode, setViewMode, weaponType, setWeaponType,
     aimState, moveState, spreadAccum
   } = useGameStore();
+
+  // 화면 크기 추적
+  const [screenHeight, setScreenHeight] = useState(window.innerHeight);
+  useEffect(() => {
+    const handleResize = () => setScreenHeight(window.innerHeight);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   const handleModeChange = (mode: 'running' | 'gunGame') => {
     setGameMode(mode);
@@ -54,18 +73,15 @@ export function UI() {
     <>
       {/* 동적 크로스헤어 (총게임 모드에서만) */}
       {gameMode === 'gunGame' && (() => {
-        // 현재 탄퍼짐 계산
+        // 현재 탄퍼짐 계산 (BulletEffects.tsx와 동일한 공식)
         const baseSpread = SPREAD_CONFIG.baseSpread[weaponType as keyof typeof SPREAD_CONFIG.baseSpread] || 1.5;
         const aimMult = SPREAD_CONFIG.aimMultiplier[aimState as keyof typeof SPREAD_CONFIG.aimMultiplier] || 1.0;
         const postureMult = SPREAD_CONFIG.postureMultiplier[posture as keyof typeof SPREAD_CONFIG.postureMultiplier] || 1.0;
         const moveAdd = SPREAD_CONFIG.moveAddition[moveState as keyof typeof SPREAD_CONFIG.moveAddition] || 0;
         const totalSpread = (baseSpread * aimMult * postureMult) + moveAdd + spreadAccum;
 
-        // 퍼짐을 픽셀 간격으로 변환
-        const gap = Math.min(
-          CROSSHAIR_CONFIG.maxGap,
-          CROSSHAIR_CONFIG.minGap + totalSpread * CROSSHAIR_CONFIG.spreadScale
-        );
+        // 각도를 정확한 화면 픽셀로 변환 (FOV 기반)
+        const gap = spreadToPixels(totalSpread, screenHeight);
         const { lineLength, lineWidth } = CROSSHAIR_CONFIG;
 
         return (
