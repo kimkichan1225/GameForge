@@ -32,7 +32,8 @@ export function UI() {
   const {
     posture, animation, gameMode, setGameMode, setBodyAngle, setLookDirection,
     cameraMode, setCameraMode, viewMode, setViewMode, weaponType, setWeaponType,
-    aimState, moveState, spreadAccum
+    aimState, moveState, spreadAccum,
+    currentAmmo, reserveAmmo, isReloading, reloadProgress, resetAmmo
   } = useGameStore();
 
   // 화면 크기 추적
@@ -155,6 +156,54 @@ export function UI() {
         );
       })()}
 
+      {/* 탄약 표시 (총게임 모드에서만) */}
+      {gameMode === 'gunGame' && (
+        <div style={{
+          position: 'absolute',
+          bottom: 40,
+          right: 40,
+          background: 'rgba(0,0,0,0.7)',
+          color: 'white',
+          padding: '12px 20px',
+          borderRadius: 8,
+          fontFamily: 'monospace',
+          fontSize: 18,
+          pointerEvents: 'none',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+            <span style={{
+              fontSize: 32,
+              fontWeight: 'bold',
+              color: currentAmmo <= 5 ? '#ff6b6b' : 'white',
+            }}>
+              {currentAmmo}
+            </span>
+            <span style={{ color: '#888' }}>/</span>
+            <span style={{ fontSize: 18, color: '#aaa' }}>{reserveAmmo}</span>
+          </div>
+          {isReloading && (
+            <div style={{ marginTop: 8 }}>
+              <div style={{
+                height: 4,
+                background: '#333',
+                borderRadius: 2,
+                overflow: 'hidden',
+              }}>
+                <div style={{
+                  height: '100%',
+                  width: `${reloadProgress * 100}%`,
+                  background: '#4fc3f7',
+                  transition: 'width 0.1s',
+                }} />
+              </div>
+              <div style={{ fontSize: 11, color: '#4fc3f7', marginTop: 4, textAlign: 'center' }}>
+                재장전 중...
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       <div style={{
         position: 'absolute',
         top: 20,
@@ -228,19 +277,19 @@ export function UI() {
           <span style={{ fontSize: 11, marginRight: 8 }}>무기:</span>
           <button
             style={{...buttonStyle(weaponType === 'rifle'), padding: '4px 10px', fontSize: 11}}
-            onClick={() => setWeaponType('rifle')}
+            onClick={() => { setWeaponType('rifle'); resetAmmo('rifle'); }}
           >
             Rifle
           </button>
           <button
             style={{...buttonStyle(weaponType === 'shotgun'), padding: '4px 10px', fontSize: 11}}
-            onClick={() => setWeaponType('shotgun')}
+            onClick={() => { setWeaponType('shotgun'); resetAmmo('shotgun'); }}
           >
             Shotgun
           </button>
           <button
             style={{...buttonStyle(weaponType === 'sniper'), padding: '4px 10px', fontSize: 11}}
-            onClick={() => setWeaponType('sniper')}
+            onClick={() => { setWeaponType('sniper'); resetAmmo('sniper'); }}
           >
             Sniper
           </button>

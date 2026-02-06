@@ -162,6 +162,9 @@ export function BulletEffects() {
 
     if (!state.firing) return;
 
+    // 재장전 중이거나 탄약 없으면 발사 불가
+    if (store.isReloading || store.currentAmmo <= 0) return;
+
     // 레이캐스트 캐시 갱신 (일정 간격마다)
     if (now - state.lastCacheTime > RAYCAST_CACHE_INTERVAL) {
       updateRaycastCache();
@@ -172,6 +175,9 @@ export function BulletEffects() {
     const fireInterval = WEAPON_FIRE_INTERVALS[store.weaponType];
     if (now - state.lastFireTime < fireInterval) return;
     state.lastFireTime = now;
+
+    // 탄약 소모
+    if (!store.consumeAmmo()) return;
 
     // 탄퍼짐 계산
     const baseSpread = SPREAD_CONFIG.baseSpread[store.weaponType as keyof typeof SPREAD_CONFIG.baseSpread];

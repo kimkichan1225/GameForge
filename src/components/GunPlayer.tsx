@@ -14,6 +14,13 @@ const GRAVITY = -25;
 const HEAD_MAX_ANGLE = Math.PI / 3;
 const PI2 = Math.PI * 2;
 
+// 무기별 재장전 시간
+const RELOAD_TIME: Record<string, number> = {
+  rifle: 2.0,
+  shotgun: 2.5,
+  sniper: 3.0,
+};
+
 // Reusable objects (GC 방지)
 const _vel = new THREE.Vector3();
 const _move = new THREE.Vector3();
@@ -172,6 +179,7 @@ const ANIM_TARGETS: Record<string, string> = {
   'RunFiring': 'RunFiring-Rifle',
   'IdleAiming': 'IdleAiming-Rifle',
   'WalkAiming': 'WalkAiming-Rifle',
+  'Reload': 'Reload-Rifle',
 };
 
 // Utility functions (인라인 가능하도록 간결하게)
@@ -231,6 +239,8 @@ export function GunPlayer() {
     prevC: false,
     prevV: false,
     prevZ: false,
+    prevR: false,
+    reloadTimer: 0,
     lastX: 0,
     lastY: 0,
     lastZ: 0,
@@ -620,6 +630,39 @@ export function GunPlayer() {
       store.setViewMode(store.viewMode === 'firstPerson' ? 'thirdPerson' : 'firstPerson');
     }
 
+    // 재장전 처리
+    const reloadTime = RELOAD_TIME[store.weaponType];
+    if (store.isReloading) {
+      // 재장전 중: 타이머 진행
+      s.reloadTimer += dt;
+      store.setReloadProgress(Math.min(1, s.reloadTimer / reloadTime));
+
+      if (s.reloadTimer >= reloadTime) {
+        // 재장전 완료
+        store.reload();
+        s.reloadTimer = 0;
+        // 이전 애니메이션으로 복귀
+        const dir = getDirection(keys.forward, keys.backward, keys.left, keys.right);
+        const running = keys.shift && posture === 'standing';
+        playAnim(getDirectionalAnim(dir, running, posture, mouse.firing, mouse.aiming));
+      }
+    } else {
+      // 재장전 시작 조건: R키 또는 탄창 비었을 때
+      const canReload = s.grounded && !isRunning && !s.transitioning &&
+                        store.currentAmmo < 30 && store.reserveAmmo > 0;  // 30은 임시, 무기별로 다름
+
+      if (keys.r && !s.prevR && canReload) {
+        store.setIsReloading(true);
+        s.reloadTimer = 0;
+        // 토글 조준 해제
+        if (mouse.aimingToggle) {
+          mouse.aimingToggle = false;
+          store.setIsToggleAiming(false);
+        }
+        playAnim('Reload');
+      }
+    }
+
     // 점프
     if (keys.space && !s.prevSpace && s.grounded && posture === 'standing' && !s.transitioning) {
       s.velocityY = JUMP_POWER;
@@ -631,6 +674,7 @@ export function GunPlayer() {
     s.prevC = keys.c;
     s.prevV = keys.v;
     s.prevZ = keys.z;
+    s.prevR = keys.r;
 
     // 머리 회전
     const angleDiff = normalizeAngle(lookDir - s.bodyAngle);
