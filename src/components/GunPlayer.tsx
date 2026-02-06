@@ -520,6 +520,23 @@ export function GunPlayer() {
       }
     }
 
+    // 조준 상태 업데이트 (탄퍼짐 계산용)
+    const newAimState = mouse.aimingToggle ? 'toggle' : mouse.aimingHold ? 'hold' : 'none';
+    if (store.aimState !== newAimState) {
+      store.setAimState(newAimState);
+    }
+
+    // 이동 상태 업데이트 (탄퍼짐 계산용)
+    const newMoveState = !s.grounded ? 'jump' : isRunning ? 'run' : isMoving ? 'walk' : 'idle';
+    if (store.moveState !== newMoveState) {
+      store.setMoveState(newMoveState);
+    }
+
+    // 발사 상태 업데이트
+    if (store.isFiring !== mouse.firing) {
+      store.setIsFiring(mouse.firing);
+    }
+
     // 시점 변경 또는 토글 조준 상태 변경 시 풀암 애니메이션 업데이트
     const viewOrAimChanged = s.prevViewMode !== store.viewMode || s.prevToggleAiming !== mouse.aimingToggle;
     if (viewOrAimChanged && s.currentAnim) {

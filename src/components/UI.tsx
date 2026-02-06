@@ -1,7 +1,28 @@
 import { useGameStore } from '../store/gameStore';
 
+// 탄퍼짐 설정 (BulletEffects.tsx와 동일)
+const SPREAD_CONFIG = {
+  baseSpread: { rifle: 1.5, shotgun: 5.0, sniper: 0.3 },
+  aimMultiplier: { none: 1.0, hold: 0.5, toggle: 0.3 },
+  postureMultiplier: { standing: 1.0, sitting: 0.8, crawling: 0.6 },
+  moveAddition: { idle: 0, walk: 0.5, run: 1.5, jump: 3.0 },
+};
+
+// 크로스헤어 설정
+const CROSSHAIR_CONFIG = {
+  minGap: 4,       // 최소 간격 (px)
+  maxGap: 40,      // 최대 간격 (px)
+  lineLength: 8,   // 선 길이 (px)
+  lineWidth: 2,    // 선 두께 (px)
+  spreadScale: 8,  // 퍼짐 1도당 간격 증가량 (px)
+};
+
 export function UI() {
-  const { posture, animation, gameMode, setGameMode, setBodyAngle, setLookDirection, cameraMode, setCameraMode, viewMode, setViewMode, weaponType, setWeaponType } = useGameStore();
+  const {
+    posture, animation, gameMode, setGameMode, setBodyAngle, setLookDirection,
+    cameraMode, setCameraMode, viewMode, setViewMode, weaponType, setWeaponType,
+    aimState, moveState, spreadAccum
+  } = useGameStore();
 
   const handleModeChange = (mode: 'running' | 'gunGame') => {
     setGameMode(mode);
@@ -31,39 +52,92 @@ export function UI() {
 
   return (
     <>
-      {/* 조준점 (총게임 모드에서만) */}
-      {gameMode === 'gunGame' && (
-        <div style={{
-          position: 'absolute',
-          top: '50%',
-          left: '50%',
-          transform: 'translate(-50%, -50%)',
-          pointerEvents: 'none',
-        }}>
-          {/* 가로선 */}
+      {/* 동적 크로스헤어 (총게임 모드에서만) */}
+      {gameMode === 'gunGame' && (() => {
+        // 현재 탄퍼짐 계산
+        const baseSpread = SPREAD_CONFIG.baseSpread[weaponType as keyof typeof SPREAD_CONFIG.baseSpread] || 1.5;
+        const aimMult = SPREAD_CONFIG.aimMultiplier[aimState as keyof typeof SPREAD_CONFIG.aimMultiplier] || 1.0;
+        const postureMult = SPREAD_CONFIG.postureMultiplier[posture as keyof typeof SPREAD_CONFIG.postureMultiplier] || 1.0;
+        const moveAdd = SPREAD_CONFIG.moveAddition[moveState as keyof typeof SPREAD_CONFIG.moveAddition] || 0;
+        const totalSpread = (baseSpread * aimMult * postureMult) + moveAdd + spreadAccum;
+
+        // 퍼짐을 픽셀 간격으로 변환
+        const gap = Math.min(
+          CROSSHAIR_CONFIG.maxGap,
+          CROSSHAIR_CONFIG.minGap + totalSpread * CROSSHAIR_CONFIG.spreadScale
+        );
+        const { lineLength, lineWidth } = CROSSHAIR_CONFIG;
+
+        return (
           <div style={{
             position: 'absolute',
-            width: 20,
-            height: 2,
-            background: 'white',
-            left: '50%',
             top: '50%',
-            transform: 'translate(-50%, -50%)',
-            boxShadow: '0 0 2px black',
-          }} />
-          {/* 세로선 */}
-          <div style={{
-            position: 'absolute',
-            width: 2,
-            height: 20,
-            background: 'white',
             left: '50%',
-            top: '50%',
             transform: 'translate(-50%, -50%)',
-            boxShadow: '0 0 2px black',
-          }} />
-        </div>
-      )}
+            pointerEvents: 'none',
+          }}>
+            {/* 상단 */}
+            <div style={{
+              position: 'absolute',
+              width: lineWidth,
+              height: lineLength,
+              background: 'white',
+              left: '50%',
+              transform: 'translateX(-50%)',
+              top: -gap - lineLength,
+              boxShadow: '0 0 2px black',
+              transition: 'top 0.1s',
+            }} />
+            {/* 하단 */}
+            <div style={{
+              position: 'absolute',
+              width: lineWidth,
+              height: lineLength,
+              background: 'white',
+              left: '50%',
+              transform: 'translateX(-50%)',
+              top: gap,
+              boxShadow: '0 0 2px black',
+              transition: 'top 0.1s',
+            }} />
+            {/* 좌측 */}
+            <div style={{
+              position: 'absolute',
+              width: lineLength,
+              height: lineWidth,
+              background: 'white',
+              top: '50%',
+              transform: 'translateY(-50%)',
+              left: -gap - lineLength,
+              boxShadow: '0 0 2px black',
+              transition: 'left 0.1s',
+            }} />
+            {/* 우측 */}
+            <div style={{
+              position: 'absolute',
+              width: lineLength,
+              height: lineWidth,
+              background: 'white',
+              top: '50%',
+              transform: 'translateY(-50%)',
+              left: gap,
+              boxShadow: '0 0 2px black',
+              transition: 'left 0.1s',
+            }} />
+            {/* 중앙 점 (선택) */}
+            <div style={{
+              position: 'absolute',
+              width: 2,
+              height: 2,
+              background: 'rgba(255,255,255,0.5)',
+              left: '50%',
+              top: '50%',
+              transform: 'translate(-50%, -50%)',
+              borderRadius: '50%',
+            }} />
+          </div>
+        );
+      })()}
 
       <div style={{
         position: 'absolute',

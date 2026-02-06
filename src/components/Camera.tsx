@@ -196,8 +196,12 @@ export function Camera() {
     const playerPos = store.playerPos;
     _targetPos.set(playerPos[0], playerPos[1], playerPos[2]);
 
-    const pitch = pitchRef.current;
+    const basePitch = pitchRef.current;
     const angle = angleRef.current;
+
+    // 반동을 pitch에 적용 (도 → 라디안)
+    const recoilRad = THREE.MathUtils.degToRad(store.recoilPitch);
+    const pitch = basePitch - recoilRad;  // 반동으로 위를 봄 (pitch 감소)
 
     // 삼각함수 캐시 업데이트
     updateTrigCache(angle);

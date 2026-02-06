@@ -5,6 +5,8 @@ type GameMode = 'running' | 'gunGame';
 type CameraMode = 'follow' | 'free';
 type ViewMode = 'firstPerson' | 'thirdPerson';
 type WeaponType = 'rifle' | 'shotgun' | 'sniper';
+type AimState = 'none' | 'hold' | 'toggle';
+type MoveState = 'idle' | 'walk' | 'run' | 'jump';
 
 interface GameStore {
   posture: Posture;
@@ -21,6 +23,17 @@ interface GameStore {
   weaponType: WeaponType;
   isToggleAiming: boolean;  // 토글 조준 상태 (1인칭/3인칭 공통)
   muzzleWorldPos: [number, number, number];  // 총구 월드 위치
+  // 탄퍼짐/반동 시스템
+  aimState: AimState;  // 조준 상태
+  moveState: MoveState;  // 이동 상태
+  spreadAccum: number;  // 연사 누적 퍼짐 (도)
+  recoilPitch: number;  // 반동으로 인한 pitch 오프셋
+  isFiring: boolean;  // 발사 중 여부
+  setAimState: (s: AimState) => void;
+  setMoveState: (s: MoveState) => void;
+  setSpreadAccum: (v: number) => void;
+  setRecoilPitch: (v: number) => void;
+  setIsFiring: (b: boolean) => void;
   setPosture: (p: Posture) => void;
   setAnimation: (a: string) => void;
   setCameraAngle: (a: number) => void;
@@ -52,6 +65,17 @@ export const useGameStore = create<GameStore>((set) => ({
   weaponType: 'rifle',
   isToggleAiming: false,
   muzzleWorldPos: [0, 0, 0],
+  // 탄퍼짐/반동 시스템
+  aimState: 'none',
+  moveState: 'idle',
+  spreadAccum: 0,
+  recoilPitch: 0,
+  isFiring: false,
+  setAimState: (aimState) => set({ aimState }),
+  setMoveState: (moveState) => set({ moveState }),
+  setSpreadAccum: (spreadAccum) => set({ spreadAccum }),
+  setRecoilPitch: (recoilPitch) => set({ recoilPitch }),
+  setIsFiring: (isFiring) => set({ isFiring }),
   setPosture: (posture) => set({ posture }),
   setAnimation: (animation) => set({ animation }),
   setCameraAngle: (cameraAngle) => set({ cameraAngle }),
