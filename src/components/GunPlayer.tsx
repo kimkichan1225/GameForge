@@ -400,7 +400,7 @@ export function GunPlayer() {
         const armsAction = armsActions[armsClipName];
         armsAction.reset().fadeIn(0.2).play();
 
-        if (armsAnimName === 'Jump' || armsAnimName === 'SitDown' || armsAnimName === 'StandUp') {
+        if (armsAnimName === 'Jump' || armsAnimName === 'SitDown' || armsAnimName === 'StandUp' || armsAnimName === 'Reload') {
           armsAction.setLoop(THREE.LoopOnce, 1);
           armsAction.clampWhenFinished = true;
         } else {
@@ -410,7 +410,7 @@ export function GunPlayer() {
       }
     }
 
-    if (name === 'Jump' || name === 'SitDown' || name === 'StandUp') {
+    if (name === 'Jump' || name === 'SitDown' || name === 'StandUp' || name === 'Reload') {
       action.setLoop(THREE.LoopOnce, 1);
       action.clampWhenFinished = true;
       if (onComplete) {
@@ -720,7 +720,7 @@ export function GunPlayer() {
       _targetQuat.setFromAxisAngle(_yAxis, s.bodyAngle + Math.PI);
       scene.quaternion.slerp(_targetQuat, 0.15);
 
-      if (s.grounded) {
+      if (s.grounded && !useGameStore.getState().isReloading) {
         const dir = getDirection(keys.forward, keys.backward, keys.left, keys.right);
         playAnim(getDirectionalAnim(dir, running, posture, canFire, mouse.aiming));
       }
@@ -738,7 +738,7 @@ export function GunPlayer() {
       s.velocityY = 0;
       if (!s.grounded) {
         s.grounded = true;
-        if (!s.transitioning) {
+        if (!s.transitioning && !useGameStore.getState().isReloading) {
           const dir = getDirection(keys.forward, keys.backward, keys.left, keys.right);
           const running = keys.shift && posture === 'standing';
           playAnim(getDirectionalAnim(dir, running, posture, canFire, mouse.aiming));
