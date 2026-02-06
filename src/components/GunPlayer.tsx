@@ -469,6 +469,9 @@ export function GunPlayer() {
     const posture = store.posture;
     const lookDir = store.lookDirection;
 
+    // 발사 가능 조건 (탄약 있고 재장전 중 아닐 때)
+    const canFire = mouse.firing && store.currentAmmo > 0 && !store.isReloading;
+
     // 1인칭/3인칭 모드에 따라 모델 전환
     const isFirstPerson = store.viewMode === 'firstPerson';
     // 토글 조준 시에는 3인칭이어도 1인칭처럼 보임
@@ -644,7 +647,7 @@ export function GunPlayer() {
         // 이전 애니메이션으로 복귀
         const dir = getDirection(keys.forward, keys.backward, keys.left, keys.right);
         const running = keys.shift && posture === 'standing';
-        playAnim(getDirectionalAnim(dir, running, posture, mouse.firing, mouse.aiming));
+        playAnim(getDirectionalAnim(dir, running, posture, canFire, mouse.aiming));
       }
     } else {
       // 재장전 시작 조건: R키 또는 탄창 비었을 때
@@ -719,7 +722,7 @@ export function GunPlayer() {
 
       if (s.grounded) {
         const dir = getDirection(keys.forward, keys.backward, keys.left, keys.right);
-        playAnim(getDirectionalAnim(dir, running, posture, mouse.firing, mouse.aiming));
+        playAnim(getDirectionalAnim(dir, running, posture, canFire, mouse.aiming));
       }
     }
 
@@ -738,7 +741,7 @@ export function GunPlayer() {
         if (!s.transitioning) {
           const dir = getDirection(keys.forward, keys.backward, keys.left, keys.right);
           const running = keys.shift && posture === 'standing';
-          playAnim(getDirectionalAnim(dir, running, posture, mouse.firing, mouse.aiming));
+          playAnim(getDirectionalAnim(dir, running, posture, canFire, mouse.aiming));
         }
       }
     }
@@ -770,10 +773,10 @@ export function GunPlayer() {
       if (showFpsView && mouse.aimingToggle) {
         const camera = state.camera;
 
-        // 반동 처리 (좌클릭 시)
+        // 반동 처리 (발사 가능할 때만)
         const now = performance.now();
         const fireInterval = 1000 / (cfg.flashSpeed / 2);  // 발사 간격
-        if (mouse.firing && now - mouse.lastFireTime > fireInterval) {
+        if (canFire && now - mouse.lastFireTime > fireInterval) {
           // 반동 추가 (위로 튀고 랜덤 좌우 흔들림)
           mouse.recoilY = Math.random() * 0.02;
           mouse.recoilX = (Math.random() - 0.5) * 0.02;
@@ -827,7 +830,6 @@ export function GunPlayer() {
     }
 
     // 총구 플래시 (1인칭/3인칭 모두) - 탄약 있고 재장전 중 아닐 때만
-    const canFire = mouse.firing && store.currentAmmo > 0 && !store.isReloading;
     if (canFire) {
       s.muzzleTimer += dt;
       const cfg = WEAPON_CONFIGS[store.weaponType];
