@@ -14,6 +14,13 @@ const GRAVITY = -25;
 const HEAD_MAX_ANGLE = Math.PI / 3;
 const PI2 = Math.PI * 2;
 
+// 무기별 탄창 크기
+const MAGAZINE_SIZE: Record<string, number> = {
+  rifle: 30,
+  shotgun: 8,
+  sniper: 5,
+};
+
 // 무기별 재장전 시간
 const RELOAD_TIME: Record<string, number> = {
   rifle: 2.5,
@@ -92,12 +99,12 @@ const createMuzzleFlashTexture = () => {
   canvas.height = 128;
   const ctx = canvas.getContext('2d')!;
 
-  // 방사형 그라데이션 (중심이 밝고 바깥이 투명)
+  // 방사형 그라데이션 (흰색 계열 - 무기별 색상은 material.color로 적용)
   const gradient = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
-  gradient.addColorStop(0, 'rgba(255, 255, 200, 1)');
-  gradient.addColorStop(0.2, 'rgba(255, 200, 50, 1)');
-  gradient.addColorStop(0.5, 'rgba(255, 100, 0, 0.8)');
-  gradient.addColorStop(1, 'rgba(255, 50, 0, 0)');
+  gradient.addColorStop(0, 'rgba(255, 255, 255, 1)');
+  gradient.addColorStop(0.2, 'rgba(255, 255, 200, 1)');
+  gradient.addColorStop(0.5, 'rgba(255, 220, 150, 0.8)');
+  gradient.addColorStop(1, 'rgba(255, 200, 100, 0)');
 
   ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, 128, 128);
@@ -121,6 +128,9 @@ type WeaponConfig = {
   position: [number, number, number];
   flashPosition: [number, number, number];
   flashSpeed: number;
+  lightColor: number;
+  lightDistance: number;
+  lightIntensity: number;
 };
 
 const WEAPON_CONFIGS: Record<string, WeaponConfig> = {
@@ -129,18 +139,27 @@ const WEAPON_CONFIGS: Record<string, WeaponConfig> = {
     position: [0, 0.15, 0],
     flashPosition: [0, 145, 0],
     flashSpeed: 60,
+    lightColor: 0xffaa00,
+    lightDistance: 3,
+    lightIntensity: 5,
   },
   shotgun: {
     rotation: new THREE.Euler(deg(0), deg(180), deg(80)),
     position: [0.2, 0.15, 0],
-    flashPosition: [0, 155, 0],
+    flashPosition: [-15, 155, 0],
     flashSpeed: 30,
+    lightColor: 0xff3300,
+    lightDistance: 4,
+    lightIntensity: 8,
   },
   sniper: {
     rotation: new THREE.Euler(deg(0), deg(180), deg(80)),
     position: [0.2, 0.15, 0],
-    flashPosition: [0, 230, 0],
+    flashPosition: [-25, 220, 0],
     flashSpeed: 20,
+    lightColor: 0xffffff,
+    lightDistance: 2,
+    lightIntensity: 4,
   },
 };
 
@@ -752,7 +771,7 @@ export function GunPlayer() {
     } else {
       // 재장전 시작 조건: R키 또는 탄창 비었을 때
       const canReload = s.grounded && !isRunning && !s.transitioning &&
-                        store.currentAmmo < 30 && store.reserveAmmo > 0;  // 30은 임시, 무기별로 다름
+                        store.currentAmmo < MAGAZINE_SIZE[store.weaponType] && store.reserveAmmo > 0;
 
       if (keys.r && !s.prevR && canReload) {
         store.setIsReloading(true);
@@ -980,7 +999,7 @@ export function GunPlayer() {
       s.muzzleTimer += dt;
       const cfg = WEAPON_CONFIGS[store.weaponType];
       const flashOn = Math.sin(s.muzzleTimer * cfg.flashSpeed) > 0;
-      const flashIntensity = flashOn ? 5 : 0;
+      const flashIntensity = flashOn ? cfg.lightIntensity : 0;
       const spriteScale = flashOn ? 30 + Math.random() * 10 : 0;  // 랜덤 크기로 자연스럽게
 
       // 현재 시점에 맞는 플래시만 활성화
@@ -996,11 +1015,13 @@ export function GunPlayer() {
         const scale = showFpsView ? spriteScale : 0;
         fpsMuzzleSpriteRef.current.scale.set(scale, scale, 1);
         fpsMuzzleSpriteRef.current.material.rotation = Math.random() * Math.PI * 2;  // 랜덤 회전
+        fpsMuzzleSpriteRef.current.material.color.setHex(cfg.lightColor);
       }
       if (tpsMuzzleSpriteRef.current) {
         const scale = showFpsView ? 0 : spriteScale;
         tpsMuzzleSpriteRef.current.scale.set(scale, scale, 1);
         tpsMuzzleSpriteRef.current.material.rotation = Math.random() * Math.PI * 2;
+        tpsMuzzleSpriteRef.current.material.color.setHex(cfg.lightColor);
       }
     } else {
       if (muzzleFlashRef.current) muzzleFlashRef.current.intensity = 0;
@@ -1051,7 +1072,8 @@ export function GunPlayer() {
     return model;
   }, [weaponFbxMap, weaponType]);
 
-  const flashPos = WEAPON_CONFIGS[weaponType].flashPosition;
+  const weaponCfg = WEAPON_CONFIGS[weaponType];
+  const flashPos = weaponCfg.flashPosition;
 
   return (
     <>
@@ -1068,9 +1090,9 @@ export function GunPlayer() {
         <pointLight
           ref={tpsMuzzleFlashRef}
           position={flashPos}
-          color={0xffaa00}
+          color={weaponCfg.lightColor}
           intensity={0}
-          distance={3}
+          distance={weaponCfg.lightDistance}
         />
         <sprite ref={tpsMuzzleSpriteRef} position={flashPos} scale={[0, 0, 1]}>
           <primitive object={MUZZLE_FLASH_MATERIAL.clone()} attach="material" />
@@ -1082,9 +1104,9 @@ export function GunPlayer() {
         <pointLight
           ref={muzzleFlashRef}
           position={flashPos}
-          color={0xffaa00}
+          color={weaponCfg.lightColor}
           intensity={0}
-          distance={3}
+          distance={weaponCfg.lightDistance}
         />
         <sprite ref={fpsMuzzleSpriteRef} position={flashPos} scale={[0, 0, 1]}>
           <primitive object={MUZZLE_FLASH_MATERIAL.clone()} attach="material" />
