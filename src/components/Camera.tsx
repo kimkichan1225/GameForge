@@ -7,6 +7,11 @@ import { useGameStore } from '../store/gameStore';
 const HEAD_OFFSET = new THREE.Vector3(0, 2, 0);
 const MOUSE_SENSITIVITY = 0.002;
 
+// FOV 설정
+const DEFAULT_FOV = 60;
+const SNIPER_SCOPE_FOV = 20;
+const FOV_LERP_SPEED = 0.08;
+
 // 총게임 모드 카메라 오프셋 (캐릭터를 왼쪽 아래로 배치)
 const TPS_LOOK_OFFSET_RIGHT = -1.5;  // 왼쪽으로
 const TPS_LOOK_OFFSET_UP = 0.8;     // 위로
@@ -195,6 +200,13 @@ export function Camera() {
     const store = useGameStore.getState();
     const playerPos = store.playerPos;
     _targetPos.set(playerPos[0], playerPos[1], playerPos[2]);
+
+    // FOV 줌 (스나이퍼 스코프) - 모든 카메라 모드에서 공통 처리
+    const targetFov = (store.weaponType === 'sniper' && store.isToggleAiming) ? SNIPER_SCOPE_FOV : DEFAULT_FOV;
+    const cam = camera as THREE.PerspectiveCamera;
+    cam.fov += (targetFov - cam.fov) * FOV_LERP_SPEED;
+    cam.updateProjectionMatrix();
+    store.setCurrentFov(cam.fov);
 
     const basePitch = pitchRef.current;
     const angle = angleRef.current;

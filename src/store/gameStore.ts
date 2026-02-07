@@ -30,6 +30,7 @@ interface GameStore {
   weaponType: WeaponType;
   isToggleAiming: boolean;  // 토글 조준 상태 (1인칭/3인칭 공통)
   muzzleWorldPos: [number, number, number];  // 총구 월드 위치
+  currentFov: number;  // 현재 카메라 FOV (스코프 줌 등)
   // 탄퍼짐/반동 시스템
   aimState: AimState;  // 조준 상태
   moveState: MoveState;  // 이동 상태
@@ -67,6 +68,7 @@ interface GameStore {
   setWeaponType: (w: WeaponType) => void;
   setIsToggleAiming: (b: boolean) => void;
   setMuzzleWorldPos: (p: [number, number, number]) => void;
+  setCurrentFov: (fov: number) => void;
 }
 
 export const useGameStore = create<GameStore>((set) => ({
@@ -84,6 +86,7 @@ export const useGameStore = create<GameStore>((set) => ({
   weaponType: 'rifle',
   isToggleAiming: false,
   muzzleWorldPos: [0, 0, 0],
+  currentFov: 60,
   // 탄퍼짐/반동 시스템
   aimState: 'none',
   moveState: 'idle',
@@ -147,4 +150,5 @@ export const useGameStore = create<GameStore>((set) => ({
   setWeaponType: (weaponType) => set({ weaponType }),
   setIsToggleAiming: (isToggleAiming) => set({ isToggleAiming }),
   setMuzzleWorldPos: (muzzleWorldPos) => set({ muzzleWorldPos }),
+  setCurrentFov: (currentFov) => set({ currentFov }),
 }));

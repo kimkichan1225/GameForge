@@ -24,7 +24,7 @@ const SPREAD_CONFIG = {
   baseSpread: {
     rifle: 1.5,
     shotgun: 5.0,
-    sniper: 0.3,
+    sniper: 5.0,
   },
   // 조준 상태 배율
   aimMultiplier: {
@@ -188,7 +188,10 @@ export function BulletEffects() {
 
     // 탄퍼짐 계산
     const baseSpread = SPREAD_CONFIG.baseSpread[store.weaponType as keyof typeof SPREAD_CONFIG.baseSpread];
-    const aimMult = SPREAD_CONFIG.aimMultiplier[store.aimState];
+    // 스나이퍼 스코프(토글 조준) 시 탄퍼짐 대폭 감소
+    const aimMult = (store.weaponType === 'sniper' && store.aimState === 'toggle')
+      ? 0.1
+      : SPREAD_CONFIG.aimMultiplier[store.aimState];
     const postureMult = SPREAD_CONFIG.postureMultiplier[store.posture];
     const moveAdd = SPREAD_CONFIG.moveAddition[store.moveState];
     const spreadAccum = store.spreadAccum;
