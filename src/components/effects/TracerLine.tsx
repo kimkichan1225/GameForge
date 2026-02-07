@@ -18,6 +18,18 @@ const BULLET_CONFIG: Record<string, { speed: number; color: THREE.ColorRepresent
   sniper:  { speed: 200, color: 0xffffff, radius: 0.02,  length: 0.4 },
 };
 
+// 사전계산: 무기별 스케일 비율 (매 프레임 나눗셈 방지)
+const BULLET_SCALE: Record<string, { sx: number; sz: number }> = {};
+for (const [key, cfg] of Object.entries(BULLET_CONFIG)) {
+  BULLET_SCALE[key] = { sx: cfg.radius / BASE_RADIUS, sz: cfg.length / BASE_LENGTH };
+}
+
+// 사전계산: 무기별 Color 객체 (spawn마다 _color.set() 방지)
+const BULLET_COLORS: Record<string, THREE.Color> = {};
+for (const [key, cfg] of Object.entries(BULLET_CONFIG)) {
+  BULLET_COLORS[key] = new THREE.Color(cfg.color);
+}
+
 // GC 방지 재사용 객체 (파일 스코프)
 const _position = new THREE.Vector3();
 const _prevPosition = new THREE.Vector3();
@@ -101,9 +113,8 @@ export function TracerLine({ tracerRef, onHit }: TracerLineProps) {
         // 인스턴스 색상 설정
         const mesh = meshRef.current;
         if (mesh) {
-          const config = BULLET_CONFIG[weaponType] || BULLET_CONFIG.rifle;
-          _color.set(config.color);
-          mesh.setColorAt(idx, _color);
+          const color = BULLET_COLORS[weaponType] || BULLET_COLORS.rifle;
+          mesh.setColorAt(idx, color);
           if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
         }
       }
@@ -186,14 +197,13 @@ export function TracerLine({ tracerRef, onHit }: TracerLineProps) {
           _matrix.makeScale(0, 0, 0);
           mesh.setMatrixAt(i, _matrix);
         } else {
-          // 비행 중 (무기별 크기 스케일)
-          const sx = config.radius / BASE_RADIUS;
-          const sz = config.length / BASE_LENGTH;
+          // 비행 중 (무기별 크기 스케일 - 사전계산)
+          const scale = BULLET_SCALE[bullet.weaponType] || BULLET_SCALE.rifle;
           _position.copy(bullet.position);
           _lookTarget.copy(_position).add(bullet.direction);
           _matrix.lookAt(_position, _lookTarget, _upVector);
           _quaternion.setFromRotationMatrix(_matrix);
-          _scale.set(sx, sx, sz);
+          _scale.set(scale.sx, scale.sx, scale.sz);
           _matrix.compose(_position, _quaternion, _scale);
           mesh.setMatrixAt(i, _matrix);
         }

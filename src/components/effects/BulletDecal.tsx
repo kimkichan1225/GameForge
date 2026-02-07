@@ -53,7 +53,6 @@ export function BulletDecal({ decalRef }: { decalRef: React.MutableRefObject<{ s
   // 상태 관리
   const stateRef = useRef({
     hasActiveDecals: false,
-    activeCount: 0,
   });
 
   // 풀 초기화
@@ -88,7 +87,6 @@ export function BulletDecal({ decalRef }: { decalRef: React.MutableRefObject<{ s
         decal.rotation = Math.random() * Math.PI * 2;
 
         stateRef.current.hasActiveDecals = true;
-        stateRef.current.activeCount++;
       }
     };
   }, [decalRef]);

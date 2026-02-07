@@ -14,6 +14,9 @@ const _aimPoint = new THREE.Vector3();
 const _bulletDirection = new THREE.Vector3();
 const _spreadOffset = new THREE.Vector3();
 const _raycaster = new THREE.Raycaster();
+const _right = new THREE.Vector3();
+const _up = new THREE.Vector3();
+const _pelletDir = new THREE.Vector3();
 
 // 조준점 거리 (충돌 없을 때)
 const AIM_DISTANCE = 500;
@@ -239,18 +242,16 @@ export function BulletEffects() {
     _bulletDirection.subVectors(_aimPoint, _muzzleWorldPos).normalize();
 
     // 탄퍼짐용 right/up 벡터 계산 (펠릿 루프 밖에서 한 번만)
-    const right = new THREE.Vector3();
-    const up = new THREE.Vector3();
     if (totalSpread > 0) {
-      right.crossVectors(_bulletDirection, camera.up).normalize();
-      up.crossVectors(right, _bulletDirection).normalize();
+      _right.crossVectors(_bulletDirection, camera.up).normalize();
+      _up.crossVectors(_right, _bulletDirection).normalize();
     }
 
     // 펠릿 수만큼 총알 생성
     const pelletCount = PELLET_COUNT[store.weaponType] || 1;
     for (let i = 0; i < pelletCount; i++) {
       // 각 펠릿마다 독립적인 탄퍼짐 적용
-      const pelletDir = _bulletDirection.clone();
+      _pelletDir.copy(_bulletDirection);
 
       if (totalSpread > 0) {
         const spreadRad = THREE.MathUtils.degToRad(totalSpread);
@@ -258,13 +259,13 @@ export function BulletEffects() {
         const randomRadius = Math.random() * spreadRad;
 
         _spreadOffset.set(0, 0, 0);
-        _spreadOffset.addScaledVector(right, Math.cos(randomAngle) * Math.sin(randomRadius));
-        _spreadOffset.addScaledVector(up, Math.sin(randomAngle) * Math.sin(randomRadius));
+        _spreadOffset.addScaledVector(_right, Math.cos(randomAngle) * Math.sin(randomRadius));
+        _spreadOffset.addScaledVector(_up, Math.sin(randomAngle) * Math.sin(randomRadius));
 
-        pelletDir.add(_spreadOffset).normalize();
+        _pelletDir.add(_spreadOffset).normalize();
       }
 
-      tracerRef.current?.spawn(_muzzleWorldPos, pelletDir, store.weaponType);
+      tracerRef.current?.spawn(_muzzleWorldPos, _pelletDir, store.weaponType);
     }
   });
 

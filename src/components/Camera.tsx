@@ -204,9 +204,12 @@ export function Camera() {
     // FOV 줌 (스나이퍼 스코프) - 모든 카메라 모드에서 공통 처리
     const targetFov = (store.weaponType === 'sniper' && store.isToggleAiming) ? SNIPER_SCOPE_FOV : DEFAULT_FOV;
     const cam = camera as THREE.PerspectiveCamera;
-    cam.fov += (targetFov - cam.fov) * FOV_LERP_SPEED;
-    cam.updateProjectionMatrix();
-    store.setCurrentFov(cam.fov);
+    const fovDiff = targetFov - cam.fov;
+    if (Math.abs(fovDiff) > 0.01) {
+      cam.fov += fovDiff * FOV_LERP_SPEED;
+      cam.updateProjectionMatrix();
+      store.setCurrentFov(cam.fov);
+    }
 
     const basePitch = pitchRef.current;
     const angle = angleRef.current;

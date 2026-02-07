@@ -74,10 +74,13 @@ React Three Fiber 기반의 3D 슈팅 게임 프로젝트입니다.
 
 ### 성능 최적화
 - **오브젝트 풀링**: 총알(20), 탄흔(50), 스파크(30) 재사용
-- **GC 방지**: 재사용 가능한 THREE.js 객체 (Vector3, Quaternion 등)
+- **GC 방지**: 재사용 가능한 THREE.js 객체 (Vector3, Quaternion 등), 탄퍼짐 벡터/펠릿 방향 파일 스코프 재사용
 - **삼각함수 캐싱**: 동일 angle에 대한 sin/cos 재계산 방지
 - **레이캐스트 타겟 캐싱**: 500ms 간격으로 씬 순회
 - **조건부 업데이트**: 활성 객체가 없을 때 로직 스킵
+- **FOV 수렴 최적화**: FOV 변화량이 임계값 이하이면 `updateProjectionMatrix()` 및 store 업데이트 스킵
+- **사전계산 룩업 테이블**: 무기별 총알 스케일 비율/Color 객체 사전 생성
+- **선택적 store 구독**: UI 컴포넌트에서 `useShallow` 셀렉터로 필요한 필드만 구독하여 불필요한 리렌더 방지
 
 ## 조작법
 
@@ -132,6 +135,15 @@ npm run build
 ```
 
 ## 개발 일지
+
+### 2026-02-07 - 전체 코드 최적화 / 무기별 총구 플래시
+
+#### 런타임 성능 최적화
+- Camera.tsx: FOV 수렴 후 `updateProjectionMatrix()` + `setCurrentFov()` 매 프레임 호출 방지
+- BulletEffects.tsx: 탄퍼짐 벡터(`right`/`up`) 및 펠릿 방향을 파일 스코프 재사용 객체로 교체하여 GC 압박 제거
+- TracerLine.tsx: 무기별 스케일 비율/Color 객체를 사전계산 룩업 테이블로 생성
+- BulletDecal.tsx: 미사용 `activeCount` dead code 제거
+- UI.tsx: `useShallow` 셀렉터로 필요한 store 필드만 구독하여 매 프레임 UI 리렌더 방지
 
 ### 2026-02-07 - 무기별 총구 플래시/불빛 설정
 

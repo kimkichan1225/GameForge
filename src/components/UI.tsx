@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { useGameStore } from '../store/gameStore';
 
 // 탄퍼짐 설정 (BulletEffects.tsx와 동일)
@@ -31,7 +32,30 @@ export function UI() {
     cameraMode, setCameraMode, viewMode, setViewMode, weaponType, setWeaponType,
     aimState, moveState, spreadAccum, isToggleAiming, currentFov,
     currentAmmo, reserveAmmo, isReloading, reloadProgress, resetAmmo
-  } = useGameStore();
+  } = useGameStore(useShallow((s) => ({
+    posture: s.posture,
+    animation: s.animation,
+    gameMode: s.gameMode,
+    setGameMode: s.setGameMode,
+    setBodyAngle: s.setBodyAngle,
+    setLookDirection: s.setLookDirection,
+    cameraMode: s.cameraMode,
+    setCameraMode: s.setCameraMode,
+    viewMode: s.viewMode,
+    setViewMode: s.setViewMode,
+    weaponType: s.weaponType,
+    setWeaponType: s.setWeaponType,
+    aimState: s.aimState,
+    moveState: s.moveState,
+    spreadAccum: s.spreadAccum,
+    isToggleAiming: s.isToggleAiming,
+    currentFov: s.currentFov,
+    currentAmmo: s.currentAmmo,
+    reserveAmmo: s.reserveAmmo,
+    isReloading: s.isReloading,
+    reloadProgress: s.reloadProgress,
+    resetAmmo: s.resetAmmo,
+  })));
 
   // 화면 크기 추적
   const [screenHeight, setScreenHeight] = useState(window.innerHeight);

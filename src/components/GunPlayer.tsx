@@ -562,7 +562,7 @@ export function GunPlayer() {
     // 1인칭 조준 처리 (짧게 = 토글, 길게 = 홀드)
     const holdThreshold = 0.2;  // 홀드 판정 시간 (초)
     const isMoving = keys.forward || keys.backward || keys.left || keys.right;
-    const isRunning = keys.shift && isMoving && posture === 'standing' && !useGameStore.getState().isReloading;  // 재장전 중 달리기 불가
+    const isRunning = keys.shift && isMoving && posture === 'standing' && !store.isReloading;  // 재장전 중 달리기 불가
 
     // Run 상태면 토글 조준 해제
     if (isRunning && mouse.aimingToggle) {
