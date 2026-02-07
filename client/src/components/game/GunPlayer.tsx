@@ -264,6 +264,7 @@ const GunPlayer = memo(function GunPlayer({
     })
     armsScene.traverse(obj => {
       obj.userData.isPlayer = true
+      obj.frustumCulled = false  // 카메라 근접 배치 시 컬링 방지
       if (obj instanceof THREE.Bone) {
         if (obj.name === 'mixamorigRightHand') armsRightHandBone.current = obj
       }
@@ -688,7 +689,7 @@ const GunPlayer = memo(function GunPlayer({
     _targetQuat.setFromAxisAngle(_yAxis, s.bodyAngle + Math.PI)
     scene.quaternion.slerp(_targetQuat, 0.15)
 
-    if (isGrounded && !store.isReloading) {
+    if (isGrounded && !useGameStore.getState().isReloading) {
       const dir = getDirection(keys.forward, keys.backward, keys.left, keys.right)
       playAnim(getDirectionalAnim(dir, isRunning, posture, canFire, mouse.aiming))
     }

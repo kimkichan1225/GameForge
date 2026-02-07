@@ -783,11 +783,11 @@ const MarkerMesh = memo(function MarkerMesh({ marker }: { marker: MapMarker }) {
 
   return (
     <group position={marker.position} rotation={marker.rotation}>
-      <mesh rotation={MARKER_RING_ROTATION} position={MARKER_RING_POSITION} geometry={ringGeometry} material={ringMaterial} />
+      <mesh rotation={MARKER_RING_ROTATION} position={MARKER_RING_POSITION} geometry={ringGeometry} material={ringMaterial} userData={{ isEffect: true }} />
       {!isKillzone && (
         <>
-          <mesh position={MARKER_CYLINDER_POSITION} geometry={getMarkerCylinderGeometry()} material={cylinderMaterial} />
-          <mesh position={MARKER_CONE_POSITION} geometry={getMarkerConeGeometry()} material={coneMaterial} />
+          <mesh position={MARKER_CYLINDER_POSITION} geometry={getMarkerCylinderGeometry()} material={cylinderMaterial} userData={{ isEffect: true }} />
+          <mesh position={MARKER_CONE_POSITION} geometry={getMarkerConeGeometry()} material={coneMaterial} userData={{ isEffect: true }} />
         </>
       )}
     </group>
@@ -876,17 +876,19 @@ const ShooterSceneContent = memo(function ShooterSceneContent({
       <color attach="background" args={['#87ceeb']} />
       <fog attach="fog" args={['#87ceeb', 50, 150]} />
 
-      <Grid
-        args={[200, 200]}
-        cellSize={1}
-        cellThickness={0.5}
-        cellColor="#2d4a30"
-        sectionSize={5}
-        sectionThickness={1}
-        sectionColor="#1a3a1d"
-        position={GRID_POSITION}
-        fadeDistance={80}
-      />
+      <group ref={(g) => { if (g) g.traverse(o => { o.userData.isEffect = true }) }}>
+        <Grid
+          args={[200, 200]}
+          cellSize={1}
+          cellThickness={0.5}
+          cellColor="#2d4a30"
+          sectionSize={5}
+          sectionThickness={1}
+          sectionColor="#1a3a1d"
+          position={GRID_POSITION}
+          fadeDistance={80}
+        />
+      </group>
 
       <Ground />
       <MapObjects />
@@ -896,12 +898,12 @@ const ShooterSceneContent = memo(function ShooterSceneContent({
         <MarkerMesh key={marker.id} marker={marker} />
       ))}
 
+      <ShooterCamera />
       <GunPlayer
         startPosition={startPosition}
         physics={physics}
         weaponType={weaponType}
       />
-      <ShooterCamera />
       <BulletEffects />
     </>
   )
