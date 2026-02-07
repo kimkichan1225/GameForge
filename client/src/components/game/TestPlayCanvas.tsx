@@ -19,7 +19,11 @@ import {
   RAPIER,
 } from '../../lib/physics'
 import { requestPointerLock } from '../../lib/pointerLock'
-import type { Posture } from '../../stores/gameStore'
+import type { Posture, WeaponType } from '../../stores/gameStore'
+import GunPlayer from './GunPlayer'
+import ShooterCamera from './ShooterCamera'
+import BulletEffects from './effects/BulletEffects'
+import ShooterHUD from './ShooterHUD'
 
 // ============ 상수 ============
 const WALK_SPEED = 4
@@ -849,6 +853,60 @@ const SceneContent = memo(function SceneContent({
   )
 })
 
+// ============ 슈터 씬 콘텐츠 ============
+const ShooterSceneContent = memo(function ShooterSceneContent({
+  startPosition,
+  markers,
+  physics,
+  weaponType,
+}: {
+  startPosition: [number, number, number]
+  markers: MapMarker[]
+  physics: PhysicsContext | null
+  weaponType: WeaponType
+}) {
+  if (!physics) return null
+
+  return (
+    <>
+      <ambientLight intensity={0.6} />
+      <directionalLight position={[20, 30, 10]} intensity={1} castShadow />
+      <hemisphereLight args={['#87ceeb', '#3a5a40', 0.4]} />
+
+      <color attach="background" args={['#87ceeb']} />
+      <fog attach="fog" args={['#87ceeb', 50, 150]} />
+
+      <Grid
+        args={[200, 200]}
+        cellSize={1}
+        cellThickness={0.5}
+        cellColor="#2d4a30"
+        sectionSize={5}
+        sectionThickness={1}
+        sectionColor="#1a3a1d"
+        position={GRID_POSITION}
+        fadeDistance={80}
+      />
+
+      <Ground />
+      <MapObjects />
+
+      {/* 마커 렌더링 */}
+      {markers.map(marker => (
+        <MarkerMesh key={marker.id} marker={marker} />
+      ))}
+
+      <GunPlayer
+        startPosition={startPosition}
+        physics={physics}
+        weaponType={weaponType}
+      />
+      <ShooterCamera />
+      <BulletEffects />
+    </>
+  )
+})
+
 // ============ 타이머 포맷 ============
 function formatTime(ms: number): string {
   const totalSeconds = Math.floor(ms / 1000)
@@ -1035,8 +1093,12 @@ const LoadingScreen = memo(function LoadingScreen() {
 export function TestPlayCanvas({ onExit }: { onExit: () => void }) {
   const markers = useEditorStore(state => state.markers)
   const objects = useEditorStore(state => state.objects)
+  const mapMode = useEditorStore(state => state.mapMode)
   const [loading, setLoading] = useState(true)
   const [showDebug, setShowDebug] = useState(false)
+  const [selectedWeapon] = useState<WeaponType>('rifle')
+
+  const isShooter = mapMode === 'shooter'
 
   // 물리 상태를 ref로 관리 (콜라이더가 변경될 수 있음)
   const physicsRef = useRef<{
@@ -1125,7 +1187,14 @@ export function TestPlayCanvas({ onExit }: { onExit: () => void }) {
     }
   }, [objects, startPosition])
 
-  useEffect(() => { useGameStore.getState().reset() }, [])
+  useEffect(() => {
+    const store = useGameStore.getState()
+    store.reset()
+    if (isShooter) {
+      store.setWeaponType(selectedWeapon)
+      store.resetAmmo(selectedWeapon)
+    }
+  }, [isShooter, selectedWeapon])
 
   const toggleDebug = useCallback(() => setShowDebug(prev => !prev), [])
 
@@ -1138,23 +1207,35 @@ export function TestPlayCanvas({ onExit }: { onExit: () => void }) {
         shadows
         gl={{ preserveDrawingBuffer: true, powerPreference: 'high-performance' }}
         onCreated={({ gl }) => {
-          // WebGL 컨텍스트 손실 이벤트 처리
           gl.domElement.addEventListener('webglcontextlost', (e) => {
             e.preventDefault()
           })
         }}
       >
-        <SceneContent
-          startPosition={startPosition}
-          finishPosition={finishPosition}
-          checkpoints={checkpoints}
-          killzones={killzones}
-          markers={markers}
-          physics={physics}
-          showDebug={showDebug}
-        />
+        {isShooter ? (
+          <ShooterSceneContent
+            startPosition={startPosition}
+            markers={markers}
+            physics={physics}
+            weaponType={selectedWeapon}
+          />
+        ) : (
+          <SceneContent
+            startPosition={startPosition}
+            finishPosition={finishPosition}
+            checkpoints={checkpoints}
+            killzones={killzones}
+            markers={markers}
+            physics={physics}
+            showDebug={showDebug}
+          />
+        )}
       </Canvas>
-      <TestPlayUI onExit={onExit} showDebug={showDebug} onToggleDebug={toggleDebug} hasFinish={hasFinish} totalCheckpoints={checkpoints.length} />
+      {isShooter ? (
+        <ShooterHUD onExit={onExit} />
+      ) : (
+        <TestPlayUI onExit={onExit} showDebug={showDebug} onToggleDebug={toggleDebug} hasFinish={hasFinish} totalCheckpoints={checkpoints.length} />
+      )}
       <PointerLockMessage />
     </div>
   )

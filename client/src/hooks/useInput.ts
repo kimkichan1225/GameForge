@@ -11,6 +11,7 @@ export interface Keys {
   c: boolean
   v: boolean
   z: boolean
+  r: boolean
 }
 
 export function useInput() {
@@ -25,6 +26,7 @@ export function useInput() {
     c: false,
     v: false,
     z: false,
+    r: false,
   })
 
   useEffect(() => {
@@ -42,6 +44,7 @@ export function useInput() {
         case 'KeyC': keys.current.c = true; break
         case 'KeyV': keys.current.v = true; break
         case 'KeyZ': keys.current.z = true; break
+        case 'KeyR': keys.current.r = true; break
       }
     }
 
@@ -59,6 +62,7 @@ export function useInput() {
         case 'KeyC': keys.current.c = false; break
         case 'KeyV': keys.current.v = false; break
         case 'KeyZ': keys.current.z = false; break
+        case 'KeyR': keys.current.r = false; break
       }
     }
 
