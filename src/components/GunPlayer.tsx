@@ -127,7 +127,8 @@ type WeaponConfig = {
   rotation: THREE.Euler;
   position: [number, number, number];
   flashPosition: [number, number, number];
-  flashSpeed: number;
+  fireRate: number;        // 초당 발사 수
+  flashDuration: number;   // 플래시 지속시간 (초)
   lightColor: number;
   lightDistance: number;
   lightIntensity: number;
@@ -138,7 +139,8 @@ const WEAPON_CONFIGS: Record<string, WeaponConfig> = {
     rotation: new THREE.Euler(deg(0), deg(180), deg(80)),
     position: [0, 0.15, 0],
     flashPosition: [0, 145, 0],
-    flashSpeed: 60,
+    fireRate: 20,
+    flashDuration: 0.03,
     lightColor: 0xffaa00,
     lightDistance: 3,
     lightIntensity: 5,
@@ -147,7 +149,8 @@ const WEAPON_CONFIGS: Record<string, WeaponConfig> = {
     rotation: new THREE.Euler(deg(0), deg(180), deg(80)),
     position: [0.2, 0.15, 0],
     flashPosition: [-15, 155, 0],
-    flashSpeed: 30,
+    fireRate: 2,
+    flashDuration: 0.08,
     lightColor: 0xff3300,
     lightDistance: 4,
     lightIntensity: 8,
@@ -156,7 +159,8 @@ const WEAPON_CONFIGS: Record<string, WeaponConfig> = {
     rotation: new THREE.Euler(deg(0), deg(180), deg(80)),
     position: [0.2, 0.15, 0],
     flashPosition: [-25, 220, 0],
-    flashSpeed: 20,
+    fireRate: 1,
+    flashDuration: 0.06,
     lightColor: 0xffffff,
     lightDistance: 2,
     lightIntensity: 4,
@@ -291,6 +295,7 @@ export function GunPlayer() {
     headRotY: 0,
     bodyAngle: useGameStore.getState().bodyAngle,
     muzzleTimer: 0,
+    lastShotAnimTime: 0,
     initialized: false,
     transitioning: false,
   });
@@ -460,7 +465,9 @@ export function GunPlayer() {
         const armsAction = armsActions[armsClipName];
         armsAction.reset().fadeIn(0.2).play();
 
-        if (armsAnimName === 'Jump' || armsAnimName === 'SitDown' || armsAnimName === 'StandUp' || armsAnimName === 'Reload') {
+        const isSingleShot = (armsAnimName === 'IdleFiring' || armsAnimName === 'WalkFiring' || armsAnimName === 'RunFiring')
+          && (store.weaponType === 'shotgun' || store.weaponType === 'sniper');
+        if (armsAnimName === 'Jump' || armsAnimName === 'SitDown' || armsAnimName === 'StandUp' || armsAnimName === 'Reload' || isSingleShot) {
           armsAction.setLoop(THREE.LoopOnce, 1);
           armsAction.clampWhenFinished = true;
         } else {
@@ -470,7 +477,10 @@ export function GunPlayer() {
       }
     }
 
-    if (name === 'Jump' || name === 'SitDown' || name === 'StandUp' || name === 'Reload') {
+    const weaponType = useGameStore.getState().weaponType;
+    const isSingleShot = (name === 'IdleFiring' || name === 'WalkFiring' || name === 'RunFiring')
+      && (weaponType === 'shotgun' || weaponType === 'sniper');
+    if (name === 'Jump' || name === 'SitDown' || name === 'StandUp' || name === 'Reload' || isSingleShot) {
       action.setLoop(THREE.LoopOnce, 1);
       action.clampWhenFinished = true;
       if (onComplete) {
@@ -496,6 +506,16 @@ export function GunPlayer() {
     dir: string, running: boolean, posture: string, firing: boolean, aiming: boolean
   ): string => {
     const canAim = aiming && !running && posture === 'standing';
+
+    // 샷건/스나이퍼: 발사 쿨다운 중이면 발사 애니메이션 트리거하지 않음
+    const wt = useGameStore.getState().weaponType;
+    if ((wt === 'shotgun' || wt === 'sniper') && firing) {
+      const now = performance.now();
+      const fireIntervalMs = 1000 / WEAPON_CONFIGS[wt].fireRate;
+      if (now - stateRef.current.lastShotAnimTime < fireIntervalMs) {
+        firing = false;  // 쿨다운 중이면 발사 상태 무시
+      }
+    }
 
     if (!dir) {
       if (posture === 'sitting') return 'SitIdle';
@@ -940,7 +960,7 @@ export function GunPlayer() {
 
         // 반동 처리 (발사 가능할 때만)
         const now = performance.now();
-        const fireInterval = 1000 / (cfg.flashSpeed / 2);  // 발사 간격
+        const fireInterval = 1000 / cfg.fireRate;  // 발사 간격
         if (canFire && now - mouse.lastFireTime > fireInterval) {
           // 반동 추가 (위로 튀고 랜덤 좌우 흔들림)
           mouse.recoilY = Math.random() * 0.02;
@@ -994,41 +1014,63 @@ export function GunPlayer() {
       fpsWeaponRef.current.visible = showFpsView;  // 토글 조준 또는 1인칭이면 표시
     }
 
-    // 총구 플래시 (1인칭/3인칭 모두) - 탄약 있고 재장전 중 아닐 때만
-    if (canFire) {
-      s.muzzleTimer += dt;
-      const cfg = WEAPON_CONFIGS[store.weaponType];
-      const flashOn = Math.sin(s.muzzleTimer * cfg.flashSpeed) > 0;
-      const flashIntensity = flashOn ? cfg.lightIntensity : 0;
-      const spriteScale = flashOn ? 30 + Math.random() * 10 : 0;  // 랜덤 크기로 자연스럽게
+    // 총구 플래시 (1인칭/3인칭 모두) - 절대 시간 기반 발사 간격 보장
+    const flashCfg = WEAPON_CONFIGS[store.weaponType];
+    const now = performance.now();
+    const fireIntervalMs = 1000 / flashCfg.fireRate;
 
-      // 현재 시점에 맞는 플래시만 활성화
-      if (muzzleFlashRef.current) {
-        muzzleFlashRef.current.intensity = showFpsView ? flashIntensity : 0;
-      }
-      if (tpsMuzzleFlashRef.current) {
-        tpsMuzzleFlashRef.current.intensity = showFpsView ? 0 : flashIntensity;
-      }
-
-      // 스프라이트 (시각적 플래시)
-      if (fpsMuzzleSpriteRef.current) {
-        const scale = showFpsView ? spriteScale : 0;
-        fpsMuzzleSpriteRef.current.scale.set(scale, scale, 1);
-        fpsMuzzleSpriteRef.current.material.rotation = Math.random() * Math.PI * 2;  // 랜덤 회전
-        fpsMuzzleSpriteRef.current.material.color.setHex(cfg.lightColor);
-      }
-      if (tpsMuzzleSpriteRef.current) {
-        const scale = showFpsView ? 0 : spriteScale;
-        tpsMuzzleSpriteRef.current.scale.set(scale, scale, 1);
-        tpsMuzzleSpriteRef.current.material.rotation = Math.random() * Math.PI * 2;
-        tpsMuzzleSpriteRef.current.material.color.setHex(cfg.lightColor);
-      }
-    } else {
-      if (muzzleFlashRef.current) muzzleFlashRef.current.intensity = 0;
-      if (tpsMuzzleFlashRef.current) tpsMuzzleFlashRef.current.intensity = 0;
-      if (fpsMuzzleSpriteRef.current) fpsMuzzleSpriteRef.current.scale.set(0, 0, 1);
-      if (tpsMuzzleSpriteRef.current) tpsMuzzleSpriteRef.current.scale.set(0, 0, 1);
+    if (canFire && now - s.lastShotAnimTime >= fireIntervalMs) {
+      // 발사 쿨다운 경과 → 새 발사 트리거
+      s.lastShotAnimTime = now;
       s.muzzleTimer = 0;
+
+      // 샷건/스나이퍼 발사 애니메이션 재트리거
+      if (store.weaponType === 'shotgun' || store.weaponType === 'sniper') {
+        const firingAnim = s.currentAnim;
+        if (firingAnim === 'IdleFiring' || firingAnim === 'WalkFiring' || firingAnim === 'RunFiring') {
+          const map = animMapRef.current;
+          const clipName = map[firingAnim];
+          if (clipName && actions[clipName]) {
+            actions[clipName].reset().play();
+            actions[clipName].setLoop(THREE.LoopOnce, 1);
+            actions[clipName].clampWhenFinished = true;
+          }
+          // 풀암 애니메이션도 재트리거
+          const armsMap = armsAnimMapRef.current;
+          const armsAnimName = FPS_ARMS_ANIM_MAP[firingAnim] || firingAnim;
+          const armsClipName = armsMap[armsAnimName];
+          if (armsClipName && armsActions[armsClipName]) {
+            armsActions[armsClipName].reset().play();
+            armsActions[armsClipName].setLoop(THREE.LoopOnce, 1);
+            armsActions[armsClipName].clampWhenFinished = true;
+          }
+        }
+      }
+    }
+
+    // 플래시 타이머 진행 및 표시
+    s.muzzleTimer += dt;
+    const flashOn = canFire && s.muzzleTimer < flashCfg.flashDuration;
+    const flashIntensity = flashOn ? flashCfg.lightIntensity : 0;
+    const spriteScale = flashOn ? 30 + Math.random() * 10 : 0;
+
+    if (muzzleFlashRef.current) {
+      muzzleFlashRef.current.intensity = showFpsView ? flashIntensity : 0;
+    }
+    if (tpsMuzzleFlashRef.current) {
+      tpsMuzzleFlashRef.current.intensity = showFpsView ? 0 : flashIntensity;
+    }
+    if (fpsMuzzleSpriteRef.current) {
+      const scale = showFpsView ? spriteScale : 0;
+      fpsMuzzleSpriteRef.current.scale.set(scale, scale, 1);
+      if (flashOn) fpsMuzzleSpriteRef.current.material.rotation = Math.random() * Math.PI * 2;
+      fpsMuzzleSpriteRef.current.material.color.setHex(flashCfg.lightColor);
+    }
+    if (tpsMuzzleSpriteRef.current) {
+      const scale = showFpsView ? 0 : spriteScale;
+      tpsMuzzleSpriteRef.current.scale.set(scale, scale, 1);
+      if (flashOn) tpsMuzzleSpriteRef.current.material.rotation = Math.random() * Math.PI * 2;
+      tpsMuzzleSpriteRef.current.material.color.setHex(flashCfg.lightColor);
     }
 
     // 총구 월드 위치 업데이트 (BulletEffects에서 사용)
