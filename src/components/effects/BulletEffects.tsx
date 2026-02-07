@@ -83,6 +83,13 @@ const WEAPON_FIRE_INTERVALS: Record<string, number> = {
   sniper: 1000 / 1,
 };
 
+// 무기별 한 발당 펠릿 수
+const PELLET_COUNT: Record<string, number> = {
+  rifle: 1,
+  shotgun: 8,
+  sniper: 1,
+};
+
 // 레이캐스트 타겟 캐시 갱신 간격 (밀리초)
 const RAYCAST_CACHE_INTERVAL = 500;
 
@@ -225,30 +232,37 @@ export function BulletEffects() {
       _aimPoint.copy(_rayOrigin).addScaledVector(_rayDirection, AIM_DISTANCE);
     }
 
-    // 총구 → 조준점 방향
+    // 총구 → 조준점 기본 방향
     _bulletDirection.subVectors(_aimPoint, _muzzleWorldPos).normalize();
 
-    // 탄퍼짐 적용 (원뿔 내 랜덤 오프셋)
+    // 탄퍼짐용 right/up 벡터 계산 (펠릿 루프 밖에서 한 번만)
+    const right = new THREE.Vector3();
+    const up = new THREE.Vector3();
     if (totalSpread > 0) {
-      const spreadRad = THREE.MathUtils.degToRad(totalSpread);
-      const randomAngle = Math.random() * Math.PI * 2;
-      const randomRadius = Math.random() * spreadRad;
-
-      // 카메라의 up/right 벡터 기준으로 오프셋 적용
-      const right = new THREE.Vector3();
-      const up = new THREE.Vector3();
       right.crossVectors(_bulletDirection, camera.up).normalize();
       up.crossVectors(right, _bulletDirection).normalize();
-
-      _spreadOffset.set(0, 0, 0);
-      _spreadOffset.addScaledVector(right, Math.cos(randomAngle) * Math.sin(randomRadius));
-      _spreadOffset.addScaledVector(up, Math.sin(randomAngle) * Math.sin(randomRadius));
-
-      _bulletDirection.add(_spreadOffset).normalize();
     }
 
-    // 총알 생성
-    tracerRef.current?.spawn(_muzzleWorldPos, _bulletDirection);
+    // 펠릿 수만큼 총알 생성
+    const pelletCount = PELLET_COUNT[store.weaponType] || 1;
+    for (let i = 0; i < pelletCount; i++) {
+      // 각 펠릿마다 독립적인 탄퍼짐 적용
+      const pelletDir = _bulletDirection.clone();
+
+      if (totalSpread > 0) {
+        const spreadRad = THREE.MathUtils.degToRad(totalSpread);
+        const randomAngle = Math.random() * Math.PI * 2;
+        const randomRadius = Math.random() * spreadRad;
+
+        _spreadOffset.set(0, 0, 0);
+        _spreadOffset.addScaledVector(right, Math.cos(randomAngle) * Math.sin(randomRadius));
+        _spreadOffset.addScaledVector(up, Math.sin(randomAngle) * Math.sin(randomRadius));
+
+        pelletDir.add(_spreadOffset).normalize();
+      }
+
+      tracerRef.current?.spawn(_muzzleWorldPos, pelletDir);
+    }
   });
 
   return (

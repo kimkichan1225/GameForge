@@ -3,7 +3,7 @@ import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 
 // 총알 풀 크기
-const POOL_SIZE = 20;
+const POOL_SIZE = 40;
 const BULLET_SPEED = 100;
 const BULLET_LENGTH = 0.3;
 const BULLET_RADIUS = 0.015;
