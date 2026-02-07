@@ -98,7 +98,7 @@ export function BulletEffects() {
   const { camera, scene } = useThree();
 
   // 이펙트 refs
-  const tracerRef = useRef<{ spawn: (start: THREE.Vector3, direction: THREE.Vector3) => void } | null>(null);
+  const tracerRef = useRef<{ spawn: (start: THREE.Vector3, direction: THREE.Vector3, weaponType: string) => void } | null>(null);
   const decalRef = useRef<{ spawn: (position: THREE.Vector3, normal: THREE.Vector3) => void } | null>(null);
   const sparkRef = useRef<{ spawn: (position: THREE.Vector3, normal: THREE.Vector3) => void } | null>(null);
 
@@ -264,7 +264,7 @@ export function BulletEffects() {
         pelletDir.add(_spreadOffset).normalize();
       }
 
-      tracerRef.current?.spawn(_muzzleWorldPos, pelletDir);
+      tracerRef.current?.spawn(_muzzleWorldPos, pelletDir, store.weaponType);
     }
   });
 

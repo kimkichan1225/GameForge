@@ -4,11 +4,19 @@ import * as THREE from 'three';
 
 // 총알 풀 크기
 const POOL_SIZE = 40;
-const BULLET_SPEED = 100;
-const BULLET_LENGTH = 0.3;
-const BULLET_RADIUS = 0.015;
 const MAX_BULLET_DISTANCE = 500;
 const RAYCAST_CACHE_INTERVAL = 500;
+
+// 기본 지오메트리 기준 크기 (rifle)
+const BASE_RADIUS = 0.015;
+const BASE_LENGTH = 0.3;
+
+// 무기별 총알 설정
+const BULLET_CONFIG: Record<string, { speed: number; color: THREE.ColorRepresentation; radius: number; length: number }> = {
+  rifle:   { speed: 100, color: 0xffdd44, radius: 0.015, length: 0.3 },
+  shotgun: { speed: 100, color: 0xffdd44, radius: 0.015, length: 0.3 },
+  sniper:  { speed: 200, color: 0xffffff, radius: 0.02,  length: 0.4 },
+};
 
 // GC 방지 재사용 객체 (파일 스코프)
 const _position = new THREE.Vector3();
@@ -20,6 +28,7 @@ const _lookTarget = new THREE.Vector3();
 const _raycaster = new THREE.Raycaster();
 const _hitNormal = new THREE.Vector3();
 const _upVector = new THREE.Vector3(0, 1, 0);
+const _color = new THREE.Color();
 
 interface BulletInstance {
   active: boolean;
@@ -27,10 +36,11 @@ interface BulletInstance {
   position: THREE.Vector3;
   direction: THREE.Vector3;
   distance: number;
+  weaponType: string;
 }
 
 interface TracerLineProps {
-  tracerRef: React.MutableRefObject<{ spawn: (start: THREE.Vector3, direction: THREE.Vector3) => void } | null>;
+  tracerRef: React.MutableRefObject<{ spawn: (start: THREE.Vector3, direction: THREE.Vector3, weaponType: string) => void } | null>;
   onHit?: (point: THREE.Vector3, normal: THREE.Vector3) => void;
 }
 
@@ -54,6 +64,7 @@ export function TracerLine({ tracerRef, onHit }: TracerLineProps) {
       position: new THREE.Vector3(),
       direction: new THREE.Vector3(),
       distance: 0,
+      weaponType: 'rifle',
     }));
   }, []);
 
@@ -73,30 +84,41 @@ export function TracerLine({ tracerRef, onHit }: TracerLineProps) {
   // 총알 생성 함수
   useMemo(() => {
     tracerRef.current = {
-      spawn: (start: THREE.Vector3, direction: THREE.Vector3) => {
+      spawn: (start: THREE.Vector3, direction: THREE.Vector3, weaponType: string) => {
         const pool = poolRef.current;
-        const bullet = pool.find(b => !b.active);
-        if (!bullet) return;
+        const idx = pool.findIndex(b => !b.active);
+        if (idx === -1) return;
 
+        const bullet = pool[idx];
         bullet.active = true;
         bullet.startPosition.copy(start);
         bullet.position.copy(start);
         bullet.direction.copy(direction).normalize();
         bullet.distance = 0;
+        bullet.weaponType = weaponType;
         stateRef.current.hasActiveBullets = true;
+
+        // 인스턴스 색상 설정
+        const mesh = meshRef.current;
+        if (mesh) {
+          const config = BULLET_CONFIG[weaponType] || BULLET_CONFIG.rifle;
+          _color.set(config.color);
+          mesh.setColorAt(idx, _color);
+          if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+        }
       }
     };
   }, [tracerRef]);
 
   // Geometry & Material (한 번만 생성)
   const geometry = useMemo(() => {
-    const geo = new THREE.CylinderGeometry(BULLET_RADIUS, BULLET_RADIUS, BULLET_LENGTH, 6);
+    const geo = new THREE.CylinderGeometry(BASE_RADIUS, BASE_RADIUS, BASE_LENGTH, 6);
     geo.rotateX(Math.PI / 2);
     return geo;
   }, []);
 
   const material = useMemo(() => {
-    return new THREE.MeshBasicMaterial({ color: 0xffdd44 });
+    return new THREE.MeshBasicMaterial({ color: 0xffffff });
   }, []);
 
   // 매 프레임 업데이트
@@ -111,7 +133,6 @@ export function TracerLine({ tracerRef, onHit }: TracerLineProps) {
     if (!state.hasActiveBullets) return;
 
     const now = performance.now();
-    const moveDistance = BULLET_SPEED * dt;
 
     // 레이캐스트 캐시 갱신
     if (now - state.lastCacheTime > RAYCAST_CACHE_INTERVAL) {
@@ -128,6 +149,9 @@ export function TracerLine({ tracerRef, onHit }: TracerLineProps) {
       if (bullet.active) {
         hasActive = true;
         needsUpdate = true;
+
+        const config = BULLET_CONFIG[bullet.weaponType] || BULLET_CONFIG.rifle;
+        const moveDistance = config.speed * dt;
 
         // 이전 위치 저장
         _prevPosition.copy(bullet.position);
@@ -162,12 +186,14 @@ export function TracerLine({ tracerRef, onHit }: TracerLineProps) {
           _matrix.makeScale(0, 0, 0);
           mesh.setMatrixAt(i, _matrix);
         } else {
-          // 비행 중
+          // 비행 중 (무기별 크기 스케일)
+          const sx = config.radius / BASE_RADIUS;
+          const sz = config.length / BASE_LENGTH;
           _position.copy(bullet.position);
           _lookTarget.copy(_position).add(bullet.direction);
           _matrix.lookAt(_position, _lookTarget, _upVector);
           _quaternion.setFromRotationMatrix(_matrix);
-          _scale.set(1, 1, 1);
+          _scale.set(sx, sx, sz);
           _matrix.compose(_position, _quaternion, _scale);
           mesh.setMatrixAt(i, _matrix);
         }
