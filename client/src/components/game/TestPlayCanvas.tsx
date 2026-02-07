@@ -283,7 +283,7 @@ const Player = memo(function Player({
       dyingTimer.current -= dt
       // 수평 이동 멈추고 중력만 적용
       playerBody.setLinvel({ x: 0, y: vel.y, z: 0 }, true)
-      world.step()
+      try { world.step() } catch { return }
 
       const pos = playerBody.translation()
       group.current.position.set(pos.x, pos.y - centerY, pos.z)
@@ -417,7 +417,7 @@ const Player = memo(function Player({
 
     // Rapier 물리 적용
     playerBody.setLinvel({ x: _move.x * speed, y: shouldJump ? JUMP_POWER : vel.y, z: _move.z * speed }, true)
-    world.step()
+    try { world.step() } catch { return }
 
     // 위치 동기화
     const pos = playerBody.translation()
@@ -1098,7 +1098,7 @@ export function TestPlayCanvas({ onExit }: { onExit: () => void }) {
   const mapMode = useEditorStore(state => state.mapMode)
   const [loading, setLoading] = useState(true)
   const [showDebug, setShowDebug] = useState(false)
-  const [selectedWeapon] = useState<WeaponType>('rifle')
+  const [selectedWeapon, setSelectedWeapon] = useState<WeaponType>('rifle')
 
   const isShooter = mapMode === 'shooter'
 
@@ -1144,7 +1144,7 @@ export function TestPlayCanvas({ onExit }: { onExit: () => void }) {
       try {
         // 이전 물리 월드가 있으면 먼저 정리
         if (physicsRef.current) {
-          physicsRef.current.world.free()
+          try { physicsRef.current.world.free() } catch { /* already freed */ }
           physicsRef.current = null
         }
         playerColliderRef.current = null
@@ -1160,7 +1160,11 @@ export function TestPlayCanvas({ onExit }: { onExit: () => void }) {
         const { rigidBody, collider } = createPlayer(world, startPosition)
 
         if (!mounted) {
-          world.free()
+          // cleanup이 이미 localWorld를 free했을 수 있으므로 확인
+          if (localWorld) {
+            try { localWorld.free() } catch { /* already freed */ }
+            localWorld = null
+          }
           return
         }
 
@@ -1180,11 +1184,12 @@ export function TestPlayCanvas({ onExit }: { onExit: () => void }) {
       setPhysicsReady(false)
       playerColliderRef.current = null
       if (physicsRef.current) {
-        physicsRef.current.world.free()
+        try { physicsRef.current.world.free() } catch { /* already freed */ }
         physicsRef.current = null
       } else if (localWorld) {
         // init이 완료되기 전에 cleanup이 호출된 경우
-        localWorld.free()
+        try { localWorld.free() } catch { /* already freed */ }
+        localWorld = null
       }
     }
   }, [objects, startPosition])
@@ -1197,6 +1202,13 @@ export function TestPlayCanvas({ onExit }: { onExit: () => void }) {
       store.resetAmmo(selectedWeapon)
     }
   }, [isShooter, selectedWeapon])
+
+  const handleWeaponChange = useCallback((weapon: WeaponType) => {
+    setSelectedWeapon(weapon)
+    const store = useGameStore.getState()
+    store.setWeaponType(weapon)
+    store.resetAmmo(weapon)
+  }, [])
 
   const toggleDebug = useCallback(() => setShowDebug(prev => !prev), [])
 
@@ -1234,7 +1246,7 @@ export function TestPlayCanvas({ onExit }: { onExit: () => void }) {
         )}
       </Canvas>
       {isShooter ? (
-        <ShooterHUD onExit={onExit} />
+        <ShooterHUD onExit={onExit} onWeaponChange={handleWeaponChange} />
       ) : (
         <TestPlayUI onExit={onExit} showDebug={showDebug} onToggleDebug={toggleDebug} hasFinish={hasFinish} totalCheckpoints={checkpoints.length} />
       )}

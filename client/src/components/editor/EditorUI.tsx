@@ -157,18 +157,20 @@ const Toolbar = memo(function Toolbar({ onExit, onUpload }: { onExit: () => void
   const mapCompleted = useEditorStore(state => state.mapCompleted)
   const completionTime = useEditorStore(state => state.completionTime)
 
-  // 테스트 플레이 가능 여부 (스폰 마커 필요)
+  // 테스트 플레이 가능 여부 (validateMap 기준)
   const canPlay = useMemo(() => {
-    return markers.some(m => m.type === 'spawn' || m.type === 'spawn_a')
-  }, [markers])
+    const { valid } = validateMap()
+    return valid
+  }, [markers, mapMode, shooterSubMode])
 
   const handlePlay = useCallback(() => {
-    if (!canPlay) {
-      alert('테스트 플레이를 시작하려면 Spawn 마커가 필요합니다.')
+    const { valid, missingMarkers } = validateMap()
+    if (!valid) {
+      alert(`테스트 플레이를 시작하려면 다음 마커가 필요합니다:\n\n${missingMarkers.map(m => `• ${m}`).join('\n')}`)
       return
     }
     setTestPlaying(true)
-  }, [canPlay, setTestPlaying])
+  }, [setTestPlaying])
 
   // 맵 내보내기 (JSON 파일 다운로드) - 검증 포함
   const handleExport = useCallback(() => {

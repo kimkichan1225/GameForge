@@ -1,94 +1,90 @@
-import { memo, useEffect, useRef } from 'react'
+import { memo, useEffect, useState, useCallback } from 'react'
 import { useGameStore, WEAPON_CONFIG } from '../../stores/gameStore'
+import type { WeaponType } from '../../stores/gameStore'
+
+// 탄퍼짐 설정 (BulletEffects.tsx와 동일)
+const SPREAD_CONFIG = {
+  baseSpread: { rifle: 1.5, shotgun: 5.0, sniper: 5.0 } as Record<string, number>,
+  aimMultiplier: { none: 1.0, hold: 0.5, toggle: 0.3 } as Record<string, number>,
+  postureMultiplier: { standing: 1.0, sitting: 0.8, crawling: 0.6 } as Record<string, number>,
+  moveAddition: { idle: 0, walk: 0.5, run: 1.5, jump: 3.0 } as Record<string, number>,
+}
+
+// 크로스헤어 설정
+const CROSSHAIR_LINE_LEN = 8
+const CROSSHAIR_LINE_WIDTH = 2
+const CROSSHAIR_MIN_GAP = 2
+
+// 각도(도)를 화면 픽셀로 변환
+function spreadToPixels(spreadDegrees: number, screenHeight: number, fov: number): number {
+  const spreadRad = spreadDegrees * (Math.PI / 180)
+  const fovRad = fov * (Math.PI / 180)
+  const pixels = Math.tan(spreadRad) / Math.tan(fovRad / 2) * (screenHeight / 2)
+  return Math.max(CROSSHAIR_MIN_GAP, pixels)
+}
 
 // ============ 크로스헤어 컴포넌트 ============
 const Crosshair = memo(function Crosshair() {
-  const canvasRef = useRef<HTMLCanvasElement>(null!)
-  const rafRef = useRef(0)
+  const weaponType = useGameStore(s => s.weaponType)
+  const aimState = useGameStore(s => s.aimState)
+  const posture = useGameStore(s => s.posture)
+  const moveState = useGameStore(s => s.moveState)
+  const spreadAccum = useGameStore(s => s.spreadAccum)
+  const currentFov = useGameStore(s => s.currentFov)
+  const isToggleAiming = useGameStore(s => s.isToggleAiming)
 
+  const [screenHeight, setScreenHeight] = useState(window.innerHeight)
   useEffect(() => {
-    const canvas = canvasRef.current
-    if (!canvas) return
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return
-
-    const size = 200
-    canvas.width = size
-    canvas.height = size
-    const center = size / 2
-
-    function draw() {
-      if (!ctx) return
-      const store = useGameStore.getState()
-      const { spreadAccum, currentFov, aimState, weaponType } = store
-      const wc = WEAPON_CONFIG[weaponType]
-
-      ctx.clearRect(0, 0, size, size)
-
-      // 스나이퍼 스코프 모드에서는 크로스헤어 숨김
-      if (weaponType === 'sniper' && aimState !== 'none') {
-        rafRef.current = requestAnimationFrame(draw)
-        return
-      }
-
-      // FOV 기반 스프레드 → 픽셀 변환
-      const fovRad = (currentFov * Math.PI) / 180
-      const spreadPixels = (spreadAccum / Math.tan(fovRad / 2)) * (size / 2) * 8
-
-      const gap = Math.max(4, spreadPixels)
-      const lineLen = 8
-      const thickness = 2
-
-      // 크로스헤어 색상
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)'
-      ctx.lineWidth = thickness
-      ctx.shadowColor = 'rgba(0, 0, 0, 0.5)'
-      ctx.shadowBlur = 2
-
-      // 상
-      ctx.beginPath()
-      ctx.moveTo(center, center - gap)
-      ctx.lineTo(center, center - gap - lineLen)
-      ctx.stroke()
-
-      // 하
-      ctx.beginPath()
-      ctx.moveTo(center, center + gap)
-      ctx.lineTo(center, center + gap + lineLen)
-      ctx.stroke()
-
-      // 좌
-      ctx.beginPath()
-      ctx.moveTo(center - gap, center)
-      ctx.lineTo(center - gap - lineLen, center)
-      ctx.stroke()
-
-      // 우
-      ctx.beginPath()
-      ctx.moveTo(center + gap, center)
-      ctx.lineTo(center + gap + lineLen, center)
-      ctx.stroke()
-
-      // 중앙 점
-      ctx.shadowBlur = 0
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.6)'
-      ctx.beginPath()
-      ctx.arc(center, center, 1.5, 0, Math.PI * 2)
-      ctx.fill()
-
-      rafRef.current = requestAnimationFrame(draw)
-    }
-
-    rafRef.current = requestAnimationFrame(draw)
-    return () => cancelAnimationFrame(rafRef.current)
+    const onResize = () => setScreenHeight(window.innerHeight)
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
   }, [])
 
+  // 스나이퍼 스코프 시 숨김
+  if (weaponType === 'sniper' && isToggleAiming) return null
+
+  // totalSpread 계산 (BulletEffects와 동일 공식)
+  const baseSpread = SPREAD_CONFIG.baseSpread[weaponType] || 1.5
+  const aimMult = (weaponType === 'sniper' && aimState === 'toggle')
+    ? 0.1
+    : (SPREAD_CONFIG.aimMultiplier[aimState] || 1.0)
+  const postureMult = SPREAD_CONFIG.postureMultiplier[posture] || 1.0
+  const moveAdd = SPREAD_CONFIG.moveAddition[moveState] || 0
+  const totalSpread = (baseSpread * aimMult * postureMult) + moveAdd + spreadAccum
+
+  const gap = spreadToPixels(totalSpread, screenHeight, currentFov)
+
   return (
-    <canvas
-      ref={canvasRef}
-      className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none z-10"
-      style={{ width: 200, height: 200 }}
-    />
+    <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none z-10">
+      {/* 상 */}
+      <div className="absolute left-1/2 -translate-x-1/2" style={{
+        width: CROSSHAIR_LINE_WIDTH, height: CROSSHAIR_LINE_LEN,
+        background: 'white', boxShadow: '0 0 2px black',
+        top: -gap - CROSSHAIR_LINE_LEN, transition: 'top 0.1s',
+      }} />
+      {/* 하 */}
+      <div className="absolute left-1/2 -translate-x-1/2" style={{
+        width: CROSSHAIR_LINE_WIDTH, height: CROSSHAIR_LINE_LEN,
+        background: 'white', boxShadow: '0 0 2px black',
+        top: gap, transition: 'top 0.1s',
+      }} />
+      {/* 좌 */}
+      <div className="absolute top-1/2 -translate-y-1/2" style={{
+        width: CROSSHAIR_LINE_LEN, height: CROSSHAIR_LINE_WIDTH,
+        background: 'white', boxShadow: '0 0 2px black',
+        left: -gap - CROSSHAIR_LINE_LEN, transition: 'left 0.1s',
+      }} />
+      {/* 우 */}
+      <div className="absolute top-1/2 -translate-y-1/2" style={{
+        width: CROSSHAIR_LINE_LEN, height: CROSSHAIR_LINE_WIDTH,
+        background: 'white', boxShadow: '0 0 2px black',
+        left: gap, transition: 'left 0.1s',
+      }} />
+      {/* 중앙 점 */}
+      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full" style={{
+        width: 2, height: 2, background: 'rgba(255,255,255,0.5)',
+      }} />
+    </div>
   )
 })
 
@@ -253,11 +249,63 @@ const ControlsHelp = memo(function ControlsHelp() {
   )
 })
 
+// ============ 무기 선택 ============
+const WEAPONS: { type: WeaponType; label: string; key: string }[] = [
+  { type: 'rifle', label: 'Rifle', key: '1' },
+  { type: 'shotgun', label: 'Shotgun', key: '2' },
+  { type: 'sniper', label: 'Sniper', key: '3' },
+]
+
+const WeaponSelector = memo(function WeaponSelector({
+  onWeaponChange,
+}: {
+  onWeaponChange?: (weapon: WeaponType) => void
+}) {
+  const weaponType = useGameStore(s => s.weaponType)
+
+  const handleChange = useCallback((weapon: WeaponType) => {
+    if (weapon === weaponType) return
+    onWeaponChange?.(weapon)
+  }, [weaponType, onWeaponChange])
+
+  useEffect(() => {
+    if (!onWeaponChange) return
+    const onKeyDown = (e: KeyboardEvent) => {
+      const w = WEAPONS.find(w => w.key === e.key)
+      if (w) handleChange(w.type)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [handleChange, onWeaponChange])
+
+  if (!onWeaponChange) return null
+
+  return (
+    <div className="absolute top-14 left-4 z-10 flex gap-1">
+      {WEAPONS.map(w => (
+        <button
+          key={w.type}
+          onClick={() => handleChange(w.type)}
+          className={`px-3 py-1.5 rounded text-xs font-medium pointer-events-auto transition-colors ${
+            weaponType === w.type
+              ? 'bg-sky-500 text-white'
+              : 'bg-slate-700/80 text-white/60 hover:bg-slate-600/80 hover:text-white/80'
+          }`}
+        >
+          <span className="text-white/40 mr-1">{w.key}</span>{w.label}
+        </button>
+      ))}
+    </div>
+  )
+})
+
 // ============ ShooterHUD 메인 ============
 const ShooterHUD = memo(function ShooterHUD({
   onExit,
+  onWeaponChange,
 }: {
   onExit: () => void
+  onWeaponChange?: (weapon: WeaponType) => void
 }) {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -277,6 +325,7 @@ const ShooterHUD = memo(function ShooterHUD({
       <AmmoDisplay />
       <HealthBar />
       <KillDeathDisplay />
+      <WeaponSelector onWeaponChange={onWeaponChange} />
       <ControlsHelp />
 
       <div className="absolute top-4 left-4 z-10 bg-slate-800/80 backdrop-blur-sm rounded-lg px-4 py-2 text-white text-sm">

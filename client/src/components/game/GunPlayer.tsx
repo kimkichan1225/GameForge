@@ -220,6 +220,7 @@ const GunPlayer = memo(function GunPlayer({
     reloadTimer: 0, headRotY: 0,
     bodyAngle: 0, muzzleTimer: 0, lastShotAnimTime: 0,
     initialized: false,
+    isJumping: false, wasAirborne: false,
   })
 
   const mouseRef = useRef({
@@ -644,10 +645,21 @@ const GunPlayer = memo(function GunPlayer({
       }
     }
 
+    // 점프 상태 추적 (Rapier는 점프 직후에도 grounded=true일 수 있음)
+    if (s.isJumping) {
+      if (!isGrounded) s.wasAirborne = true
+      if (s.wasAirborne && isGrounded) {
+        s.isJumping = false
+        s.wasAirborne = false
+      }
+    }
+
     // 점프
     let shouldJump = false
     if (keys.space && !s.prevSpace && isGrounded && posture === 'standing' && !store.isReloading) {
       shouldJump = true
+      s.isJumping = true
+      s.wasAirborne = false
       playAnim('Jump')
     }
 
@@ -689,14 +701,14 @@ const GunPlayer = memo(function GunPlayer({
     _targetQuat.setFromAxisAngle(_yAxis, s.bodyAngle + Math.PI)
     scene.quaternion.slerp(_targetQuat, 0.15)
 
-    if (isGrounded && !useGameStore.getState().isReloading) {
+    if (isGrounded && !s.isJumping && !useGameStore.getState().isReloading) {
       const dir = getDirection(keys.forward, keys.backward, keys.left, keys.right)
       playAnim(getDirectionalAnim(dir, isRunning, posture, canFire, mouse.aiming))
     }
 
     // 물리 적용
     playerBody.setLinvel({ x: _move.x * speed, y: shouldJump ? JUMP_POWER : vel.y, z: _move.z * speed }, true)
-    world.step()
+    try { world.step() } catch { return }
 
     const pos = playerBody.translation()
     group.current.position.set(pos.x, pos.y - centerY, pos.z)
