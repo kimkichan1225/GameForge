@@ -30,6 +30,15 @@ export interface Player {
   animation?: string;
   checkpoint: number;
   finishTime?: number;
+  // 슈터 모드 전용
+  health?: number;
+  kills?: number;
+  deaths?: number;
+  isAlive?: boolean;
+  weaponType?: string;
+  respawnTimer?: number;
+  invincibleUntil?: number;
+  rotation?: { yaw: number; pitch: number };
 }
 
 export interface RoomState {
