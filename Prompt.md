@@ -981,7 +981,7 @@ Timer.after(180, () => {
 
 ## 프로젝트 구조
 
-### 현재 구현된 구조 (Phase 3.5 완료 - 협동 빌딩 모드)
+### 현재 구현된 구조 (Phase 4 진행 중 - 슈터 모드)
 ```
 GameForge/
 ├── .env                        # 환경 변수 (Supabase)
@@ -995,7 +995,8 @@ GameForge/
 │   ├── package.json
 │   ├── vite.config.ts
 │   ├── public/
-│   │   └── Runtest.glb         # 플레이어 캐릭터 3D 모델
+│   │   ├── Runtest.glb         # 플레이어 캐릭터 3D 모델
+│   │   └── Guntest.glb         # 총기 3D 모델
 │   └── src/
 │       ├── App.tsx             # 라우팅 설정
 │       ├── main.tsx
@@ -1011,7 +1012,7 @@ GameForge/
 │       ├── stores/
 │       │   ├── authStore.ts    # 인증 상태 관리
 │       │   ├── editorStore.ts  # 맵 에디터 상태 관리
-│       │   ├── gameStore.ts    # 게임 플레이 상태 관리
+│       │   ├── gameStore.ts    # 게임 플레이 상태 관리 (슈터 포함)
 │       │   ├── roomStore.ts    # 방/로비 상태 관리
 │       │   └── multiplayerGameStore.ts # 멀티플레이어/빌딩 상태 관리
 │       ├── components/
@@ -1019,11 +1020,21 @@ GameForge/
 │       │   │   ├── EditorCanvas.tsx  # 3D 캔버스
 │       │   │   └── EditorUI.tsx      # 에디터 UI
 │       │   ├── game/
-│       │   │   ├── TestPlayCanvas.tsx    # 싱글 테스트 플레이
-│       │   │   ├── MultiplayerCanvas.tsx # 멀티플레이어 게임
-│       │   │   ├── BuildingCanvas.tsx    # 협동 빌딩 3D 캔버스
-│       │   │   ├── BuildingUI.tsx        # 빌딩 UI (타이머, 상태, 속성 패널)
-│       │   │   └── BuildingTestPlay.tsx  # 빌딩 테스트 플레이 (검증용)
+│       │   │   ├── TestPlayCanvas.tsx           # 싱글 테스트 플레이
+│       │   │   ├── MultiplayerCanvas.tsx        # 멀티 레이스
+│       │   │   ├── MultiplayerShooterCanvas.tsx # 멀티 슈터
+│       │   │   ├── GunPlayer.tsx                # 슈터 플레이어 (무기/이동)
+│       │   │   ├── RemoteShooterPlayer.tsx      # 리모트 슈터 플레이어
+│       │   │   ├── ShooterCamera.tsx            # FPS/TPS 카메라 (벽 충돌)
+│       │   │   ├── ShooterHUD.tsx               # 슈터 HUD (크로스헤어/탄약/무기)
+│       │   │   ├── effects/                     # 총알 이펙트
+│       │   │   │   ├── BulletEffects.tsx        # 발사 로직 (레이캐스트/탄퍼짐/반동)
+│       │   │   │   ├── BulletDecal.tsx          # 총알 자국
+│       │   │   │   ├── TracerLine.tsx           # 트레이서 탄도
+│       │   │   │   └── HitSpark.tsx             # 피격 스파크
+│       │   │   ├── BuildingCanvas.tsx           # 협동 빌딩 3D 캔버스
+│       │   │   ├── BuildingUI.tsx               # 빌딩 UI
+│       │   │   └── BuildingTestPlay.tsx         # 빌딩 테스트 플레이
 │       │   ├── map/
 │       │   │   ├── MapBrowser.tsx    # 맵 브라우저 모달
 │       │   │   └── MapCard.tsx       # 맵 카드 컴포넌트
@@ -1041,9 +1052,10 @@ GameForge/
     └── src/
         ├── index.ts            # 서버 엔트리포인트
         ├── game/
-        │   ├── Room.ts         # 방 클래스
+        │   ├── Room.ts         # 방 클래스 (슈터 플레이어 속성 포함)
         │   ├── RoomManager.ts  # 방 관리자
-        │   ├── GameLoop.ts     # 게임 루프 (레이스 로직)
+        │   ├── GameLoop.ts     # 레이스 게임 루프
+        │   ├── ShooterGameLoop.ts # 슈터 게임 루프 (HP/킬/데스/리스폰)
         │   └── BuildingPhase.ts # 협동 빌딩 페이즈 로직
         └── socket/
             └── roomHandlers.ts # Socket.io 이벤트 핸들러
@@ -1521,17 +1533,38 @@ supabase
   - [x] 포인터 락 유틸리티 타이머 중복 방지 최적화
   - [x] PointerLockMessage 공통 컴포넌트로 코드 중복 제거
 
-### Phase 4: 총게임 모드 (2-3주)
+### Phase 4: 총게임 모드 (진행 중)
 **목표**: 서버 권위 기반 슈팅 게임 구현
 
-- [ ] 무기 시스템 구현
+#### 클라이언트 (구현 완료)
+- [x] FPS/TPS 카메라 시스템 (V키 시점 전환, 벽 충돌)
+- [x] 무기 시스템 (라이플/샷건/스나이퍼, 1/2/3키 선택)
+- [x] 총알 이펙트 (트레이서 탄도, 데칼, 스파크)
+- [x] 슈터 HUD (크로스헤어, 탄약, 무기 선택기, 체력)
+- [x] 탄퍼짐 시스템 (자세/이동/조준 상태별, 연사 누적)
+- [x] 반동 시스템 (무기/자세별, 자동 복귀)
+- [x] 재장전 시스템
+- [x] 조준 시스템 (우클릭 홀드, 스나이퍼 토글 스코프)
+- [x] 자세별 이동 (서기/앉기/엎드리기, 속도 차이)
+- [x] 카메라 벽 충돌 (눈→카메라/전방 레이캐스트)
+- [x] 벽 관통 발사 방지 (총구 검증, 2차 레이캐스트)
+- [x] 슈터 방 생성 UI (게임 방식/킬/시간/시점 옵션)
+- [x] 팀 시스템 대기방 (팀전/점령전 팀 선택)
+- [x] 슈터 맵 필터링 (맵 브라우저)
+
+#### 서버 (기본 구현)
+- [x] ShooterGameLoop (게임 루프, 상태 관리)
+- [x] Player 인터페이스 (health/kills/deaths/isAlive/weaponType)
+- [x] 체력/데미지 시스템
+- [x] 킬/데스/리스폰 로직
+- [x] 무적 시간 (리스폰 후)
+
+#### 미구현 (TODO)
 - [ ] 서버 측 히트 판정 (레이캐스트)
-- [ ] 체력/데미지 시스템
-- [ ] 킬/데스/리스폰 로직
-- [ ] 개인전 모드
-- [ ] 팀전 모드 (팀 킬, 점령전)
-- [ ] HUD (크로스헤어, 체력, 탄약)
-- [ ] 킬 피드, 스코어보드
+- [ ] 멀티플레이어 위치/발사/피격 동기화
+- [ ] 킬 피드
+- [ ] 인게임 스코어보드
+- [ ] 슈터 맵 제작 모드 (추후 개발)
 
 ### Phase 5: 커스텀 스크립팅 (선택, 2-3주)
 **목표**: 유저가 커스텀 게임 모드 제작 가능
