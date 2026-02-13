@@ -1141,14 +1141,14 @@ function Home() {
         </div>
       )}
 
-      {/* Map Browser Modal (방 생성용) */}
+      {/* Map Browser Modal (방 생성용 또는 맵 둘러보기) */}
       {showMapBrowser && (
         <MapBrowser
           onSelect={handleMapSelect}
           onClose={() => setShowMapBrowser(false)}
           selectedMapId={selectedMap?.id}
-          mode={gameMode}
-          shooterSubMode={gameMode === 'shooter' ? shooterSubMode : undefined}
+          mode={showCreateRoomModal ? gameMode : undefined}
+          shooterSubMode={showCreateRoomModal && gameMode === 'shooter' ? shooterSubMode : undefined}
         />
       )}
 
