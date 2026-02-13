@@ -24,6 +24,7 @@ export interface Player {
   isHost: boolean;
   isReady: boolean;
   color: PlayerColorId;  // 플레이어 색상
+  team?: 'a' | 'b';  // 팀전/점령전 모드에서의 팀
   position?: { x: number; y: number; z: number };
   velocity?: { x: number; y: number; z: number };
   animation?: string;
@@ -81,6 +82,8 @@ export class Room {
   public timeLimit: number;
   public perspective: 'fps' | 'tps';
   public shooterSubMode: ShooterSubMode;
+  public teamAColor: PlayerColorId = 'blue';
+  public teamBColor: PlayerColorId = 'red';
   public createdAt: number;
   public raceStartTime?: number;
 
@@ -134,6 +137,11 @@ export class Room {
     return this.relayMapData;
   }
 
+  // 팀 모드 여부 (팀전 또는 점령전)
+  get isTeamMode(): boolean {
+    return this.gameMode === 'shooter' && (this.shooterSubMode === 'team' || this.shooterSubMode === 'domination');
+  }
+
   // 사용 중인 색상 목록 반환
   getUsedColors(): PlayerColorId[] {
     return Array.from(this.players.values()).map(p => p.color);
@@ -162,6 +170,33 @@ export class Room {
     }
 
     const isHost = this.players.size === 0;
+
+    // 팀 모드: 자동 밸런스 배정 + 팀 색상 적용
+    if (this.isTeamMode) {
+      const teamACount = Array.from(this.players.values()).filter(p => p.team === 'a').length;
+      const teamBCount = Array.from(this.players.values()).filter(p => p.team === 'b').length;
+      const team: 'a' | 'b' = teamACount <= teamBCount ? 'a' : 'b';
+      const color = team === 'a' ? this.teamAColor : this.teamBColor;
+
+      const player: Player = {
+        id: playerId,
+        nickname,
+        isHost,
+        isReady: false,
+        color,
+        team,
+        checkpoint: 0,
+      };
+
+      if (isHost) {
+        this.hostId = playerId;
+      }
+
+      this.players.set(playerId, player);
+      return player;
+    }
+
+    // 비팀 모드: 기존 방식
     const color = this.getFirstAvailableColor();
     const player: Player = {
       id: playerId,
@@ -198,6 +233,55 @@ export class Room {
     if (isUsedByOther) return false;
 
     player.color = color;
+    return true;
+  }
+
+  // 팀 색상 변경 (팀 리더만 가능)
+  setTeamColor(playerId: string, teamId: 'a' | 'b', color: PlayerColorId): boolean {
+    if (!this.isTeamMode) return false;
+    if (this.status !== 'waiting') return false;
+
+    // 팀 리더(해당 팀의 첫 번째 플레이어)인지 확인
+    const teamPlayers = Array.from(this.players.values()).filter(p => p.team === teamId);
+    if (teamPlayers.length === 0 || teamPlayers[0].id !== playerId) return false;
+
+    // 상대팀 색상과 중복 방지
+    const otherTeamColor = teamId === 'a' ? this.teamBColor : this.teamAColor;
+    if (color === otherTeamColor) return false;
+
+    // 팀 색상 업데이트
+    if (teamId === 'a') {
+      this.teamAColor = color;
+    } else {
+      this.teamBColor = color;
+    }
+
+    // 팀원 전체 색상 업데이트
+    for (const player of teamPlayers) {
+      player.color = color;
+    }
+
+    return true;
+  }
+
+  // 팀 이동
+  switchTeam(playerId: string): boolean {
+    if (!this.isTeamMode) return false;
+    if (this.status !== 'waiting') return false;
+
+    const player = this.players.get(playerId);
+    if (!player || !player.team) return false;
+
+    const targetTeam: 'a' | 'b' = player.team === 'a' ? 'b' : 'a';
+    const halfMax = Math.ceil(this.maxPlayers / 2);
+    const targetTeamCount = Array.from(this.players.values()).filter(p => p.team === targetTeam).length;
+
+    // 상대 팀이 가득 찼으면 이동 불가
+    if (targetTeamCount >= halfMax) return false;
+
+    player.team = targetTeam;
+    player.color = targetTeam === 'a' ? this.teamAColor : this.teamBColor;
+
     return true;
   }
 
@@ -326,6 +410,7 @@ export class Room {
       timeLimit: this.timeLimit,
       perspective: this.perspective,
       shooterSubMode: this.shooterSubMode,
+      ...(this.isTeamMode ? { teamAColor: this.teamAColor, teamBColor: this.teamBColor } : {}),
       playerCount: this.players.size,
       canStart: this.canStart(),
     };
@@ -348,6 +433,7 @@ export class Room {
       timeLimit: this.timeLimit,
       perspective: this.perspective,
       shooterSubMode: this.shooterSubMode,
+      ...(this.isTeamMode ? { teamAColor: this.teamAColor, teamBColor: this.teamBColor } : {}),
     };
   }
 }

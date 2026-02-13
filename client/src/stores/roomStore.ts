@@ -21,6 +21,7 @@ export interface Player {
   isHost: boolean;
   isReady: boolean;
   color: PlayerColorId;
+  team?: 'a' | 'b';
 }
 
 export type RoomType = 'create_map' | 'load_map';
@@ -63,6 +64,8 @@ export interface RoomDetail {
   timeLimit?: number;
   perspective?: 'fps' | 'tps';
   shooterSubMode?: ShooterSubMode;
+  teamAColor?: PlayerColorId;
+  teamBColor?: PlayerColorId;
 }
 
 interface RoomState {
@@ -100,6 +103,8 @@ interface RoomState {
   leaveRoom: () => void;
   setReady: (ready: boolean) => void;
   selectColor: (color: PlayerColorId) => Promise<boolean>;
+  selectTeamColor: (teamId: 'a' | 'b', color: PlayerColorId) => Promise<boolean>;
+  switchTeam: () => Promise<boolean>;
   startGame: () => Promise<boolean>;
   returnToWaitingRoom: () => Promise<boolean>;
   updateRoomSettings: (settings: {
@@ -184,11 +189,16 @@ export const useRoomStore = create<RoomState>((set, get) => ({
     });
 
     // Player status updated
-    registerEvent(socket, 'room:playerUpdated', (data: { players: Player[]; canStart: boolean }) => {
+    registerEvent(socket, 'room:playerUpdated', (data: { players: Player[]; canStart: boolean; teamAColor?: PlayerColorId; teamBColor?: PlayerColorId }) => {
       const room = get().currentRoom;
       if (room) {
         set({
-          currentRoom: { ...room, players: data.players },
+          currentRoom: {
+            ...room,
+            players: data.players,
+            ...(data.teamAColor !== undefined ? { teamAColor: data.teamAColor } : {}),
+            ...(data.teamBColor !== undefined ? { teamBColor: data.teamBColor } : {}),
+          },
           canStart: data.canStart,
         });
       }
@@ -339,6 +349,40 @@ export const useRoomStore = create<RoomState>((set, get) => ({
       socket.emit('room:selectColor', { color }, (response: { success: boolean; error?: string }) => {
         if (!response.success) {
           console.error('색상 선택 실패:', response.error);
+        }
+        resolve(response.success);
+      });
+    });
+  },
+
+  selectTeamColor: (teamId, color) => {
+    return new Promise((resolve) => {
+      const socket = socketManager.getSocket();
+      if (!socket) {
+        resolve(false);
+        return;
+      }
+
+      socket.emit('room:selectTeamColor', { teamId, color }, (response: { success: boolean; error?: string }) => {
+        if (!response.success) {
+          console.error('팀 색상 선택 실패:', response.error);
+        }
+        resolve(response.success);
+      });
+    });
+  },
+
+  switchTeam: () => {
+    return new Promise((resolve) => {
+      const socket = socketManager.getSocket();
+      if (!socket) {
+        resolve(false);
+        return;
+      }
+
+      socket.emit('room:switchTeam', (response: { success: boolean; error?: string }) => {
+        if (!response.success) {
+          console.error('팀 이동 실패:', response.error);
         }
         resolve(response.success);
       });

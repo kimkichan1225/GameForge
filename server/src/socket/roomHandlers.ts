@@ -112,12 +112,18 @@ export function registerRoomHandlers(io: Server, socket: Socket): void {
     callback?.({ success: true });
   });
 
-  // Select player color
+  // Select player color (개인 색상 - 비팀 모드 전용)
   socket.on('room:selectColor', (data: { color: PlayerColorId }, callback) => {
     const room = roomManager.getPlayerRoom(socket.id);
 
     if (!room) {
       callback?.({ success: false, error: '방을 찾을 수 없습니다' });
+      return;
+    }
+
+    // 팀 모드에서는 개인 색상 변경 차단
+    if (room.isTeamMode) {
+      callback?.({ success: false, error: '팀 모드에서는 개인 색상을 변경할 수 없습니다' });
       return;
     }
 
@@ -129,6 +135,57 @@ export function registerRoomHandlers(io: Server, socket: Socket): void {
     }
 
     // Notify all players in the room
+    io.to(room.id).emit('room:playerUpdated', {
+      players: Array.from(room.players.values()),
+      canStart: room.canStart(),
+    });
+
+    callback?.({ success: true });
+  });
+
+  // Select team color (팀 리더만 가능)
+  socket.on('room:selectTeamColor', (data: { teamId: 'a' | 'b'; color: PlayerColorId }, callback) => {
+    const room = roomManager.getPlayerRoom(socket.id);
+
+    if (!room) {
+      callback?.({ success: false, error: '방을 찾을 수 없습니다' });
+      return;
+    }
+
+    const success = room.setTeamColor(socket.id, data.teamId, data.color);
+
+    if (!success) {
+      callback?.({ success: false, error: '팀 색상을 변경할 수 없습니다' });
+      return;
+    }
+
+    // Notify all players in the room (팀 색상 포함)
+    io.to(room.id).emit('room:playerUpdated', {
+      players: Array.from(room.players.values()),
+      canStart: room.canStart(),
+      teamAColor: room.teamAColor,
+      teamBColor: room.teamBColor,
+    });
+
+    callback?.({ success: true });
+  });
+
+  // Switch team (팀 이동)
+  socket.on('room:switchTeam', (callback) => {
+    const room = roomManager.getPlayerRoom(socket.id);
+
+    if (!room) {
+      callback?.({ success: false, error: '방을 찾을 수 없습니다' });
+      return;
+    }
+
+    const success = room.switchTeam(socket.id);
+
+    if (!success) {
+      callback?.({ success: false, error: '팀을 이동할 수 없습니다' });
+      return;
+    }
+
     io.to(room.id).emit('room:playerUpdated', {
       players: Array.from(room.players.values()),
       canStart: room.canStart(),

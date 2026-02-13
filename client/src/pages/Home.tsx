@@ -64,6 +64,8 @@ function Home() {
     leaveRoom,
     setReady,
     selectColor,
+    selectTeamColor,
+    switchTeam,
     startGame,
     updateRoomSettings,
   } = useRoomStore()
@@ -71,6 +73,10 @@ function Home() {
   // 색상 선택 UI
   const [showColorPicker, setShowColorPicker] = useState(false)
   const colorPickerRef = useRef<HTMLDivElement>(null)
+
+  // 팀 색상 선택 UI
+  const [showTeamColorPicker, setShowTeamColorPicker] = useState<'a' | 'b' | null>(null)
+  const teamColorPickerRef = useRef<HTMLDivElement>(null)
 
   // 색상 선택기 외부 클릭 감지
   useEffect(() => {
@@ -87,9 +93,31 @@ function Home() {
     }
   }, [showColorPicker])
 
+  // 팀 색상 선택기 외부 클릭 감지
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (teamColorPickerRef.current && !teamColorPickerRef.current.contains(e.target as Node)) {
+        setShowTeamColorPicker(null)
+      }
+    }
+    if (showTeamColorPicker) {
+      document.addEventListener('mousedown', handleClickOutside)
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [showTeamColorPicker])
+
   const myId = socketManager.getSocket()?.id
   const me = currentRoom?.players.find((p) => p.id === myId)
   const isHost = me?.isHost ?? false
+
+  // 팀 모드 관련 변수
+  const isTeamMode = currentRoom?.gameMode === 'shooter' && (currentRoom?.shooterSubMode === 'team' || currentRoom?.shooterSubMode === 'domination')
+  const teamAPlayers = currentRoom?.players.filter(p => p.team === 'a') ?? []
+  const teamBPlayers = currentRoom?.players.filter(p => p.team === 'b') ?? []
+  const isTeamALeader = isTeamMode && teamAPlayers.length > 0 && teamAPlayers[0].id === myId
+  const isTeamBLeader = isTeamMode && teamBPlayers.length > 0 && teamBPlayers[0].id === myId
 
   // 로그인 안 된 상태면 모달 표시
   const showAuthModal = !user
@@ -545,106 +573,368 @@ function Home() {
 
               {/* 하단: 플레이어 목록 + 액션 */}
               <div className="border-t border-white/10 p-6">
-                {/* Player List */}
-                <div className="mb-6">
-                  <h3 className="text-white/70 text-sm font-medium mb-3">
-                    플레이어 ({currentRoom.players.length}/{currentRoom.maxPlayers})
-                  </h3>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
-                    {currentRoom.players.map((player) => {
-                      const playerColor = PLAYER_COLORS.find(c => c.id === player.color) || PLAYER_COLORS[0];
-                      const isMe = player.id === myId;
-                      const usedColors = currentRoom.players.map(p => p.color);
+                {/* 팀 모드: 2열 레이아웃 */}
+                {isTeamMode ? (
+                  <div className="mb-6">
+                    <h3 className="text-white/70 text-sm font-medium mb-3">
+                      플레이어 ({currentRoom.players.length}/{currentRoom.maxPlayers})
+                    </h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {/* Team A */}
+                      {(() => {
+                        const teamAColor = PLAYER_COLORS.find(c => c.id === currentRoom.teamAColor) || PLAYER_COLORS[1]; // blue default
+                        const teamBColor = PLAYER_COLORS.find(c => c.id === currentRoom.teamBColor) || PLAYER_COLORS[0]; // red default
+                        const halfMax = Math.ceil(currentRoom.maxPlayers / 2);
 
-                      return (
-                        <div
-                          key={player.id}
-                          className={`flex items-center justify-between p-3 rounded-xl ${
-                            isMe ? 'bg-sky-500/20 border border-sky-500/30' : 'bg-white/5'
-                          }`}
-                        >
-                          <div className="flex items-center gap-3 min-w-0">
-                            {/* 색상 아바타 */}
-                            <div
-                              className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0"
-                              style={{ backgroundColor: playerColor.hex }}
-                            >
-                              <span className={`font-bold ${playerColor.id === 'white' || playerColor.id === 'yellow' ? 'text-slate-800' : 'text-white'}`}>
-                                {player.nickname[0]?.toUpperCase()}
-                              </span>
-                            </div>
-
-                            <div className="min-w-0">
-                              <div className="text-white font-medium flex items-center gap-1 truncate">
-                                <span className="truncate">{player.nickname}</span>
-                                {player.isHost && (
-                                  <span className="px-1.5 py-0.5 bg-amber-500/20 text-amber-400 text-xs rounded-full flex-shrink-0">
-                                    방장
-                                  </span>
-                                )}
-                                {isMe && (
-                                  <span className="px-1.5 py-0.5 bg-sky-500/20 text-sky-400 text-xs rounded-full flex-shrink-0">
-                                    나
-                                  </span>
-                                )}
-                              </div>
-                              <div className="text-xs">
-                                {player.isHost ? (
-                                  <span className="text-amber-400">방장</span>
-                                ) : player.isReady ? (
-                                  <span className="text-green-400">준비 완료</span>
-                                ) : (
-                                  <span className="text-white/50">대기 중</span>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-
-                          {/* 색상 선택 버튼 (내 플레이어만) */}
-                          {isMe && (
-                            <div className="relative flex-shrink-0">
-                              <button
-                                onClick={() => setShowColorPicker(prev => !prev)}
-                                className="w-6 h-6 rounded-full border-2 border-white/30 hover:border-white/60 transition-all"
-                                style={{ backgroundColor: playerColor.hex }}
-                                title="색상 변경"
-                              />
-
-                              {/* 색상 선택 팝업 */}
-                              {showColorPicker && (
-                                <div ref={colorPickerRef} className="absolute top-0 right-8 z-50 bg-slate-800/95 backdrop-blur rounded-lg p-2 border border-white/20 shadow-xl"
-                                  style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 24px)', gap: '8px' }}
-                                >
-                                  {PLAYER_COLORS.map((color) => {
-                                    const isUsed = usedColors.includes(color.id) && color.id !== player.color;
-                                    const isSelected = color.id === player.color;
-                                    return (
-                                      <button
-                                        key={color.id}
-                                        onClick={() => {
-                                          if (!isUsed) {
-                                            selectColor(color.id as PlayerColorId);
-                                            setShowColorPicker(false);
-                                          }
-                                        }}
-                                        disabled={isUsed}
-                                        className={`transition-all ${
-                                          isSelected ? 'ring-2 ring-white ring-offset-1 ring-offset-slate-800' : ''
-                                        } ${isUsed ? 'opacity-30 cursor-not-allowed' : 'hover:brightness-125'}`}
-                                        style={{ width: '24px', height: '24px', borderRadius: '50%', backgroundColor: color.hex }}
-                                        title={isUsed ? `${color.name} (사용 중)` : color.name}
-                                      />
-                                    );
-                                  })}
+                        return (
+                          <>
+                            <div className="bg-white/5 rounded-xl p-4 border border-white/10">
+                              {/* 팀 A 헤더 */}
+                              <div className="flex items-center justify-between mb-3">
+                                <div className="flex items-center gap-2">
+                                  <div
+                                    className="w-4 h-4 rounded-full"
+                                    style={{ backgroundColor: teamAColor.hex }}
+                                  />
+                                  <span className="text-white font-bold text-sm">Team A</span>
+                                  <span className="text-white/40 text-xs">({teamAPlayers.length}/{halfMax})</span>
                                 </div>
-                              )}
+                                {/* 팀 리더만 색상 변경 가능 */}
+                                {isTeamALeader && (
+                                  <div className="relative">
+                                    <button
+                                      onClick={() => setShowTeamColorPicker(prev => prev === 'a' ? null : 'a')}
+                                      className="w-6 h-6 rounded-full border-2 border-white/30 hover:border-white/60 transition-all"
+                                      style={{ backgroundColor: teamAColor.hex }}
+                                      title="팀 색상 변경"
+                                    />
+                                    {showTeamColorPicker === 'a' && (
+                                      <div ref={teamColorPickerRef} className="absolute top-0 right-8 z-50 bg-slate-800/95 backdrop-blur rounded-lg p-2 border border-white/20 shadow-xl"
+                                        style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 24px)', gap: '8px' }}
+                                      >
+                                        {PLAYER_COLORS.map((color) => {
+                                          const isOtherTeam = color.id === currentRoom.teamBColor;
+                                          const isSelected = color.id === currentRoom.teamAColor;
+                                          return (
+                                            <button
+                                              key={color.id}
+                                              onClick={() => {
+                                                if (!isOtherTeam) {
+                                                  selectTeamColor('a', color.id as PlayerColorId);
+                                                  setShowTeamColorPicker(null);
+                                                }
+                                              }}
+                                              disabled={isOtherTeam}
+                                              className={`transition-all ${
+                                                isSelected ? 'ring-2 ring-white ring-offset-1 ring-offset-slate-800' : ''
+                                              } ${isOtherTeam ? 'opacity-30 cursor-not-allowed' : 'hover:brightness-125'}`}
+                                              style={{ width: '24px', height: '24px', borderRadius: '50%', backgroundColor: color.hex }}
+                                              title={isOtherTeam ? `${color.name} (상대팀)` : color.name}
+                                            />
+                                          );
+                                        })}
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                              {/* 팀 A 플레이어 */}
+                              <div className="space-y-2">
+                                {teamAPlayers.map((player) => {
+                                  const isMe = player.id === myId;
+                                  return (
+                                    <div
+                                      key={player.id}
+                                      className={`flex items-center gap-3 p-2 rounded-lg ${
+                                        isMe ? 'bg-sky-500/20 border border-sky-500/30' : 'bg-white/5'
+                                      }`}
+                                    >
+                                      <div
+                                        className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0"
+                                        style={{ backgroundColor: teamAColor.hex }}
+                                      >
+                                        <span className={`font-bold text-sm ${teamAColor.id === 'white' || teamAColor.id === 'yellow' ? 'text-slate-800' : 'text-white'}`}>
+                                          {player.nickname[0]?.toUpperCase()}
+                                        </span>
+                                      </div>
+                                      <div className="min-w-0 flex-1">
+                                        <div className="text-white text-sm font-medium flex items-center gap-1 truncate">
+                                          <span className="truncate">{player.nickname}</span>
+                                          {player.isHost && (
+                                            <span className="px-1 py-0.5 bg-amber-500/20 text-amber-400 text-[10px] rounded-full flex-shrink-0">방장</span>
+                                          )}
+                                          {isMe && (
+                                            <span className="px-1 py-0.5 bg-sky-500/20 text-sky-400 text-[10px] rounded-full flex-shrink-0">나</span>
+                                          )}
+                                          {teamAPlayers[0]?.id === player.id && (
+                                            <span className="px-1 py-0.5 bg-yellow-500/20 text-yellow-400 text-[10px] rounded-full flex-shrink-0">리더</span>
+                                          )}
+                                        </div>
+                                        <div className="text-[10px]">
+                                          {player.isHost ? (
+                                            <span className="text-amber-400">방장</span>
+                                          ) : player.isReady ? (
+                                            <span className="text-green-400">준비 완료</span>
+                                          ) : (
+                                            <span className="text-white/50">대기 중</span>
+                                          )}
+                                        </div>
+                                      </div>
+                                      {/* 팀 이동 버튼 */}
+                                      {isMe && teamBPlayers.length < halfMax && (
+                                        <button
+                                          onClick={() => switchTeam()}
+                                          className="flex-shrink-0 px-2 py-1 bg-white/10 hover:bg-white/20 text-white/70 hover:text-white text-[10px] rounded-md transition-colors flex items-center gap-1"
+                                          title="Team B로 이동"
+                                        >
+                                          <span>B</span>
+                                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                                          </svg>
+                                        </button>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                                {/* 빈 슬롯 */}
+                                {Array.from({ length: halfMax - teamAPlayers.length }).map((_, i) => (
+                                  <div key={`empty-a-${i}`} className="flex items-center gap-3 p-2 rounded-lg bg-white/[0.02] border border-dashed border-white/10">
+                                    <div className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center flex-shrink-0">
+                                      <span className="text-white/20 text-sm">?</span>
+                                    </div>
+                                    <span className="text-white/20 text-sm">빈 슬롯</span>
+                                  </div>
+                                ))}
+                              </div>
                             </div>
-                          )}
-                        </div>
-                      );
-                    })}
+
+                            {/* Team B */}
+                            <div className="bg-white/5 rounded-xl p-4 border border-white/10">
+                              {/* 팀 B 헤더 */}
+                              <div className="flex items-center justify-between mb-3">
+                                <div className="flex items-center gap-2">
+                                  <div
+                                    className="w-4 h-4 rounded-full"
+                                    style={{ backgroundColor: teamBColor.hex }}
+                                  />
+                                  <span className="text-white font-bold text-sm">Team B</span>
+                                  <span className="text-white/40 text-xs">({teamBPlayers.length}/{halfMax})</span>
+                                </div>
+                                {/* 팀 리더만 색상 변경 가능 */}
+                                {isTeamBLeader && (
+                                  <div className="relative">
+                                    <button
+                                      onClick={() => setShowTeamColorPicker(prev => prev === 'b' ? null : 'b')}
+                                      className="w-6 h-6 rounded-full border-2 border-white/30 hover:border-white/60 transition-all"
+                                      style={{ backgroundColor: teamBColor.hex }}
+                                      title="팀 색상 변경"
+                                    />
+                                    {showTeamColorPicker === 'b' && (
+                                      <div ref={teamColorPickerRef} className="absolute top-0 right-8 z-50 bg-slate-800/95 backdrop-blur rounded-lg p-2 border border-white/20 shadow-xl"
+                                        style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 24px)', gap: '8px' }}
+                                      >
+                                        {PLAYER_COLORS.map((color) => {
+                                          const isOtherTeam = color.id === currentRoom.teamAColor;
+                                          const isSelected = color.id === currentRoom.teamBColor;
+                                          return (
+                                            <button
+                                              key={color.id}
+                                              onClick={() => {
+                                                if (!isOtherTeam) {
+                                                  selectTeamColor('b', color.id as PlayerColorId);
+                                                  setShowTeamColorPicker(null);
+                                                }
+                                              }}
+                                              disabled={isOtherTeam}
+                                              className={`transition-all ${
+                                                isSelected ? 'ring-2 ring-white ring-offset-1 ring-offset-slate-800' : ''
+                                              } ${isOtherTeam ? 'opacity-30 cursor-not-allowed' : 'hover:brightness-125'}`}
+                                              style={{ width: '24px', height: '24px', borderRadius: '50%', backgroundColor: color.hex }}
+                                              title={isOtherTeam ? `${color.name} (상대팀)` : color.name}
+                                            />
+                                          );
+                                        })}
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                              {/* 팀 B 플레이어 */}
+                              <div className="space-y-2">
+                                {teamBPlayers.map((player) => {
+                                  const isMe = player.id === myId;
+                                  return (
+                                    <div
+                                      key={player.id}
+                                      className={`flex items-center gap-3 p-2 rounded-lg ${
+                                        isMe ? 'bg-sky-500/20 border border-sky-500/30' : 'bg-white/5'
+                                      }`}
+                                    >
+                                      <div
+                                        className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0"
+                                        style={{ backgroundColor: teamBColor.hex }}
+                                      >
+                                        <span className={`font-bold text-sm ${teamBColor.id === 'white' || teamBColor.id === 'yellow' ? 'text-slate-800' : 'text-white'}`}>
+                                          {player.nickname[0]?.toUpperCase()}
+                                        </span>
+                                      </div>
+                                      <div className="min-w-0 flex-1">
+                                        <div className="text-white text-sm font-medium flex items-center gap-1 truncate">
+                                          <span className="truncate">{player.nickname}</span>
+                                          {player.isHost && (
+                                            <span className="px-1 py-0.5 bg-amber-500/20 text-amber-400 text-[10px] rounded-full flex-shrink-0">방장</span>
+                                          )}
+                                          {isMe && (
+                                            <span className="px-1 py-0.5 bg-sky-500/20 text-sky-400 text-[10px] rounded-full flex-shrink-0">나</span>
+                                          )}
+                                          {teamBPlayers[0]?.id === player.id && (
+                                            <span className="px-1 py-0.5 bg-yellow-500/20 text-yellow-400 text-[10px] rounded-full flex-shrink-0">리더</span>
+                                          )}
+                                        </div>
+                                        <div className="text-[10px]">
+                                          {player.isHost ? (
+                                            <span className="text-amber-400">방장</span>
+                                          ) : player.isReady ? (
+                                            <span className="text-green-400">준비 완료</span>
+                                          ) : (
+                                            <span className="text-white/50">대기 중</span>
+                                          )}
+                                        </div>
+                                      </div>
+                                      {/* 팀 이동 버튼 */}
+                                      {isMe && teamAPlayers.length < halfMax && (
+                                        <button
+                                          onClick={() => switchTeam()}
+                                          className="flex-shrink-0 px-2 py-1 bg-white/10 hover:bg-white/20 text-white/70 hover:text-white text-[10px] rounded-md transition-colors flex items-center gap-1"
+                                          title="Team A로 이동"
+                                        >
+                                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 17l-5-5m0 0l5-5m-5 5h12" />
+                                          </svg>
+                                          <span>A</span>
+                                        </button>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                                {/* 빈 슬롯 */}
+                                {Array.from({ length: halfMax - teamBPlayers.length }).map((_, i) => (
+                                  <div key={`empty-b-${i}`} className="flex items-center gap-3 p-2 rounded-lg bg-white/[0.02] border border-dashed border-white/10">
+                                    <div className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center flex-shrink-0">
+                                      <span className="text-white/20 text-sm">?</span>
+                                    </div>
+                                    <span className="text-white/20 text-sm">빈 슬롯</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          </>
+                        );
+                      })()}
+                    </div>
                   </div>
-                </div>
+                ) : (
+                  /* 비팀 모드: 기존 플레이어 그리드 */
+                  <div className="mb-6">
+                    <h3 className="text-white/70 text-sm font-medium mb-3">
+                      플레이어 ({currentRoom.players.length}/{currentRoom.maxPlayers})
+                    </h3>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+                      {currentRoom.players.map((player) => {
+                        const playerColor = PLAYER_COLORS.find(c => c.id === player.color) || PLAYER_COLORS[0];
+                        const isMe = player.id === myId;
+                        const usedColors = currentRoom.players.map(p => p.color);
+
+                        return (
+                          <div
+                            key={player.id}
+                            className={`flex items-center justify-between p-3 rounded-xl ${
+                              isMe ? 'bg-sky-500/20 border border-sky-500/30' : 'bg-white/5'
+                            }`}
+                          >
+                            <div className="flex items-center gap-3 min-w-0">
+                              {/* 색상 아바타 */}
+                              <div
+                                className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0"
+                                style={{ backgroundColor: playerColor.hex }}
+                              >
+                                <span className={`font-bold ${playerColor.id === 'white' || playerColor.id === 'yellow' ? 'text-slate-800' : 'text-white'}`}>
+                                  {player.nickname[0]?.toUpperCase()}
+                                </span>
+                              </div>
+
+                              <div className="min-w-0">
+                                <div className="text-white font-medium flex items-center gap-1 truncate">
+                                  <span className="truncate">{player.nickname}</span>
+                                  {player.isHost && (
+                                    <span className="px-1.5 py-0.5 bg-amber-500/20 text-amber-400 text-xs rounded-full flex-shrink-0">
+                                      방장
+                                    </span>
+                                  )}
+                                  {isMe && (
+                                    <span className="px-1.5 py-0.5 bg-sky-500/20 text-sky-400 text-xs rounded-full flex-shrink-0">
+                                      나
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="text-xs">
+                                  {player.isHost ? (
+                                    <span className="text-amber-400">방장</span>
+                                  ) : player.isReady ? (
+                                    <span className="text-green-400">준비 완료</span>
+                                  ) : (
+                                    <span className="text-white/50">대기 중</span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* 색상 선택 버튼 (내 플레이어만) */}
+                            {isMe && (
+                              <div className="relative flex-shrink-0">
+                                <button
+                                  onClick={() => setShowColorPicker(prev => !prev)}
+                                  className="w-6 h-6 rounded-full border-2 border-white/30 hover:border-white/60 transition-all"
+                                  style={{ backgroundColor: playerColor.hex }}
+                                  title="색상 변경"
+                                />
+
+                                {/* 색상 선택 팝업 */}
+                                {showColorPicker && (
+                                  <div ref={colorPickerRef} className="absolute top-0 right-8 z-50 bg-slate-800/95 backdrop-blur rounded-lg p-2 border border-white/20 shadow-xl"
+                                    style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 24px)', gap: '8px' }}
+                                  >
+                                    {PLAYER_COLORS.map((color) => {
+                                      const isUsed = usedColors.includes(color.id) && color.id !== player.color;
+                                      const isSelected = color.id === player.color;
+                                      return (
+                                        <button
+                                          key={color.id}
+                                          onClick={() => {
+                                            if (!isUsed) {
+                                              selectColor(color.id as PlayerColorId);
+                                              setShowColorPicker(false);
+                                            }
+                                          }}
+                                          disabled={isUsed}
+                                          className={`transition-all ${
+                                            isSelected ? 'ring-2 ring-white ring-offset-1 ring-offset-slate-800' : ''
+                                          } ${isUsed ? 'opacity-30 cursor-not-allowed' : 'hover:brightness-125'}`}
+                                          style={{ width: '24px', height: '24px', borderRadius: '50%', backgroundColor: color.hex }}
+                                          title={isUsed ? `${color.name} (사용 중)` : color.name}
+                                        />
+                                      );
+                                    })}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
 
                 {/* Actions */}
                 <div className="flex gap-3">
