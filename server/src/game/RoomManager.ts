@@ -1,4 +1,4 @@
-import { Room, Player, type RoomOptions, type GameMode, type RoomType } from './Room.js';
+import { Room, Player, type RoomOptions, type GameMode, type RoomType, type ShooterSubMode } from './Room.js';
 
 export interface CreateRoomParams {
   hostId: string;
@@ -12,6 +12,10 @@ export interface CreateRoomParams {
   roomType?: RoomType;
   isPrivate?: boolean;
   buildTimeLimit?: number;
+  scoreLimit?: number;
+  timeLimit?: number;
+  perspective?: 'fps' | 'tps';
+  shooterSubMode?: ShooterSubMode;
 }
 
 export class RoomManager {
@@ -23,7 +27,7 @@ export class RoomManager {
   }
 
   createRoom(params: CreateRoomParams): Room | null {
-    const { hostId, hostNickname, roomName, mapId, mapName, mapThumbnailUrl, maxPlayers, gameMode, roomType, isPrivate, buildTimeLimit } = params;
+    const { hostId, hostNickname, roomName, mapId, mapName, mapThumbnailUrl, maxPlayers, gameMode, roomType, isPrivate, buildTimeLimit, scoreLimit, timeLimit, perspective, shooterSubMode } = params;
 
     // Check if player is already in a room
     if (this.playerRooms.has(hostId)) {
@@ -42,6 +46,10 @@ export class RoomManager {
       roomType,
       isPrivate,
       buildTimeLimit,
+      scoreLimit,
+      timeLimit,
+      perspective,
+      shooterSubMode,
     };
     const room = new Room(roomId, roomOptions);
 

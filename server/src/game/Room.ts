@@ -2,6 +2,7 @@ import { BuildingPhase, RelayMapData } from './BuildingPhase.js';
 
 export type RoomType = 'create_map' | 'load_map';
 export type GameMode = 'race' | 'shooter';
+export type ShooterSubMode = 'ffa' | 'team' | 'domination';
 
 // 8가지 플레이어 색상 (최대 8인)
 export const PLAYER_COLORS = [
@@ -56,6 +57,10 @@ export interface RoomOptions {
   roomType?: RoomType;
   isPrivate?: boolean;
   buildTimeLimit?: number;
+  scoreLimit?: number;
+  timeLimit?: number;
+  perspective?: 'fps' | 'tps';
+  shooterSubMode?: ShooterSubMode;
 }
 
 export class Room {
@@ -72,6 +77,10 @@ export class Room {
   public roomType: RoomType;
   public isPrivate: boolean;
   public buildTimeLimit?: number;
+  public scoreLimit: number;
+  public timeLimit: number;
+  public perspective: 'fps' | 'tps';
+  public shooterSubMode: ShooterSubMode;
   public createdAt: number;
   public raceStartTime?: number;
 
@@ -91,6 +100,10 @@ export class Room {
     this.roomType = options.roomType ?? 'create_map';
     this.isPrivate = options.isPrivate ?? false;
     this.buildTimeLimit = options.buildTimeLimit;
+    this.scoreLimit = options.scoreLimit ?? 30;
+    this.timeLimit = options.timeLimit ?? 300;
+    this.perspective = options.perspective ?? 'fps';
+    this.shooterSubMode = options.shooterSubMode ?? 'ffa';
     this.createdAt = Date.now();
   }
 
@@ -309,6 +322,10 @@ export class Room {
       roomType: this.roomType,
       isPrivate: this.isPrivate,
       buildTimeLimit: this.buildTimeLimit,
+      scoreLimit: this.scoreLimit,
+      timeLimit: this.timeLimit,
+      perspective: this.perspective,
+      shooterSubMode: this.shooterSubMode,
       playerCount: this.players.size,
       canStart: this.canStart(),
     };
@@ -327,6 +344,10 @@ export class Room {
       gameMode: this.gameMode,
       roomType: this.roomType,
       isPrivate: this.isPrivate,
+      scoreLimit: this.scoreLimit,
+      timeLimit: this.timeLimit,
+      perspective: this.perspective,
+      shooterSubMode: this.shooterSubMode,
     };
   }
 }

@@ -23,8 +23,12 @@ export function registerRoomHandlers(io: Server, socket: Socket): void {
     roomType?: 'create_map' | 'load_map';
     isPrivate?: boolean;
     buildTimeLimit?: number;
+    scoreLimit?: number;
+    timeLimit?: number;
+    perspective?: 'fps' | 'tps';
+    shooterSubMode?: 'ffa' | 'team' | 'domination';
   }, callback) => {
-    const { nickname, roomName, mapId, mapName, mapThumbnailUrl, maxPlayers, gameMode, roomType, isPrivate, buildTimeLimit } = data;
+    const { nickname, roomName, mapId, mapName, mapThumbnailUrl, maxPlayers, gameMode, roomType, isPrivate, buildTimeLimit, scoreLimit, timeLimit, perspective, shooterSubMode } = data;
 
     const room = roomManager.createRoom({
       hostId: socket.id,
@@ -38,6 +42,10 @@ export function registerRoomHandlers(io: Server, socket: Socket): void {
       roomType,
       isPrivate,
       buildTimeLimit,
+      scoreLimit,
+      timeLimit,
+      perspective,
+      shooterSubMode,
     });
 
     if (!room) {

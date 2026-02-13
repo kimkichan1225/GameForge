@@ -25,6 +25,7 @@ export interface Player {
 
 export type RoomType = 'create_map' | 'load_map';
 export type GameMode = 'race' | 'shooter';
+export type ShooterSubMode = 'ffa' | 'team' | 'domination';
 
 export interface RoomInfo {
   id: string;
@@ -38,6 +39,10 @@ export interface RoomInfo {
   gameMode: GameMode;
   roomType: RoomType;
   isPrivate: boolean;
+  scoreLimit?: number;
+  timeLimit?: number;
+  perspective?: 'fps' | 'tps';
+  shooterSubMode?: ShooterSubMode;
 }
 
 export interface RoomDetail {
@@ -54,6 +59,10 @@ export interface RoomDetail {
   roomType: RoomType;
   isPrivate: boolean;
   buildTimeLimit?: number;  // 맵 제작 시간 제한 (초, roomType='create_map'일 때)
+  scoreLimit?: number;
+  timeLimit?: number;
+  perspective?: 'fps' | 'tps';
+  shooterSubMode?: ShooterSubMode;
 }
 
 interface RoomState {
@@ -82,6 +91,10 @@ interface RoomState {
     roomType?: RoomType;
     isPrivate?: boolean;
     buildTimeLimit?: number;
+    scoreLimit?: number;
+    timeLimit?: number;
+    perspective?: 'fps' | 'tps';
+    shooterSubMode?: ShooterSubMode;
   }) => Promise<boolean>;
   joinRoom: (nickname: string, roomId: string) => Promise<boolean>;
   leaveRoom: () => void;
@@ -244,6 +257,10 @@ export const useRoomStore = create<RoomState>((set, get) => ({
       roomType = 'create_map',
       isPrivate = false,
       buildTimeLimit,
+      scoreLimit,
+      timeLimit,
+      perspective,
+      shooterSubMode,
     } = params;
 
     return new Promise((resolve) => {
@@ -256,7 +273,7 @@ export const useRoomStore = create<RoomState>((set, get) => ({
 
       socket.emit(
         'room:create',
-        { nickname, roomName, mapId, mapName, mapThumbnailUrl, maxPlayers, gameMode, roomType, isPrivate, buildTimeLimit },
+        { nickname, roomName, mapId, mapName, mapThumbnailUrl, maxPlayers, gameMode, roomType, isPrivate, buildTimeLimit, scoreLimit, timeLimit, perspective, shooterSubMode },
         (response: { success: boolean; room?: RoomDetail & { canStart?: boolean }; error?: string }) => {
           if (response.success && response.room) {
             set({ currentRoom: response.room, canStart: response.room.canStart ?? false });

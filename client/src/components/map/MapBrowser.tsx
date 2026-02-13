@@ -9,12 +9,16 @@ interface MapBrowserProps {
   onSelect: (map: MapRecord) => void
   onClose: () => void
   selectedMapId?: string
+  mode?: 'race' | 'shooter'
+  shooterSubMode?: 'ffa' | 'team' | 'domination'
 }
 
 export const MapBrowser = memo(function MapBrowser({
   onSelect,
   onClose,
   selectedMapId,
+  mode,
+  shooterSubMode,
 }: MapBrowserProps) {
   const [maps, setMaps] = useState<MapRecord[]>([])
   const [loading, setLoading] = useState(true)
@@ -31,11 +35,13 @@ export const MapBrowser = memo(function MapBrowser({
       let result: MapRecord[]
 
       if (filter === 'my') {
-        result = await mapService.getMyMaps()
+        result = await mapService.getMyMaps(mode, mode === 'shooter' ? shooterSubMode : undefined)
       } else {
         result = await mapService.getPublicMaps({
           sortBy,
           sortOrder: 'desc',
+          mode,
+          shooterSubMode: mode === 'shooter' ? shooterSubMode : undefined,
         })
       }
 
@@ -45,7 +51,7 @@ export const MapBrowser = memo(function MapBrowser({
     } finally {
       setLoading(false)
     }
-  }, [filter, sortBy])
+  }, [filter, sortBy, mode, shooterSubMode])
 
   useEffect(() => {
     fetchMaps()

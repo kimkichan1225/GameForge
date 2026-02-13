@@ -56,8 +56,23 @@ export const MapCard = memo(function MapCard({
         )}
 
         {/* 모드 배지 */}
-        <div className="absolute top-2 left-2 bg-green-500/90 text-white text-xs px-2 py-1 rounded-full font-medium">
-          Race
+        <div className="absolute top-2 left-2 flex gap-1">
+          <div className={`text-white text-xs px-2 py-1 rounded-full font-medium ${
+            map.mode === 'shooter' ? 'bg-red-500/90' : 'bg-green-500/90'
+          }`}>
+            {map.mode === 'shooter' ? 'Shooter' : 'Race'}
+          </div>
+          {map.mode === 'shooter' && map.data?.shooterSubMode && (
+            <div className={`text-white text-xs px-2 py-1 rounded-full font-medium ${
+              map.data.shooterSubMode === 'team' ? 'bg-orange-500/90'
+                : map.data.shooterSubMode === 'domination' ? 'bg-purple-500/90'
+                : 'bg-yellow-500/90'
+            }`}>
+              {map.data.shooterSubMode === 'team' ? '팀전'
+                : map.data.shooterSubMode === 'domination' ? '점령전'
+                : '개인전'}
+            </div>
+          )}
         </div>
 
         {/* 삭제 버튼 (소유자인 경우) */}

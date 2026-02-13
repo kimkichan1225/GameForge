@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../stores/authStore'
-import { useRoomStore, type RoomType, type GameMode, PLAYER_COLORS, type PlayerColorId } from '../stores/roomStore'
+import { useRoomStore, type RoomType, type GameMode, type ShooterSubMode, PLAYER_COLORS, type PlayerColorId } from '../stores/roomStore'
 import { socketManager } from '../lib/socket'
 import { MapBrowser } from '../components/map/MapBrowser'
 import type { MapRecord } from '../lib/mapService'
@@ -17,8 +17,14 @@ function Home() {
 
   // 새로운 방 생성 옵션
   const [roomType, setRoomType] = useState<RoomType>('create_map')
-  const [gameMode] = useState<GameMode>('race')  // 현재는 race만 지원
+  const [gameMode, setGameMode] = useState<GameMode>('race')
   const [isPrivate, setIsPrivate] = useState(false)
+
+  // Shooter 전용 옵션
+  const [scoreLimit, setScoreLimit] = useState(30)
+  const [timeLimit, setTimeLimit] = useState(300)
+  const [perspective, setPerspective] = useState<'fps' | 'tps'>('fps')
+  const [shooterSubMode, setShooterSubMode] = useState<ShooterSubMode>('ffa')
   const [buildTimeLimit, setBuildTimeLimit] = useState(300)  // 5분 기본
   const [selectedMap, setSelectedMap] = useState<MapRecord | null>(null)
   const [showMapBrowser, setShowMapBrowser] = useState(false)
@@ -192,6 +198,7 @@ function Home() {
       roomType,
       isPrivate,
       buildTimeLimit: roomType === 'create_map' ? buildTimeLimit : undefined,
+      ...(gameMode === 'shooter' ? { scoreLimit, timeLimit, perspective, shooterSubMode } : {}),
     })
     setIsCreating(false)
 
@@ -455,6 +462,22 @@ function Home() {
                       <span className="px-2 py-1 rounded-full text-xs font-medium bg-violet-500/20 text-violet-400">
                         제작 {Math.floor(currentRoom.buildTimeLimit / 60)}분
                       </span>
+                    )}
+                    {currentRoom.gameMode === 'shooter' && (
+                      <>
+                        <span className="px-2 py-1 rounded-full text-xs font-medium bg-red-500/20 text-red-300">
+                          {currentRoom.shooterSubMode === 'ffa' ? '개인전' : currentRoom.shooterSubMode === 'team' ? '팀전' : '점령전'}
+                        </span>
+                        <span className="px-2 py-1 rounded-full text-xs font-medium bg-orange-500/20 text-orange-400">
+                          {currentRoom.scoreLimit ? `${currentRoom.scoreLimit}킬` : '킬 무제한'}
+                        </span>
+                        <span className="px-2 py-1 rounded-full text-xs font-medium bg-cyan-500/20 text-cyan-400">
+                          {currentRoom.timeLimit ? `${Math.floor(currentRoom.timeLimit / 60)}분` : '시간 무제한'}
+                        </span>
+                        <span className="px-2 py-1 rounded-full text-xs font-medium bg-pink-500/20 text-pink-400">
+                          {currentRoom.perspective === 'fps' ? '1인칭' : '3인칭'}
+                        </span>
+                      </>
                     )}
                   </div>
 
@@ -803,23 +826,33 @@ function Home() {
             <div className="p-6">
               <h2 className="text-xl font-bold text-white mb-6">새 방 만들기</h2>
               <form onSubmit={handleCreateRoom} className="space-y-4">
-                {/* 게임 모드 표시 (현재는 Race만) */}
+                {/* 게임 모드 선택 */}
                 <div>
                   <label className="block text-white/70 text-sm font-medium mb-2">게임 모드</label>
                   <div className="flex gap-2">
                     <button
                       type="button"
-                      className="flex-1 py-2 bg-green-500 text-white font-medium rounded-lg"
-                      disabled
+                      onClick={() => { setGameMode('race'); setSelectedMap(null); }}
+                      disabled={isCreating}
+                      className={`flex-1 py-2 font-medium rounded-lg transition-colors ${
+                        gameMode === 'race'
+                          ? 'bg-green-500 text-white'
+                          : 'bg-white/5 text-white/70 hover:bg-white/10'
+                      }`}
                     >
                       Race
                     </button>
                     <button
                       type="button"
-                      className="flex-1 py-2 bg-white/5 text-white/30 font-medium rounded-lg cursor-not-allowed"
-                      disabled
+                      onClick={() => { setGameMode('shooter'); setSelectedMap(null); }}
+                      disabled={isCreating}
+                      className={`flex-1 py-2 font-medium rounded-lg transition-colors ${
+                        gameMode === 'shooter'
+                          ? 'bg-red-500 text-white'
+                          : 'bg-white/5 text-white/70 hover:bg-white/10'
+                      }`}
                     >
-                      Shooter (준비 중)
+                      Shooter
                     </button>
                   </div>
                 </div>
@@ -882,6 +915,104 @@ function Home() {
                       <option value={0} className="bg-slate-800 text-white">무제한</option>
                     </select>
                   </div>
+                )}
+
+                {/* Shooter 전용 옵션 */}
+                {gameMode === 'shooter' && (
+                  <>
+                    <div>
+                      <label className="block text-white/70 text-sm font-medium mb-2">게임 방식</label>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => { setShooterSubMode('ffa'); setSelectedMap(null); }}
+                          disabled={isCreating}
+                          className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${
+                            shooterSubMode === 'ffa' ? 'bg-red-500 text-white' : 'bg-white/5 text-white/70 hover:bg-white/10'
+                          }`}
+                        >
+                          개인전
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => { setShooterSubMode('team'); setSelectedMap(null); }}
+                          disabled={isCreating}
+                          className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${
+                            shooterSubMode === 'team' ? 'bg-red-500 text-white' : 'bg-white/5 text-white/70 hover:bg-white/10'
+                          }`}
+                        >
+                          팀전
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => { setShooterSubMode('domination'); setSelectedMap(null); }}
+                          disabled={isCreating}
+                          className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${
+                            shooterSubMode === 'domination' ? 'bg-red-500 text-white' : 'bg-white/5 text-white/70 hover:bg-white/10'
+                          }`}
+                        >
+                          점령전
+                        </button>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-white/70 text-sm font-medium mb-2">최대 킬수</label>
+                        <select
+                          value={scoreLimit}
+                          onChange={(e) => setScoreLimit(Number(e.target.value))}
+                          className="w-full px-4 py-2 bg-slate-800 border border-white/10 rounded-lg text-white focus:outline-none focus:border-sky-400 transition-colors"
+                          disabled={isCreating}
+                        >
+                          <option value={10} className="bg-slate-800 text-white">10킬</option>
+                          <option value={20} className="bg-slate-800 text-white">20킬</option>
+                          <option value={30} className="bg-slate-800 text-white">30킬</option>
+                          <option value={50} className="bg-slate-800 text-white">50킬</option>
+                          <option value={0} className="bg-slate-800 text-white">무제한</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-white/70 text-sm font-medium mb-2">시간 제한</label>
+                        <select
+                          value={timeLimit}
+                          onChange={(e) => setTimeLimit(Number(e.target.value))}
+                          className="w-full px-4 py-2 bg-slate-800 border border-white/10 rounded-lg text-white focus:outline-none focus:border-sky-400 transition-colors"
+                          disabled={isCreating}
+                        >
+                          <option value={180} className="bg-slate-800 text-white">3분</option>
+                          <option value={300} className="bg-slate-800 text-white">5분</option>
+                          <option value={600} className="bg-slate-800 text-white">10분</option>
+                          <option value={900} className="bg-slate-800 text-white">15분</option>
+                          <option value={0} className="bg-slate-800 text-white">무제한</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-white/70 text-sm font-medium mb-2">시점 모드</label>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setPerspective('fps')}
+                          disabled={isCreating}
+                          className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${
+                            perspective === 'fps' ? 'bg-sky-500 text-white' : 'bg-white/5 text-white/70 hover:bg-white/10'
+                          }`}
+                        >
+                          1인칭 (FPS)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setPerspective('tps')}
+                          disabled={isCreating}
+                          className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${
+                            perspective === 'tps' ? 'bg-sky-500 text-white' : 'bg-white/5 text-white/70 hover:bg-white/10'
+                          }`}
+                        >
+                          3인칭 (TPS)
+                        </button>
+                      </div>
+                    </div>
+                  </>
                 )}
 
                 {/* 맵 선택 (불러오기 모드) */}
@@ -1016,6 +1147,8 @@ function Home() {
           onSelect={handleMapSelect}
           onClose={() => setShowMapBrowser(false)}
           selectedMapId={selectedMap?.id}
+          mode={gameMode}
+          shooterSubMode={gameMode === 'shooter' ? shooterSubMode : undefined}
         />
       )}
 
@@ -1025,6 +1158,8 @@ function Home() {
           onSelect={handleEditMapSelect}
           onClose={() => setShowEditMapBrowser(false)}
           selectedMapId={currentRoom?.mapId}
+          mode={currentRoom?.gameMode}
+          shooterSubMode={currentRoom?.gameMode === 'shooter' ? currentRoom?.shooterSubMode : undefined}
         />
       )}
 

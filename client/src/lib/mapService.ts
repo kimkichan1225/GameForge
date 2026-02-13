@@ -27,6 +27,8 @@ export interface GetMapsOptions {
   offset?: number
   sortBy?: 'created_at' | 'play_count'
   sortOrder?: 'asc' | 'desc'
+  mode?: 'race' | 'shooter'
+  shooterSubMode?: 'ffa' | 'team' | 'domination'
 }
 
 class MapService {
@@ -93,13 +95,24 @@ class MapService {
       offset = 0,
       sortBy = 'created_at',
       sortOrder = 'desc',
+      mode,
+      shooterSubMode,
     } = options
 
-    const { data, error } = await supabase
+    let query = supabase
       .from('maps')
       .select('*')
       .eq('is_public', true)
-      .eq('mode', 'race')
+
+    if (mode) {
+      query = query.eq('mode', mode)
+    }
+
+    if (shooterSubMode) {
+      query = query.eq('data->>shooterSubMode', shooterSubMode)
+    }
+
+    const { data, error } = await query
       .order(sortBy, { ascending: sortOrder === 'asc' })
       .range(offset, offset + limit - 1)
 
@@ -111,16 +124,26 @@ class MapService {
   }
 
   // 내 맵 목록 조회
-  async getMyMaps(): Promise<MapRecord[]> {
+  async getMyMaps(mode?: 'race' | 'shooter', shooterSubMode?: 'ffa' | 'team' | 'domination'): Promise<MapRecord[]> {
     const { data: { user }, error: userError } = await supabase.auth.getUser()
     if (userError || !user) {
       throw new Error('로그인이 필요합니다')
     }
 
-    const { data, error } = await supabase
+    let query = supabase
       .from('maps')
       .select('*')
       .eq('creator_id', user.id)
+
+    if (mode) {
+      query = query.eq('mode', mode)
+    }
+
+    if (shooterSubMode) {
+      query = query.eq('data->>shooterSubMode', shooterSubMode)
+    }
+
+    const { data, error } = await query
       .order('created_at', { ascending: false })
 
     if (error) {

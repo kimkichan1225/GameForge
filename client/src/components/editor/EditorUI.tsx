@@ -303,30 +303,28 @@ const Toolbar = memo(function Toolbar({ onExit, onUpload }: { onExit: () => void
 
       <div className="w-px h-6 bg-white/20" />
 
-      {/* Race 모드: Verified 배지 및 Upload 버튼 */}
-      {mapMode === 'race' && (
-        <>
-          {mapCompleted && completionTime && (
-            <div className="flex items-center gap-2 px-3 py-1.5 bg-green-500/20 rounded-lg border border-green-500/30">
-              <span className="text-green-400 text-sm font-medium">Verified</span>
-              <span className="text-green-300 text-xs font-mono">{formatTime(completionTime)}</span>
-            </div>
-          )}
-          <button
-            onClick={onUpload}
-            disabled={!mapCompleted}
-            className={`px-3 py-1.5 font-medium rounded-lg transition-colors text-sm ${
-              mapCompleted
-                ? 'bg-violet-500 hover:bg-violet-400 text-white'
-                : 'bg-white/5 text-white/30 cursor-not-allowed'
-            }`}
-            title={mapCompleted ? '맵 업로드' : '테스트 플레이에서 완주해야 업로드 가능'}
-          >
-            Upload
-          </button>
-          <div className="w-px h-6 bg-white/20" />
-        </>
+      {/* Race 모드: Verified 배지 */}
+      {mapMode === 'race' && mapCompleted && completionTime && (
+        <div className="flex items-center gap-2 px-3 py-1.5 bg-green-500/20 rounded-lg border border-green-500/30">
+          <span className="text-green-400 text-sm font-medium">Verified</span>
+          <span className="text-green-300 text-xs font-mono">{formatTime(completionTime)}</span>
+        </div>
       )}
+
+      {/* Upload 버튼: Race는 완주 필요, Shooter는 바로 가능 */}
+      <button
+        onClick={onUpload}
+        disabled={mapMode === 'race' && !mapCompleted}
+        className={`px-3 py-1.5 font-medium rounded-lg transition-colors text-sm ${
+          mapMode === 'shooter' || mapCompleted
+            ? 'bg-violet-500 hover:bg-violet-400 text-white'
+            : 'bg-white/5 text-white/30 cursor-not-allowed'
+        }`}
+        title={mapMode === 'race' && !mapCompleted ? '테스트 플레이에서 완주해야 업로드 가능' : '맵 업로드'}
+      >
+        Upload
+      </button>
+      <div className="w-px h-6 bg-white/20" />
 
       <button
         onClick={onExit}
