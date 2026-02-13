@@ -20,6 +20,8 @@ const _raycaster = new THREE.Raycaster()
 const _right = new THREE.Vector3()
 const _up = new THREE.Vector3()
 const _pelletDir = new THREE.Vector3()
+const _muzzleToAim = new THREE.Vector3()
+const _muzzleRaycaster = new THREE.Raycaster()
 
 // 조준점 거리 (충돌 없을 때)
 const AIM_DISTANCE = 500
@@ -228,6 +230,25 @@ const BulletEffects = memo(function BulletEffects() {
       _aimPoint.copy(intersects[0].point)
     } else {
       _aimPoint.copy(_rayOrigin).addScaledVector(_rayDirection, AIM_DISTANCE)
+    }
+
+    // 조준점이 총구 뒤에 있는지 검증 (TPS 벽 뒤 역방향 발사 방지)
+    _muzzleToAim.subVectors(_aimPoint, _muzzleWorldPos)
+    if (_muzzleToAim.dot(_rayDirection) < 0) {
+      // 조준점이 총구 뒤쪽 → 카메라 전방 방향으로 대체
+      _aimPoint.copy(_muzzleWorldPos).addScaledVector(_rayDirection, AIM_DISTANCE)
+      _muzzleToAim.subVectors(_aimPoint, _muzzleWorldPos)
+    }
+
+    // 총구 → 조준점 2차 레이캐스트 (벽 관통 방지)
+    const muzzleToAimDist = _muzzleToAim.length()
+    _bulletDirection.copy(_muzzleToAim).divideScalar(muzzleToAimDist)
+    _muzzleRaycaster.set(_muzzleWorldPos, _bulletDirection)
+    _muzzleRaycaster.far = muzzleToAimDist
+    const muzzleHits = _muzzleRaycaster.intersectObjects(state.raycastTargets, false)
+    if (muzzleHits.length > 0) {
+      // 총구와 조준점 사이에 벽이 있으면 벽 지점을 조준점으로 사용
+      _aimPoint.copy(muzzleHits[0].point)
     }
 
     // 총구 → 조준점 기본 방향

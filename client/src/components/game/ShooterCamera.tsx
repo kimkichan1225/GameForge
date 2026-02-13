@@ -46,11 +46,18 @@ const FPS_EYE_HEIGHT_STANDING = 1.7
 const FPS_EYE_HEIGHT_SITTING = 1.0
 const FPS_EYE_HEIGHT_CRAWLING = 0.3
 
+// 카메라 벽 충돌 설정
+const CAMERA_WALL_OFFSET = 0.3          // 벽 앞 오프셋
+const CAMERA_RAYCAST_CACHE_INTERVAL = 500 // 레이캐스트 타겟 캐시 갱신 간격 (ms)
+
 // 재사용 객체
 const _targetPos = new THREE.Vector3()
 const _offset = new THREE.Vector3()
 const _targetCamPos = new THREE.Vector3()
 const _headPos = new THREE.Vector3()
+const _camRayDir = new THREE.Vector3()
+const _camRaycaster = new THREE.Raycaster()
+const _eyePos = new THREE.Vector3()
 
 // 삼각함수 캐시 (angle 기반)
 let _cachedAngle = 0
@@ -72,7 +79,7 @@ function updateTrigCache(angle: number) {
 
 // ============ ShooterCamera 컴포넌트 ============
 const ShooterCamera = memo(function ShooterCamera() {
-  const { camera, gl } = useThree()
+  const { camera, gl, scene } = useThree()
 
   const angleRef = useRef(0)
   const pitchRef = useRef(0.3)
@@ -83,6 +90,8 @@ const ShooterCamera = memo(function ShooterCamera() {
   const skipNextMove = useRef(false)
   const isAiming = useRef(false) // 우클릭 홀드 상태 (카메라 거리용)
   const currentEyeHeight = useRef(FPS_EYE_HEIGHT_STANDING)
+  const camRaycastTargets = useRef<THREE.Object3D[]>([])
+  const lastCamCacheTime = useRef(0)
 
   useEffect(() => {
     const canvas = gl.domElement
@@ -149,6 +158,21 @@ const ShooterCamera = memo(function ShooterCamera() {
     const playerPos = store.playerPos
     _targetPos.set(playerPos[0], playerPos[1], playerPos[2])
 
+    // 레이캐스트 타겟 캐시 갱신
+    const now = performance.now()
+    if (now - lastCamCacheTime.current > CAMERA_RAYCAST_CACHE_INTERVAL) {
+      const targets: THREE.Object3D[] = []
+      scene.traverse((obj) => {
+        if (obj instanceof THREE.Mesh &&
+            !obj.userData?.isPlayer &&
+            !obj.userData?.isEffect) {
+          targets.push(obj)
+        }
+      })
+      camRaycastTargets.current = targets
+      lastCamCacheTime.current = now
+    }
+
     // FOV 줌 (스나이퍼 스코프)
     const targetFov = (store.weaponType === 'sniper' && store.isToggleAiming) ? SNIPER_SCOPE_FOV : DEFAULT_FOV
     const cam = camera as THREE.PerspectiveCamera
@@ -213,6 +237,21 @@ const ShooterCamera = memo(function ShooterCamera() {
         _headPos.y += TPS_TOGGLE_AIM_LOOK_UP
       }
 
+      // 카메라 벽 충돌: 눈 위치 → 목표 카메라 위치
+      _eyePos.set(_targetPos.x, _targetPos.y + eyeHeight, _targetPos.z)
+      _camRayDir.subVectors(_targetCamPos, _eyePos)
+      const camDist = _camRayDir.length()
+      if (camDist > 0.01) {
+        _camRayDir.divideScalar(camDist)
+        _camRaycaster.set(_eyePos, _camRayDir)
+        _camRaycaster.far = camDist
+        const hits = _camRaycaster.intersectObjects(camRaycastTargets.current, false)
+        if (hits.length > 0) {
+          const clampDist = Math.max(0, hits[0].distance - CAMERA_WALL_OFFSET)
+          _targetCamPos.copy(_eyePos).addScaledVector(_camRayDir, clampDist)
+        }
+      }
+
       // 1인칭은 lerp 없이 즉시 따라감
       camera.position.copy(_targetCamPos)
       camera.lookAt(_headPos)
@@ -244,6 +283,21 @@ const ShooterCamera = memo(function ShooterCamera() {
     )
 
     _targetCamPos.copy(_targetPos).add(_offset)
+
+    // TPS 카메라 벽 충돌: 플레이어 머리 → 목표 카메라 위치
+    _eyePos.set(_targetPos.x, _targetPos.y + cameraHeight, _targetPos.z)
+    _camRayDir.subVectors(_targetCamPos, _eyePos)
+    const tpsCamDist = _camRayDir.length()
+    if (tpsCamDist > 0.01) {
+      _camRayDir.divideScalar(tpsCamDist)
+      _camRaycaster.set(_eyePos, _camRayDir)
+      _camRaycaster.far = tpsCamDist
+      const hits = _camRaycaster.intersectObjects(camRaycastTargets.current, false)
+      if (hits.length > 0) {
+        const clampDist = Math.max(0, hits[0].distance - CAMERA_WALL_OFFSET)
+        _targetCamPos.copy(_eyePos).addScaledVector(_camRayDir, clampDist)
+      }
+    }
 
     if (!initialized.current) {
       initialized.current = true
