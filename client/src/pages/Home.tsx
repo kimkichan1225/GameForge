@@ -1134,7 +1134,7 @@ function Home() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => { setGameMode('shooter'); setSelectedMap(null); }}
+                      onClick={() => { setGameMode('shooter'); setRoomType('load_map'); setSelectedMap(null); }}
                       disabled={isCreating}
                       className={`flex-1 py-2 font-medium rounded-lg transition-colors ${
                         gameMode === 'shooter'
@@ -1153,12 +1153,14 @@ function Home() {
                   <div className="flex gap-2">
                     <button
                       type="button"
-                      onClick={() => { setRoomType('create_map'); setSelectedMap(null); }}
-                      disabled={isCreating}
-                      className={`flex-1 py-3 rounded-xl font-medium transition-all ${
-                        roomType === 'create_map'
-                          ? 'bg-sky-500 text-white'
-                          : 'bg-white/5 text-white/70 hover:bg-white/10'
+                      onClick={() => { if (gameMode !== 'shooter') { setRoomType('create_map'); setSelectedMap(null); } }}
+                      disabled={isCreating || gameMode === 'shooter'}
+                      className={`flex-1 py-3 rounded-xl font-medium transition-all relative ${
+                        gameMode === 'shooter'
+                          ? 'bg-white/5 text-white/30 cursor-not-allowed'
+                          : roomType === 'create_map'
+                            ? 'bg-sky-500 text-white'
+                            : 'bg-white/5 text-white/70 hover:bg-white/10'
                       }`}
                     >
                       <div className="flex flex-col items-center gap-1">
@@ -1166,6 +1168,9 @@ function Home() {
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
                         </svg>
                         <span className="text-sm">맵 제작 & 플레이</span>
+                        {gameMode === 'shooter' && (
+                          <span className="text-[10px] text-amber-400/80">추후 개발</span>
+                        )}
                       </div>
                     </button>
                     <button
