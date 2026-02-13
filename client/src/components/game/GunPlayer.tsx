@@ -1,9 +1,9 @@
 import { useRef, useEffect, useMemo, useCallback, memo } from 'react'
-import { useFrame, useThree } from '@react-three/fiber'
+import { useFrame } from '@react-three/fiber'
 import { useGLTF, useAnimations, useFBX } from '@react-three/drei'
 import * as THREE from 'three'
 import { useInput } from '../../hooks/useInput'
-import { useGameStore, WEAPON_CONFIG } from '../../stores/gameStore'
+import { useGameStore } from '../../stores/gameStore'
 import type { WeaponType, Posture } from '../../stores/gameStore'
 import {
   checkGrounded,
@@ -112,7 +112,6 @@ function createUpperBodyClip(clip: THREE.AnimationClip): THREE.AnimationClip {
 }
 
 // 재사용 객체
-const _vel = new THREE.Vector3()
 const _move = new THREE.Vector3()
 const _yAxis = new THREE.Vector3(0, 1, 0)
 const _targetQuat = new THREE.Quaternion()
