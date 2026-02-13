@@ -255,6 +255,15 @@ const ShooterCamera = memo(function ShooterCamera() {
       // 1인칭은 lerp 없이 즉시 따라감
       camera.position.copy(_targetCamPos)
       camera.lookAt(_headPos)
+
+      // 전방 벽 근접 체크 (near plane 클리핑으로 벽 투시 방지)
+      camera.getWorldDirection(_camRayDir)
+      _camRaycaster.set(camera.position, _camRayDir)
+      _camRaycaster.far = CAMERA_WALL_OFFSET
+      const fpsFrontHits = _camRaycaster.intersectObjects(camRaycastTargets.current, false)
+      if (fpsFrontHits.length > 0) {
+        camera.position.addScaledVector(_camRayDir, -(CAMERA_WALL_OFFSET - fpsFrontHits[0].distance))
+      }
       return
     }
 
@@ -330,6 +339,15 @@ const ShooterCamera = memo(function ShooterCamera() {
     // 바라보는 위치도 부드럽게 전환
     currentLookPos.current.lerp(_headPos, CAMERA_LERP)
     camera.lookAt(currentLookPos.current)
+
+    // 전방 벽 근접 체크 (near plane 클리핑으로 벽 투시 방지)
+    camera.getWorldDirection(_camRayDir)
+    _camRaycaster.set(camera.position, _camRayDir)
+    _camRaycaster.far = CAMERA_WALL_OFFSET
+    const tpsFrontHits = _camRaycaster.intersectObjects(camRaycastTargets.current, false)
+    if (tpsFrontHits.length > 0) {
+      camera.position.addScaledVector(_camRayDir, -(CAMERA_WALL_OFFSET - tpsFrontHits[0].distance))
+    }
   })
 
   return null

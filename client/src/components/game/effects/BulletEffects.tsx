@@ -218,6 +218,21 @@ const BulletEffects = memo(function BulletEffects() {
     const muzzlePos = store.muzzleWorldPos
     _muzzleWorldPos.set(muzzlePos[0], muzzlePos[1], muzzlePos[2])
 
+    // 총구가 벽 뒤에 있는지 검증 (카메라 → 총구 레이캐스트)
+    _bulletDirection.subVectors(_muzzleWorldPos, camera.position)
+    const camToMuzzleDist = _bulletDirection.length()
+    if (camToMuzzleDist > 0.01) {
+      _bulletDirection.divideScalar(camToMuzzleDist)
+      _muzzleRaycaster.set(camera.position, _bulletDirection)
+      _muzzleRaycaster.far = camToMuzzleDist
+      const wallCheck = _muzzleRaycaster.intersectObjects(state.raycastTargets, false)
+      if (wallCheck.length > 0) {
+        // 카메라와 총구 사이에 벽 → 총구를 벽 앞으로 이동
+        _muzzleWorldPos.copy(wallCheck[0].point)
+        _muzzleWorldPos.addScaledVector(_bulletDirection, -0.05)
+      }
+    }
+
     // 조준점 계산 (카메라 방향으로 레이캐스트)
     _rayOrigin.copy(camera.position)
     camera.getWorldDirection(_rayDirection)
